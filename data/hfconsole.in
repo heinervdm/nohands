@@ -1,0 +1,1152 @@
+#!/usr/bin/env python
+
+import copy
+import sys
+import math
+import dbus
+import os
+import ConfigParser
+from dbus.mainloop.glib import DBusGMainLoop
+
+try:
+	import pygtk
+	pygtk.require("2.0")
+except:
+	pass
+try:
+	import gtk
+	import gtk.glade
+	import gobject
+except:
+	sys.exit(1)
+
+class HfConsole:
+	"""This is a user interface for the hfpd Bluetooth hands-free
+	profile server"""
+
+	DBUS_INTERFACE_DBUS = 'org.freedesktop.DBus'
+	DBUS_INTERFACE_PROPERTIES = 'org.freedesktop.DBus.Properties'
+	HFPD_HANDSFREE_INTERFACE_NAME = 'net.sf.nohands.hfpd.HandsFree'
+	HFPD_SOUNDIO_INTERFACE_NAME = 'net.sf.nohands.hfpd.SoundIo'
+	HFPD_AUDIOGATEWAY_INTERFACE_NAME = 'net.sf.nohands.hfpd.AudioGateway'
+	HFPD_SERVICE_NAME = 'net.sf.nohands.hfpd'
+	HFPD_HANDSFREE_OBJECT = '/net/sf/nohands/hfpd'
+
+	def addr_transform(self, addr):
+		val = (str(addr[0:2]) + str(addr[3:5]) + str(addr[6:8]) +
+		       str(addr[9:11]) + str(addr[12:14]) + str(addr[15:17]))
+		return val.upper()
+	def addr_untransform(self, addr):
+		val = (addr[0:2] + ':' + addr[2:4] + ':' + addr[4:6] + ':' +
+		       addr[6:8] + ':' + addr[8:10] + ':' + addr[10:12])
+		return val.upper()
+
+	def __init__(self):
+		
+		# Set the Glade file
+		gladedirs = ['.', './data', '@gladedir@']
+		gladefile = 'hfconsole.glade'
+		found = False
+		for x in gladedirs:
+			try:
+				self.widgets = gtk.glade.XML(x + '/' +
+							     gladefile)
+				found = True
+			except:
+				continue
+			if found:
+				break;
+
+		if not found:
+			print ('Could not find required Glade XML file %s' %
+			       gladefile)
+			exit(1)
+		
+		# Create our dictionay and connect it
+		dic = {
+			# Callbacks for the main window
+			"DigitButton_pressed_cb" : self.digit_button_pressed,
+			"DigitButton_clicked_cb" : self.digit_button_clicked,
+			"PhoneNumBs_clicked_cb" : self.phone_num_bs,
+			"DialPadDial_clicked_cb" : self.dial_dial_clicked,
+			"DialPadRedial_clicked_cb" : self.dial_redial_clicked,
+			"ScanButton_clicked_cb" : self.scan_open,
+			"ConfigButton_clicked_cb" : self.config_open,
+			"Mute_toggled_cb" : self.mute_toggled,
+			"on_MainWindow_destroy" : gtk.main_quit,
+
+			# Callbacks for the scan dialog
+			"on_ScanDialog_close" : gtk.main_quit,
+
+			# Callbacks for the config dialog
+			"ConfigPacketIntervalHint_toggled_cb" :
+			self.config_packet_interval_toggled,
+			"ConfigPacketInterval_value_changed_cb" :
+			self.config_packet_interval_changed,
+			"ConfigMinOutBufferHint_toggled_cb" :
+			self.config_min_out_buffer_toggled,
+			"ConfigMinOutBuffer_value_changed_cb" :
+			self.config_min_out_buffer_changed,
+			"ConfigFeedbackTest_toggled_cb" :
+			self.config_loopback_toggled,
+			"ConfigDenoise_toggled_cb" :
+			self.config_denoise_changed,
+			"ConfigEchoCancel_toggled_cb" :
+			self.config_echo_cancel_changed,
+			"ConfigEchoCancelTail_value_changed_cb" :
+			self.config_echo_cancel_tail_changed,
+			"ConfigAutoGain_value_changed_cb" :
+			self.config_auto_gain_changed,
+			"ConfigDereverb_toggled_cb" :
+			self.config_dereverb_toggled,
+			"ConfigDereverbValue_value_changed_cb" :
+			self.config_dereverb_value_changed,
+			"ConfigDereverbDecay_value_changed_cb" :
+			self.config_dereverb_decay_changed,
+			"ConfigRingerFile_file_set_cb" :
+			self.config_ringer_file_set,
+			"ConfigDspTest_clicked_cb" : self.config_dsptest_open,
+			"on_ConfigDialog_close" : gtk.main_quit,
+
+			# Callbacks for the DSP test assistant
+			"DspTestAssistant_prepare_cb" :
+			self.config_dsptest_prepare,
+			"DspTestAssistant_cancel_cb" :
+			self.config_dsptest_cancel,
+			"DspTestAssistant_close_cb" :
+			self.config_dsptest_close,
+			"DspTestRecStart1_toggled_cb" :
+			self.config_dsptest_recstart1_toggled,
+			"DspTestRecStart2_toggled_cb" :
+			self.config_dsptest_recstart2_toggled,
+			"DspTestPlayStart_toggled_cb" :
+			self.config_dsptest_playstart_toggled,
+			}
+		self.widgets.signal_autoconnect(dic)
+
+		# Set a file filter for the ringer chooser
+		filt = gtk.FileFilter()
+		filt.set_name('WAV Audio Files')
+		filt.add_pattern('*.wav')
+		self["ConfigRingerFile"].add_filter(filt)
+
+		self.inquiry = False
+		self.scanresults = gtk.ListStore(gobject.TYPE_STRING,
+						 gobject.TYPE_UINT,
+						 gobject.TYPE_STRING)
+		self['ScanResults'].set_model(self.scanresults)
+		tvcolumn = gtk.TreeViewColumn('Device')
+		self['ScanResults'].append_column(tvcolumn)
+		cell = gtk.CellRendererText()
+		tvcolumn.pack_start(cell, True)
+		tvcolumn.add_attribute(cell, 'text', 0)
+		self.scanselect = self['ScanResults'].get_selection()
+		self.scanselect.connect('changed', self.scan_select)
+
+		# Configure D-Bus
+		loop = DBusGMainLoop()
+		self.dbus = dbus.SessionBus(mainloop=loop)
+
+		self.ags = {}
+		self.ags_added = {}
+		self.soundmonitor = False
+		self.autoreconnect = True
+
+	def getprop_hfpd(self, prop):
+		return self.hfpd_props.Get('net.sf.nohands.hfpd.HandsFree',
+					   prop)
+	def getprop_soundio(self, prop):
+		return self.soundio_props.Get('net.sf.nohands.hfpd.SoundIo',
+					      prop)
+	def setprop_hfpd(self, name, value):
+		self.hfpd_props.Set('net.sf.nohands.hfpd.HandsFree',
+				    name, value)
+	def setprop_soundio(self, name, value):
+		self.soundio_props.Set('net.sf.nohands.hfpd.SoundIo',
+				       name, value)
+
+	def Start(self):
+		try:
+			self.busctl = dbus.Interface(
+				self.dbus.get_object('org.freedesktop.DBus',
+						     '/org/freedesktop/DBus'),
+				dbus_interface='org.freedesktop.DBus')
+			self.hfpd = dbus.Interface(
+				self.dbus.get_object('net.sf.nohands.hfpd',
+						     '/net/sf/nohands/hfpd'),
+				dbus_interface='net.sf.nohands.hfpd.HandsFree')
+			self.hfpd_props = dbus.Interface(
+				self.dbus.get_object('net.sf.nohands.hfpd',
+						     '/net/sf/nohands/hfpd'),
+			      dbus_interface='org.freedesktop.DBus.Properties')
+			self.soundio = dbus.Interface(
+				self.dbus.get_object('net.sf.nohands.hfpd',
+					     '/net/sf/nohands/hfpd/soundio'),
+				dbus_interface='net.sf.nohands.hfpd.SoundIo')
+			self.soundio_props = dbus.Interface(
+				self.dbus.get_object('net.sf.nohands.hfpd',
+					     '/net/sf/nohands/hfpd/soundio'),
+			      dbus_interface='org.freedesktop.DBus.Properties')
+		except:
+			self.fatal('Could not connect to hfpd')
+
+		self.configfile_name = os.path.expanduser('~/.hfconsolerc')
+		self.configfile = ConfigParser.ConfigParser()
+		self.configfile.read([self.configfile_name])
+		if not self.configfile.has_section('devices'):
+			self.configfile.add_section('devices')
+		loadags = self.configfile.items('devices')
+		for x in loadags:
+			x = self.addr_untransform(x[0])
+			self.add_audiogateway(x)
+
+		self.busctl.connect_to_signal("NameOwnerChanged",
+					      self.hfpd_lost)
+		self.hfpd.connect_to_signal("SystemStateChanged",
+					    self.hfpd_system_state)
+		self.hfpd.connect_to_signal("InquiryResult",
+					    self.hfpd_inquiry_result)
+		self.hfpd.connect_to_signal("InquiryStateChanged",
+					    self.hfpd_inquiry_complete)
+		self.hfpd.connect_to_signal("AudioGatewayAdded",
+					    self.hfpd_ag_added)
+		self.hfpd.connect_to_signal("AudioGatewayRemoved",
+					    self.hfpd_ag_removed)
+		self.soundio.connect_to_signal("StateChanged",
+					       self.soundio_state_changed)
+		self.soundio.connect_to_signal("MuteChanged",
+					       self.soundio_mute_changed)
+
+		self['Mute'].set_active(self.getprop_soundio('Mute'))
+
+		self.ag_select_changed(None)
+		self.system_ctx = self['StatusBar'].get_context_id(
+			'SystemState')
+		self.system_msg = None
+		self.hfpd_system_state(self.getprop_hfpd('SystemState'))
+
+		ags = self.getprop_hfpd('AudioGateways')
+		for x in ags:
+			self.hfpd_ag_added(str(x))
+		self.soundio_state_changed(self.getprop_soundio('State'))
+
+		hwg['MainWindow'].show()
+
+	def __getitem__(self, key):
+		return self.widgets.get_widget(key)
+
+	def error_message(self, msg):
+		dlg = gtk.MessageDialog(None, gtk.DIALOG_MODAL,
+					gtk.MESSAGE_ERROR,
+					gtk.BUTTONS_OK,
+					msg)
+		dlg.set_title(self['MainWindow'].get_title())
+		dlg.set_transient_for(self['MainWindow'])
+		dlg.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
+		dlg.run()
+		dlg.hide()
+
+	def fatal(self, msg):
+		self.error_message(msg)
+		# dbus-python needs to fix its exception handler
+		os._exit(1)
+
+	class AudioGateway:
+		def image_button(self, toggle, stock):
+			if toggle:
+				but = gtk.ToggleButton()
+			else:
+				but = gtk.Button()
+			img = gtk.Image()
+			img.set_from_stock(stock,
+					   gtk.ICON_SIZE_LARGE_TOOLBAR)
+			but.add(img)
+			img.show()
+			but.set_no_show_all(True)
+			return but
+			
+		def __init__(self, hfc, sbus, hfpd, agpath, box):
+			self.hfc = hfc
+			self.path = agpath
+			self.hfpd = hfpd
+
+			frame = gtk.Frame('')
+			box.pack_start(frame, expand=False)
+			vbox = gtk.VBox(spacing = 8)
+			vbox.set_border_width(8)
+			frame.add(vbox)
+			hbox = gtk.HBox(spacing = 8)
+			vbox.pack_start(hbox)
+			lab = gtk.Label('State Here')
+			lab.set_alignment(0.0, 0.5)
+			hbox.pack_start(lab, expand=True)
+			self.statelab = lab
+			but = self.image_button(False, gtk.STOCK_DELETE)
+			hbox.pack_end(but, expand=False)
+			but.connect('clicked', self.remove_clicked)
+			self.remove_but = but
+			but = self.image_button(False, gtk.STOCK_CONNECT)
+			hbox.pack_end(but, expand=False)
+			but.connect('clicked', self.connect_clicked)
+			self.connect_but = but
+			but = self.image_button(True, gtk.STOCK_APPLY)
+			hbox.pack_end(but, expand=False)
+			but.connect('toggled', self.select_toggled)
+			self.select_but = but
+			self.frame = frame
+			self.state = 0
+			self.callstate = 0
+			self.voicestate = 0
+			self.noservice = False
+
+			self.dbusobj = sbus.get_object('net.sf.nohands.hfpd',
+						       agpath)
+			self.ag = dbus.Interface(self.dbusobj,
+						 dbus_interface =
+					 'net.sf.nohands.hfpd.AudioGateway')
+			self.agprops = dbus.Interface(self.dbusobj,
+						      dbus_interface =
+					 'org.freedesktop.DBus.Properties')
+
+			self.sigs = []
+			sig = self.ag.connect_to_signal("NameResolved",
+							self.name_resolved)
+			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal("StateChanged",
+							self.state_changed)
+			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal("CallStateChanged",
+						self.call_state_changed)
+			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal("VoiceStateChanged",
+						self.voice_state_changed)
+			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal("IndicatorChanged",
+						self.indicator_changed)
+			self.sigs.append(sig)
+
+			self.addr = self.getprop('Address')
+			name = self.getprop('Name')
+			self.frame.set_label(name)
+			self.state = self.getprop('State')
+			self.callstate = self.getprop('CallState')
+			self.voicestate = self.getprop('VoiceState')
+			self.set_state_labels()
+			self.frame.show_all()
+
+		def set_state_labels(self):
+			state = self.state
+			callstate = self.callstate
+			lab = 'Invalid State'
+			self.remove_but.show()
+			if state != 4:
+				if state == 1:
+					lab = 'Destroyed\n'
+				if state == 2:
+					lab = 'Detached\n'
+					self.connect_but.show()
+					self.connect_but.set_sensitive(True)
+				if state == 3:
+					lab = 'Attaching\n'
+					self.connect_but.show()
+					self.connect_but.set_sensitive(False)
+				self.statelab.set_markup(lab)
+				self.select_but.hide()
+				self.hfc.ag_state_changed(self)
+				return
+			self.connect_but.hide()
+			self.select_but.show()
+			if callstate == 1:
+				lab = 'Ready\n'
+				if self.noservice:
+					lab = 'No Service\n'
+			if callstate == 2:
+				lab = 'Dialing\n'
+			if callstate == 3:
+				lab = 'Call Established\n'
+			if callstate == 4:
+				lab = 'Ringing\n'
+			if callstate == 5:
+				lab = 'Waiting Call\n'
+			if self.has_voice():
+				lab += 'Voice Open'
+			self.statelab.set_markup(lab)
+			self.hfc.ag_state_changed(self)
+
+		def can_dial(self):
+			return self.state == 4 and (self.callstate == 1 or
+						    self.callstate == 4)
+		def can_dtmf(self):
+			return self.state == 4 and (self.callstate == 2 or
+						    self.callstate == 3 or
+						    self.callstate == 5)
+
+		def selectable(self):
+			return self.state == 4
+		def has_voice(self):
+			return self.voicestate == 3
+		def select(self, state):
+			if state and not self.selectable():
+				return False
+			self.nested = True
+			self.select_but.set_active(state)
+			del self.nested
+			return True
+
+		def name_resolved(self, name):
+			self.frame.set_label(name)
+		def state_changed(self, state):
+			self.state = int(state)
+			self.set_state_labels()
+		def call_state_changed(self, state):
+			self.callstate = int(state)
+			self.set_state_labels()
+		def voice_state_changed(self, state):
+			self.voicestate = int(state)
+			self.set_state_labels()
+		def indicator_changed(self, name, val):
+			if name == 'service':
+				self.noservice = not val
+				self.set_state_labels()
+		def connect_clicked(self, widget):
+			self.ag.Connect()
+		def select_toggled(self, widget):
+			if hasattr(self, 'nested'):
+				return
+			self.hfc.ag_select(self, widget.get_active())
+
+		def dial(self, number):
+			self.ag.Dial(number)
+		def redial(self):
+			self.ag.Redial()
+		def hangup(self):
+			self.ag.HangUp()
+		def dtmf(self, char):
+			self.ag.SendDtmf(char[0])
+
+		def remove_clicked(self, widget):
+			if self.hfc.configfile.remove_option('devices',
+				     self.hfc.addr_transform(self.addr)):
+				self.hfc.configfile.write(open(
+					self.hfc.configfile_name, 'w+'))
+			self.setprop('Known', False)
+			self.hfpd.RemoveDevice(self.addr)
+		def remove(self):
+			self.frame.get_parent().remove(self.frame)
+			del self.frame
+			while self.sigs:
+				sig = self.sigs.pop()
+				sig.remove()
+		def getprop(self, prop):
+			return self.agprops.Get(
+				'net.sf.nohands.hfpd.AudioGateway',
+				prop)
+		def setprop(self, prop, val):
+			return self.agprops.Set(
+				'net.sf.nohands.hfpd.AudioGateway',
+				prop, val)
+
+	def hfpd_lost(self, name, old_owner, new_owner):
+		if name != 'net.sf.nohands.hfpd' or new_owner != '':
+			return
+		self.fatal('HFPD Process Disconnected')
+
+	def hfpd_ag_added(self, agpath):
+		if agpath not in self.ags:
+			# This can fail if the signals get
+			# stacked up
+			ag = self.AudioGateway(self, self.dbus, self.hfpd,
+					       agpath,
+					       self['AudioGatewayBox'])
+			self.ags[agpath] = ag
+			self.ag_mine(ag)
+
+	def hfpd_ag_removed(self, agpath):
+		if agpath in self.ags:
+			self.ags[agpath].remove()
+			del self.ags[agpath]
+	def ag_select_search(self):
+		for xag in self.ags.values():
+			if xag.has_voice() and xag.select(True):
+				self.ag_select_changed(xag)
+				return
+		for xag in self.ags.values():
+			if xag.select(True):
+				self.ag_select_changed(xag)
+				return
+	def ag_state_changed(self, ag):
+		if ((not ag.selectable() and ag == self.selected_ag) or
+		    (ag.has_voice() and self.selected_ag and
+		     not self.selected_ag.has_voice())):
+			ag.select(False)
+			self.ag_select_changed(None)
+
+		if not self.selected_ag:
+			# Find another AG and select it
+			self.ag_select_search()
+		elif ag == self.selected_ag:
+			# Maybe update buttons to reflect state
+			self.ag_select_changed(ag)
+
+	def ag_select(self, ag, state):
+		if ((not state and ag == self.selected_ag) or
+		    (state and ag != self.selected_ag)):
+			ag.select(False)
+			self.ag_select_changed(None)
+		if state and ag.select(True):
+			self.ag_select_changed(ag)
+		if not self.selected_ag:
+			self.ag_select_search()
+
+	def ag_select_changed(self, ag):
+		self.selected_ag = ag
+		if not ag:
+			self.command_mode(0)
+		elif ag.can_dial():
+			self.command_mode(1)
+		elif ag.can_dtmf():
+			self.command_mode(2)
+		else:
+			self.command_mode(0)
+		if ag and ag.has_voice() and self.soundstate == 2:
+			self.soundio.AudioGatewayStart(ag.path)
+
+	def ag_mine(self, ag):
+		if self.ags_added.has_key(ag.addr):
+			pass
+			ag.setprop('AutoReconnect', self.autoreconnect)
+
+	def add_audiogateway(self, addr):
+		try:
+			self.ags_added[addr] = True
+			# We will use the accompanying AudioGatewayAdded
+			# signal to construct the AudioGateway object above
+			agpath = self.hfpd.AddDevice(addr, False)
+		except:
+			del self.ags_added[addr]
+			self.error_message('Could not attach Audio Gateway')
+
+	def digit_button_char(self, but):
+		assert but.get_name()[:11] == 'DigitButton'
+		text = but.get_name()[11:]
+		if text == 'Ast':
+			text = '*'
+		elif text == 'Pnd':
+			text = '#'
+		return text
+
+	def digit_button_pressed(self, but):
+		ag = self.selected_ag
+		if not ag or not ag.can_dtmf():
+			return
+		text = self.digit_button_char(but)
+		ag.dtmf(text)
+	def digit_button_clicked(self, but):
+		ag = self.selected_ag
+		if not ag or not ag.can_dial():
+			return
+		text = self.digit_button_char(but)
+		entry = self['PhoneNumEntry']
+		entry.set_text(entry.get_text() + text)
+	def phone_num_bs(self, but):
+		entry = self['PhoneNumEntry']
+		entry.set_text(entry.get_text()[:-1])
+	def command_mode(self, val):
+		if val == 0:
+			self['DigitButtonBox'].set_sensitive(False)
+			self['PhoneNumEntryBox'].set_sensitive(False)
+			self['DialCommandBox'].set_sensitive(False)
+			self['DialPadDial'].set_label('Dial')
+		elif val == 1:
+			self['DigitButtonBox'].set_sensitive(True)
+			self['PhoneNumEntryBox'].set_sensitive(True)
+			self['DialCommandBox'].set_sensitive(True)
+			self['DialPadRedial'].set_sensitive(True)
+			self['DialPadDial'].set_label('Dial')
+		elif val == 2:
+			self['DigitButtonBox'].set_sensitive(True)
+			self['PhoneNumEntryBox'].set_sensitive(False)
+			self['DialCommandBox'].set_sensitive(True)
+			self['DialPadRedial'].set_sensitive(False)
+			self['DialPadDial'].set_label('Hang Up')
+	def dial_dial_clicked(self, widget):
+		ag = self.selected_ag
+		entry = self['PhoneNumEntry']
+		if not ag:
+			return
+		if not ag.can_dial():
+			ag.hangup()
+			return
+		num = entry.get_text()
+		entry.set_text('')
+		ag.dial(num)
+	def dial_redial_clicked(self, widget):
+		ag = self.selected_ag
+		if not ag or not ag.can_dial():
+			return
+		ag.redial()
+	def hfpd_system_state(self, state):
+		if self.system_msg:
+			self['StatusBar'].remove(self.system_ctx,
+						 self.system_msg)
+		if not state:
+			x = self['StatusBar'].push(self.system_ctx,
+						   'Bluetooth Unavailable')
+		else:
+			x = self['StatusBar'].push(self.system_ctx,
+						   '')
+		self.system_msg = x
+
+	def scan_open(self, but):
+		dlg = self['ScanDialog']
+		first = True
+		result = 2
+		while True:
+			self.scanresults.clear()
+			self['ScanOK'].set_sensitive(False)
+			try:
+				self.hfpd.StartInquiry()
+				self.inquiry = True
+				self['ScanRestart'].set_sensitive(False)
+			except:
+				self.error_message('Could not start inquiry')
+				if first:
+					return
+				
+			dlg.show()
+			result = dlg.run()
+			if result != -1:
+				break
+			first = False
+		dlg.hide()
+		if self.inquiry:
+			try:
+				self.hfpd.StopInquiry()
+			except:
+				pass
+		self.inquiry = False
+		if result != 0:
+			return
+		assert self.scanselect.count_selected_rows() <= 1
+		# Create a session for the selected bdaddr
+		(store, iter) = self.scanselect.get_selected()
+		addr = store.get_value(iter, 2)
+		self.configfile.set('devices', self.addr_transform(addr), True)
+		self.configfile.write(open(self.configfile_name, 'w+'))
+		self.add_audiogateway(addr)
+	def scan_select(self, selection):
+		if not selection.count_selected_rows():
+			self['ScanOK'].set_sensitive(False)
+		else:
+			self['ScanOK'].set_sensitive(True)	
+	class NameResolveReq:
+		def __init__(self, addr, store):
+			self.addr = addr
+			self.store = store
+		def complete(self, name):
+			ix = self.store.get_iter_first()
+			while ix:
+				if self.store.get_value(ix, 2) == self.addr:
+					self.store.set_value(ix, 0, name)
+				ix = self.store.iter_next(ix)
+		def failed(self, name):
+			ix = self.store.get_iter_first()
+			while ix:
+				if self.store.get_value(ix, 2) == self.addr:
+					name = self.store.get_value(ix, 2)
+					name += ' (unknown name)'
+					self.store.set_value(ix, 0, name)
+				ix = self.store.iter_next(ix)
+	def hfpd_inquiry_result(self, addr, devclass):
+		if self.inquiry:
+			self.scanresults.append(row=[addr, devclass, addr])
+	def hfpd_inquiry_complete(self, sval):
+		if sval:
+			return
+		if not self.inquiry:
+			return
+		self.inquiry = False
+		self['ScanRestart'].set_sensitive(True)
+		ix = self.scanresults.get_iter_first()
+		while ix:
+			addr = self.scanresults.get_value(ix, 2)
+			req = self.NameResolveReq(addr, self.scanresults)
+			self.hfpd.GetName(addr,
+					  reply_handler=req.complete,
+					  error_handler=req.failed)
+			ix = self.scanresults.iter_next(ix)
+
+	# Configuration dialog related methods
+	def config_open(self, widget):
+		dlg = self['ConfigDialog']
+		savecfg = self.config_get_vals()
+		savecfg['packetintervalsave'] = savecfg['packetinterval']
+		savecfg['minbufferfillsave'] = savecfg['minbufferfill']
+		savecfg['echocancelsave'] = savecfg['echocancel']
+		if savecfg['echocancelsave'] == 0:
+			savecfg['echocancelsave'] = 100
+		savecfg['dereverbsave'] = savecfg['dereverb']
+		savecfg['dereverbdecaysave'] = savecfg['dereverbdecay']
+		self.config = copy.copy(savecfg)
+		if savecfg['secmode'] == 0:
+			self['ConfigSecNone'].set_active(True)
+		elif savecfg['secmode'] == 1:
+			self['ConfigSecAuth'].set_active(True)
+		else:
+			self['ConfigSecCrypt'].set_active(True)
+		self['ConfigAcceptUnknown'].set_active(
+			savecfg['acceptunknown'])
+		self['ConfigVoicePersist'].set_active(
+			savecfg['voicepersist'])
+		self['ConfigAutoReconnect'].set_active(
+			savecfg['autoreconnect'])
+		self['ConfigDriver'].get_model().clear()
+		for x in savecfg['drivers']:
+			self['ConfigDriver'].append_text(x)
+		self['ConfigDriver'].set_active(savecfg['driver'])
+		self['ConfigDriverOpts'].set_text(savecfg['driveropts'])
+		self.config_packet_interval(savecfg['packetinterval'])
+		self.config_min_out_buffer(savecfg['minbufferfill'])
+		self['ConfigDenoise'].set_active(savecfg['denoise'])
+		self.config_echo_cancel(savecfg['echocancel'])
+		self['ConfigAutoGain'].set_value(savecfg['autogain'])
+		if self.config['dereverb'] == 0:
+			self['ConfigDereverb'].set_active(False)
+			self['ConfigDereverbValue'].set_sensitive(False)
+			self['ConfigDereverbValue'].set_value(0.0)
+			self['ConfigDereverbDecay'].set_sensitive(False)
+			self['ConfigDereverbDecay'].set_value(0.0)
+			self['ConfigDereverbValueLabel'].set_text('')
+			self['ConfigDereverbDecayLabel'].set_text('')
+		else:
+			self['ConfigDereverb'].set_active(True)
+			self['ConfigDereverbValue'].set_sensitive(True)
+			self['ConfigDereverbValue'].set_value(
+				self.config['dereverb'])
+			self['ConfigDereverbDecay'].set_sensitive(True)
+			self['ConfigDereverbDecay'].set_value(
+				self.config['dereverbdecay'])
+		dlg.show()
+		result = dlg.run()
+		dlg.hide()
+		self['ConfigFeedbackTest'].set_active(False)
+		if result == 1:
+			# Restore the save values
+			self.config_restore_vals(savecfg)
+		else:
+			self.config_save_vals()
+		del self.config
+		if hasattr(self, 'loopback_active'):
+			del self.loopback_active
+
+	def config_get_vals(self):
+		spr = self.soundio_props.GetAll('net.sf.nohands.hfpd.SoundIo')
+		hfpr = self.hfpd_props.GetAll('net.sf.nohands.hfpd.HandsFree')
+
+		vals = dict()
+		vals['secmode'] = int(hfpr['SecMode'])
+		vals['acceptunknown'] = hfpr['AcceptUnknown']
+		vals['voicepersist'] = hfpr['VoicePersist']
+		vals['autoreconnect'] = self.autoreconnect
+		vals['drivers'] = []
+		vals['driver'] = 0
+		index = 0
+		for x in spr['Drivers']:
+			vals['drivers'].append(str(x[0]))
+			if (vals['drivers'][index].lower() ==
+			    str(spr['DriverName']).lower()):
+				vals['driver'] = index
+			index += 1
+		vals['driveropts'] = str(spr['DriverOpts'])
+		vals['packetinterval'] = int(spr['PacketIntervalHint'])
+		vals['minbufferfill'] = spr['MinBufferFillHint']
+		vals['denoise'] = spr['Denoise']
+		vals['echocancel'] = int(spr['EchoCancelTail'])
+		vals['autogain'] = int(spr['AutoGain']) / 1000
+		vals['dereverb'] = float(spr['DereverbLevel'])
+		vals['dereverbdecay'] = float(spr['DereverbDecay'])
+		vals['ringer'] = ''
+		return vals
+	def config_save_vals(self):
+		if self['ConfigSecNone'].get_active():
+			secmode = 0
+		elif self['ConfigSecAuth'].get_active():
+			secmode = 1
+		else:
+			secmode = 2
+		self.setprop_hfpd('SecMode', dbus.Byte(secmode))
+		self.setprop_hfpd('AcceptUnknown', dbus.Boolean(
+			self['ConfigAcceptUnknown'].get_active()))
+		self.setprop_hfpd('VoicePersist', dbus.Boolean(
+			self['ConfigVoicePersist'].get_active()))
+		self.soundio.SetDriver(self['ConfigDriver'].get_active_text(),
+				       self['ConfigDriverOpts'].get_text())
+		self.hfpd.SaveSettings()
+		self.autoreconnect = self['ConfigAutoReconnect'].get_active()
+	def config_restore_vals(self, vals):
+		self.soundio.SetDriver(self.config['drivers'][
+			self.config['driver']],
+				       self.config['driveropts'])
+		self.setprop_soundio('PacketIntervalHint',
+				      dbus.UInt32(vals['packetinterval']))
+		self.setprop_soundio('MinBufferFillHint',
+				      dbus.UInt32(vals['minbufferfill']))
+		self.setprop_soundio('Denoise', dbus.Boolean(vals['denoise']))
+		self.setprop_soundio('EchoCancelTail',
+				      dbus.UInt32(vals['echocancel']))
+		self.setprop_soundio('AutoGain',
+				      dbus.UInt32(vals['autogain'] * 1000))
+		self.setprop_soundio('DereverbLevel',
+				      dbus.Double(vals['dereverb']))
+		self.setprop_soundio('DereverbDecay',
+				      dbus.Double(vals['dereverbdecay']))
+	def constrain(self, val, min, max):
+		if val < min:
+			val = min
+		elif val > max:
+			val = max
+		return val
+	def value_transform(self, val, exp, minv, maxv):
+		val = self.constrain(val, 0.0, 1.0)
+		return int(minv + (pow(val, exp) * (maxv - minv)))
+	def value_untransform(self, val, exp, minv, maxv):
+		val = self.constrain(val, minv, maxv)
+		return pow(float(val - minv) / (maxv - minv), 1.0 / exp)
+	def config_packet_interval(self, value):
+		self.nested = True
+		if value != 0:
+			value = self.constrain(value, 5, 1000)
+			self['ConfigPacketIntervalHint'].set_active(True)
+			self['ConfigPacketIntervalLabel'].set_text(
+				str(value) + 'ms')
+			self['ConfigPacketInterval'].set_sensitive(True)
+			self['ConfigPacketInterval'].set_value(
+				self.value_untransform(value, 3, 5, 1000))
+		else:
+			value = 0
+			self['ConfigPacketIntervalHint'].set_active(False)
+			self['ConfigPacketIntervalLabel'].set_text('')
+			self['ConfigPacketInterval'].set_sensitive(False)
+			self['ConfigPacketInterval'].set_value(0)
+		if self.config['packetinterval'] != value:
+			self.config['packetinterval'] = value
+			self.setprop_soundio('PacketIntervalHint',
+					      dbus.UInt32(value))
+		self.nested = False
+	def config_packet_interval_toggled(self, widget):
+		if widget.get_active():
+			value = self.config['packetintervalsave']
+			value = self.constrain(value, 5, 1000)
+		else:
+			self.config['packetintervalsave'] = (
+				self.config['packetinterval'])
+			value = 0
+		if not self.nested:
+			self.config_packet_interval(value)
+	def config_packet_interval_changed(self, widget):
+		value = self.value_transform(widget.get_value(), 3, 5, 1000)
+		if not self.nested:
+			self.config_packet_interval(value)
+	def config_min_out_buffer(self, value):
+		self.nested = True
+		if value != 0:
+			value = self.constrain(value, 5, 1000)
+			self['ConfigMinOutBufferHint'].set_active(True)
+			self['ConfigMinOutBufferLabel'].set_text(
+				str(value) + 'ms')
+			self['ConfigMinOutBuffer'].set_sensitive(True)
+			self['ConfigMinOutBuffer'].set_value(
+				self.value_untransform(value, 3, 5, 1000))
+		else:
+			value = 0
+			self['ConfigMinOutBufferHint'].set_active(False)
+			self['ConfigMinOutBufferLabel'].set_text('')
+			self['ConfigMinOutBuffer'].set_sensitive(False)
+			self['ConfigMinOutBuffer'].set_value(0)
+		if self.config['minbufferfill'] != value:
+			self.config['minbufferfill'] = value
+			self.setprop_soundio('MinBufferFillHint',
+					      dbus.UInt32(value))
+		self.nested = False
+	def config_min_out_buffer_toggled(self, widget):
+		if widget.get_active():
+			value = self.config['minbufferfillsave']
+			value = self.constrain(value, 5, 1000)
+		else:
+			self.config['minbufferfillsave'] = (
+				self.config['minbufferfill'])
+			value = 0
+		if not self.nested:
+			self.config_min_out_buffer(value)
+	def config_min_out_buffer_changed(self, widget):
+		value = self.value_transform(widget.get_value(), 3, 5, 1000)
+		if not self.nested:
+			self.config_min_out_buffer(value)
+	def config_loopback_toggled(self, widget):
+		if not hasattr(self, 'loopback_active'):
+			self.loopback_active = False
+		if widget.get_active():
+			if not self.loopback_active:
+				try:
+					self.soundio.SetDriver(self[
+						'ConfigDriver'].
+					       get_active_text(),
+				       self['ConfigDriverOpts'].get_text())
+				except:
+					widget.set_active(False)
+					self.error_message('Cannot Apply ' +
+						   'Sound Driver Settings')
+					return
+
+				try:
+					if self['Mute'].get_active():
+						self.setprop_soundio(
+							'Mute', False)
+					self.soundio.LoopbackStart()
+				except:
+					widget.set_active(False)
+					self.error_message('Could not open '+
+							   'Audio Device')
+					return
+
+				self.loopback_active = True
+				pkt = self.getprop_soundio('PacketInterval')
+				self['ConfigRealPacketSizeLabel'].set_text(
+					str(pkt) + 'ms')
+		else:
+			if self.loopback_active:
+				self.soundio.Stop()
+				self.loopback_active = False
+				self['ConfigRealPacketSizeLabel'].set_text('')
+	def config_denoise_changed(self, widget):
+		value = widget.get_active()	
+		if bool(self.config['denoise']) != value:
+			self.config['denoise'] = value
+			self.setprop_soundio('Denoise', dbus.Boolean(value))
+	def config_echo_cancel(self, value):
+		self.nested = True
+		if value != 0:
+			value = self.constrain(value, 5, 1000)
+			self['ConfigEchoCancel'].set_active(True)
+			self['ConfigEchoCancelTailLabel'].set_text(
+				str(value) + 'ms')
+			self['ConfigEchoCancelTail'].set_sensitive(True)
+			self['ConfigEchoCancelTail'].set_value(
+				self.value_untransform(value, 3, 5, 1000))
+		else:
+			value = 0
+			self['ConfigEchoCancel'].set_active(False)
+			self['ConfigEchoCancelTailLabel'].set_text('')
+			self['ConfigEchoCancelTail'].set_sensitive(False)
+			self['ConfigEchoCancelTail'].set_value(0)
+		if self.config['echocancel'] != value:
+			self.config['echocancel'] = value
+			self.setprop_soundio('EchoCancelTail',
+					      dbus.UInt32(value))
+		self.nested = False
+	def config_echo_cancel_changed(self, widget):
+		if widget.get_active():
+			value = self.config['echocancelsave']
+			value = self.constrain(value, 5, 1000)
+		else:
+			self.config['echocancelsave'] = (
+				self.config['echocancel'])
+			value = 0
+		if not self.nested:
+			self.config_echo_cancel(value)
+	def config_echo_cancel_tail_changed(self, widget):
+		value = self.value_transform(widget.get_value(), 3, 5, 1000)
+		if not self.nested:
+			self.config_echo_cancel(value)
+	def config_auto_gain_changed(self, widget):
+		value = int(widget.get_value())
+		self['ConfigAutoGainLabel'].set_text(str(value))
+		if self.config['autogain'] != value:
+			self.config['autogain'] = value
+			self.setprop_soundio('AutoGain',
+					      dbus.UInt32(value * 1000))
+	def config_dereverb_toggled(self, widget):
+		value = widget.get_active()
+		self['ConfigDereverbValue'].set_sensitive(value)
+		self['ConfigDereverbDecay'].set_sensitive(value)
+		if value:
+			self['ConfigDereverbValue'].set_value(
+				self.config['dereverbsave'])
+			self.config_dereverb_value_changed(
+				self['ConfigDereverbValue'])
+			self['ConfigDereverbDecay'].set_value(
+				self.config['dereverbdecaysave'])
+			self.config_dereverb_decay_changed(
+				self['ConfigDereverbDecay'])
+		else:
+			self.config['dereverbsave'] = self.config['dereverb']
+			self['ConfigDereverbValue'].set_value(0.0)
+			self['ConfigDereverbValueLabel'].set_text('')
+			self.config['dereverb'] = 0.0
+			self.config['dereverbdecaysave'] = self.config[
+				'dereverbdecay']
+			self['ConfigDereverbDecay'].set_value(0.0)
+			self['ConfigDereverbDecayLabel'].set_text('')
+	def config_dereverb_value_changed(self, widget):
+		value = widget.get_value()	
+		self['ConfigDereverbValueLabel'].set_text('%0.2f' % value)
+		if self.config['dereverb'] != value:
+			self.config['dereverb'] = value
+			self.setprop_soundio('DereverbLevel',
+					      dbus.Double(value))
+	def config_dereverb_decay_changed(self, widget):
+		value = widget.get_value()	
+		self['ConfigDereverbDecayLabel'].set_text('%0.2f' % value)
+		if self.config['dereverbdecay'] != value:
+			self.config['dereverbdecay'] = value
+			self.setprop_soundio('DereverbDecay',
+					      dbus.Double(value))
+	def config_ringer_file_set(self, widget):
+		value = widget.get_filename()	
+		self.config['ringer'] = value
+		print "Ringer: " + value
+
+
+	def config_dsptest_pageid(self, widget):
+		return int(widget.get_name()[11:])
+	def config_dsptest_open(self, widget):
+		self['ConfigFeedbackTest'].set_active(False)
+		try:
+			self.soundio.SetDriver(self['ConfigDriver'].
+					       get_active_text(),
+				       self['ConfigDriverOpts'].get_text())
+		except:
+			self.error_message('Cannot Apply Sound Driver Settings')
+			return
+		assist = self['DspTestAssistant']
+		assist.set_current_page(0)
+		assist.show()
+	def connect_soundmonitor(self, to):
+		if self.soundmonitor:
+			self.soundmonitor.remove()
+			self.soundmonitor = None
+		if to:
+			self.soundmonitor = self.soundio.connect_to_signal(
+				"MonitorNotify", to)
+	def config_dsptest_mon1(self, pos, amp):
+		self['DspTestRecPosition1'].set_fraction(float(pos)/80000)
+		self['DspTestMicVolume1'].set_fraction(
+			pow(float(amp) / 65535, 0.33))
+		if amp > self.maxvol:
+			self.maxvol = amp
+	def config_dsptest_mon2(self, pos, amp):
+		self['DspTestRecPosition2'].set_fraction(float(pos)/80000)
+		self['DspTestMicVolume2'].set_fraction(
+			pow(float(amp) / 65535, 0.33))
+	def config_dsptest_mon3(self, pos, amp):
+		self['DspTestPlayPosition'].set_fraction(float(pos)/80000)
+	def config_dsptest_prepare(self, widget, page):
+		assist = self['DspTestAssistant']
+		pageid = self.config_dsptest_pageid(page)
+		if not hasattr(self, 'membuf_active'):
+			self.membuf_active = False
+		if self.membuf_active:
+			self.soundio.Stop()
+		if pageid == 0:
+			self.maxvol = 0
+			assist.set_page_complete(page, True)
+		elif pageid == 1:
+			assist.set_page_complete(page, False)
+			self['DspTestRecPosition1'].set_fraction(0.0)
+			self.connect_soundmonitor(self.config_dsptest_mon1)
+			self['DspTestRecStart1'].set_active(True)
+		elif pageid == 2:
+			self['DspTestRecPosition2'].set_fraction(0.0)
+			assist.set_page_complete(page, True)
+			self.connect_soundmonitor(self.config_dsptest_mon2)
+		elif pageid == 3:
+			self['DspTestPlayPosition'].set_fraction(0.0)
+			assist.set_page_complete(page, True)
+			self.connect_soundmonitor(self.config_dsptest_mon3)
+			self['DspTestPlayStart'].set_active(True)
+	def config_dsptest_cancel(self, widget):
+		assist = self['DspTestAssistant']
+		assist.hide()
+		if self.membuf_active:
+			self.soundio.Stop()
+		self.connect_soundmonitor(None)
+		if hasattr(self, 'maxvol'):
+			del self.maxvol
+		if hasattr(self, 'membuf_active'):
+			del self.membuf_active
+	def config_dsptest_close(self, widget):
+		assist = self['DspTestAssistant']
+		assist.hide()
+		self.connect_soundmonitor(None)
+		print "DSP close"
+	def config_dsptest_xxx_toggled(self, widget, page, doin, doout):
+		assist = self['DspTestAssistant']
+		if widget.get_active():
+			if doin and not doout:
+				self.soundio.MembufClear()
+			try:
+				# 8KHz sample rate is standard
+				# We request a 10 second, 80Ksamp buffer,
+				# and 16 updates/sec.
+				self.soundio.MembufStart(doin, doout,
+							 80000, 500)
+			except:
+				widget.set_active(False)
+				self.error_message('Could not open '+
+						   'Audio Device')
+				return
+				
+			self.membuf_active = True
+			assist.set_page_complete(page, True)
+			return
+		if self.membuf_active:
+			try:
+				self.soundio.Stop()
+			except:
+				pass
+			self.membuf_active = False
+	def config_dsptest_recstart1_toggled(self, widget):
+		self.config_dsptest_xxx_toggled(widget,
+						self['DspTestPage1'],
+						True, False)
+	def config_dsptest_recstart2_toggled(self, widget):
+		self.config_dsptest_xxx_toggled(widget,
+						self['DspTestPage2'],
+						True, True)
+	def config_dsptest_playstart_toggled(self, widget):
+		self.config_dsptest_xxx_toggled(widget,
+						self['DspTestPage3'],
+						False, True)
+	def soundio_state_changed(self, state):
+		agpath = self.getprop_soundio('AudioGateway')
+		self.soundstate = int(state)
+		if self.soundstate == 2:
+			if (hasattr(self, 'loopback_active') and
+			    self.loopback_active):
+				self.loopback_active = False
+				self['ConfigFeedbackTest'].set_active(False)
+				self['ConfigRealPacketSizeLabel'].set_text('')
+			if (hasattr(self, 'membuf_active') and
+			    self.membuf_active):
+				self.membuf_active = False
+				self['DspTestRecStart1'].set_active(False)
+				self['DspTestRecStart2'].set_active(False)
+				self['DspTestPlayStart'].set_active(False)
+				self['DspTestMicVolume1'].set_fraction(0.0)
+				self['DspTestMicVolume2'].set_fraction(0.0)
+		if self.soundstate == 3 or self.soundstate == 4:
+			agpath = self.getprop_soundio('AudioGateway')
+			if agpath:
+				ag = self.ags[agpath];
+				if ag:
+					self.ag_select(ag, True)
+
+	def soundio_mute_changed(self, state):
+		self['Mute'].set_active(bool(state))
+	def mute_toggled(self, but):
+		self.setprop_soundio('Mute', but.get_active())
+
+if __name__ == "__main__":
+	hwg = HfConsole()
+	hwg.Start()
+	gtk.main()

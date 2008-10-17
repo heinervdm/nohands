@@ -1,0 +1,725 @@
+<!DOCTYPE UI><UI version="3.3" stdsetdef="1">
+<class>PrefsDialog</class>
+<widget class="QDialog">
+    <property name="name">
+        <cstring>PrefsDialog</cstring>
+    </property>
+    <property name="geometry">
+        <rect>
+            <x>0</x>
+            <y>0</y>
+            <width>498</width>
+            <height>388</height>
+        </rect>
+    </property>
+    <property name="caption">
+        <string>Configuration</string>
+    </property>
+    <property name="sizeGripEnabled">
+        <bool>true</bool>
+    </property>
+    <vbox>
+        <property name="name">
+            <cstring>unnamed</cstring>
+        </property>
+        <property name="margin">
+            <number>11</number>
+        </property>
+        <property name="spacing">
+            <number>6</number>
+        </property>
+        <widget class="QTabWidget">
+            <property name="name">
+                <cstring>tabWidget</cstring>
+            </property>
+            <widget class="QWidget">
+                <property name="name">
+                    <cstring>TabPage</cstring>
+                </property>
+                <attribute name="title">
+                    <string>Bluetooth</string>
+                </attribute>
+                <grid>
+                    <property name="name">
+                        <cstring>unnamed</cstring>
+                    </property>
+                    <widget class="QButtonGroup" row="0" column="0">
+                        <property name="name">
+                            <cstring>buttonGroup1</cstring>
+                        </property>
+                        <property name="sizePolicy">
+                            <sizepolicy>
+                                <hsizetype>5</hsizetype>
+                                <vsizetype>4</vsizetype>
+                                <horstretch>0</horstretch>
+                                <verstretch>0</verstretch>
+                            </sizepolicy>
+                        </property>
+                        <property name="title">
+                            <string>Security</string>
+                        </property>
+                        <vbox>
+                            <property name="name">
+                                <cstring>unnamed</cstring>
+                            </property>
+                            <widget class="QRadioButton">
+                                <property name="name">
+                                    <cstring>AttachAny</cstring>
+                                </property>
+                                <property name="text">
+                                    <string>No security</string>
+                                </property>
+                            </widget>
+                            <widget class="QRadioButton">
+                                <property name="name">
+                                    <cstring>AttachAuth</cstring>
+                                </property>
+                                <property name="text">
+                                    <string>Require device authentication</string>
+                                </property>
+                            </widget>
+                            <widget class="QRadioButton">
+                                <property name="name">
+                                    <cstring>AttachEncrypt</cstring>
+                                </property>
+                                <property name="text">
+                                    <string>Require device authentication and encryption</string>
+                                </property>
+                            </widget>
+                        </vbox>
+                    </widget>
+                    <widget class="QCheckBox" row="1" column="0">
+                        <property name="name">
+                            <cstring>DisableAttachUnknown</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Refuse connections from unknown devices</string>
+                        </property>
+                    </widget>
+                    <widget class="QCheckBox" row="2" column="0">
+                        <property name="name">
+                            <cstring>AutoReconnect</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Enable periodic auto-reconnect</string>
+                        </property>
+                    </widget>
+                </grid>
+            </widget>
+            <widget class="QWidget">
+                <property name="name">
+                    <cstring>Widget2</cstring>
+                </property>
+                <attribute name="title">
+                    <string>Audio Device</string>
+                </attribute>
+                <grid>
+                    <property name="name">
+                        <cstring>unnamed</cstring>
+                    </property>
+                    <widget class="QLineEdit" row="1" column="1" rowspan="1" colspan="2">
+                        <property name="name">
+                            <cstring>DriverOpt</cstring>
+                        </property>
+                    </widget>
+                    <widget class="QComboBox" row="0" column="1" rowspan="1" colspan="2">
+                        <property name="name">
+                            <cstring>DriverSelect</cstring>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="1" column="0">
+                        <property name="name">
+                            <cstring>textLabel1</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Device / Options</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="0" column="0">
+                        <property name="name">
+                            <cstring>textLabel3</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Driver</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="2" column="0">
+                        <property name="name">
+                            <cstring>textLabel1_2_2_2</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Packet Size</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="3" column="0">
+                        <property name="name">
+                            <cstring>textLabel1_2_2_2_2</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Output Buffering</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="2" column="2">
+                        <property name="name">
+                            <cstring>PacketSizeLabel</cstring>
+                        </property>
+                        <property name="text">
+                            <string>0ms</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="3" column="2">
+                        <property name="name">
+                            <cstring>OutbufSizeLabel</cstring>
+                        </property>
+                        <property name="text">
+                            <string>0ms</string>
+                        </property>
+                    </widget>
+                    <widget class="QSlider" row="3" column="1">
+                        <property name="name">
+                            <cstring>OutbufSize</cstring>
+                        </property>
+                        <property name="minValue">
+                            <number>160</number>
+                        </property>
+                        <property name="maxValue">
+                            <number>1000</number>
+                        </property>
+                        <property name="orientation">
+                            <enum>Horizontal</enum>
+                        </property>
+                        <property name="tickmarks">
+                            <enum>NoMarks</enum>
+                        </property>
+                    </widget>
+                    <widget class="QSlider" row="2" column="1">
+                        <property name="name">
+                            <cstring>PacketSize</cstring>
+                        </property>
+                        <property name="minValue">
+                            <number>160</number>
+                        </property>
+                        <property name="maxValue">
+                            <number>1000</number>
+                        </property>
+                        <property name="orientation">
+                            <enum>Horizontal</enum>
+                        </property>
+                        <property name="tickmarks">
+                            <enum>NoMarks</enum>
+                        </property>
+                    </widget>
+                    <widget class="QButtonGroup" row="4" column="0" rowspan="1" colspan="3">
+                        <property name="name">
+                            <cstring>buttonGroup2</cstring>
+                        </property>
+                        <property name="sizePolicy">
+                            <sizepolicy>
+                                <hsizetype>5</hsizetype>
+                                <vsizetype>0</vsizetype>
+                                <horstretch>0</horstretch>
+                                <verstretch>0</verstretch>
+                            </sizepolicy>
+                        </property>
+                        <property name="title">
+                            <string>Test</string>
+                        </property>
+                        <grid>
+                            <property name="name">
+                                <cstring>unnamed</cstring>
+                            </property>
+                            <widget class="QPushButton" row="0" column="0">
+                                <property name="name">
+                                    <cstring>FeedbackTest</cstring>
+                                </property>
+                                <property name="text">
+                                    <string>Feedback Test</string>
+                                </property>
+                                <property name="toggleButton">
+                                    <bool>true</bool>
+                                </property>
+                            </widget>
+                            <widget class="QLabel" row="0" column="1">
+                                <property name="name">
+                                    <cstring>textLabel1_3</cstring>
+                                </property>
+                                <property name="text">
+                                    <string>Real Packet Size:</string>
+                                </property>
+                                <property name="alignment">
+                                    <set>AlignVCenter|AlignRight</set>
+                                </property>
+                            </widget>
+                            <widget class="QLabel" row="0" column="2">
+                                <property name="name">
+                                    <cstring>RealPacketSizeLabel</cstring>
+                                </property>
+                                <property name="text">
+                                    <string></string>
+                                </property>
+                            </widget>
+                        </grid>
+                    </widget>
+                </grid>
+            </widget>
+            <widget class="QWidget">
+                <property name="name">
+                    <cstring>TabPage</cstring>
+                </property>
+                <attribute name="title">
+                    <string>Signal Processing</string>
+                </attribute>
+                <grid>
+                    <property name="name">
+                        <cstring>unnamed</cstring>
+                    </property>
+                    <widget class="QSlider" row="1" column="1">
+                        <property name="name">
+                            <cstring>EchoCancelTail</cstring>
+                        </property>
+                        <property name="minValue">
+                            <number>160</number>
+                        </property>
+                        <property name="maxValue">
+                            <number>1000</number>
+                        </property>
+                        <property name="orientation">
+                            <enum>Horizontal</enum>
+                        </property>
+                    </widget>
+                    <widget class="QCheckBox" row="1" column="0">
+                        <property name="name">
+                            <cstring>EchoCancelation</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Echo Cancelation</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="1" column="2">
+                        <property name="name">
+                            <cstring>EchoCancelTailLabel</cstring>
+                        </property>
+                        <property name="text">
+                            <string>0ms</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="2" column="0">
+                        <property name="name">
+                            <cstring>textLabel4</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Auto Mic Gain</string>
+                        </property>
+                    </widget>
+                    <widget class="QSlider" row="4" column="1">
+                        <property name="name">
+                            <cstring>DereverbDecay</cstring>
+                        </property>
+                        <property name="maxValue">
+                            <number>100</number>
+                        </property>
+                        <property name="orientation">
+                            <enum>Horizontal</enum>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="2" column="2">
+                        <property name="name">
+                            <cstring>AutoGainLevelLabel</cstring>
+                        </property>
+                        <property name="text">
+                            <string>0</string>
+                        </property>
+                    </widget>
+                    <widget class="QSlider" row="3" column="1">
+                        <property name="name">
+                            <cstring>DereverbLevel</cstring>
+                        </property>
+                        <property name="maxValue">
+                            <number>100</number>
+                        </property>
+                        <property name="orientation">
+                            <enum>Horizontal</enum>
+                        </property>
+                    </widget>
+                    <widget class="QSlider" row="2" column="1">
+                        <property name="name">
+                            <cstring>AutoGainLevel</cstring>
+                        </property>
+                        <property name="maxValue">
+                            <number>20</number>
+                        </property>
+                        <property name="orientation">
+                            <enum>Horizontal</enum>
+                        </property>
+                    </widget>
+                    <widget class="QCheckBox" row="3" column="0">
+                        <property name="name">
+                            <cstring>Dereverb</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Dereverb</string>
+                        </property>
+                    </widget>
+                    <widget class="QCheckBox" row="0" column="0">
+                        <property name="name">
+                            <cstring>NoiseReduction</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Noise Reduction</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="3" column="2">
+                        <property name="name">
+                            <cstring>DereverbLevelLabel</cstring>
+                        </property>
+                        <property name="text">
+                            <string>0</string>
+                        </property>
+                    </widget>
+                    <widget class="QLabel" row="4" column="2">
+                        <property name="name">
+                            <cstring>DereverbDecayLabel</cstring>
+                        </property>
+                        <property name="text">
+                            <string>0</string>
+                        </property>
+                    </widget>
+                    <widget class="QButtonGroup" row="5" column="0" rowspan="1" colspan="3">
+                        <property name="name">
+                            <cstring>buttonGroup2_2</cstring>
+                        </property>
+                        <property name="sizePolicy">
+                            <sizepolicy>
+                                <hsizetype>5</hsizetype>
+                                <vsizetype>0</vsizetype>
+                                <horstretch>0</horstretch>
+                                <verstretch>0</verstretch>
+                            </sizepolicy>
+                        </property>
+                        <property name="title">
+                            <string>Test</string>
+                        </property>
+                        <hbox>
+                            <property name="name">
+                                <cstring>unnamed</cstring>
+                            </property>
+                            <widget class="QPushButton">
+                                <property name="name">
+                                    <cstring>ProcTest</cstring>
+                                </property>
+                                <property name="text">
+                                    <string>Start Test</string>
+                                </property>
+                                <property name="toggleButton">
+                                    <bool>true</bool>
+                                </property>
+                            </widget>
+                            <widget class="QLayoutWidget">
+                                <property name="name">
+                                    <cstring>layout2</cstring>
+                                </property>
+                                <vbox>
+                                    <property name="name">
+                                        <cstring>unnamed</cstring>
+                                    </property>
+                                    <widget class="QRadioButton">
+                                        <property name="name">
+                                            <cstring>RecTestRadio</cstring>
+                                        </property>
+                                        <property name="text">
+                                            <string>Record Test</string>
+                                        </property>
+                                        <property name="checked">
+                                            <bool>true</bool>
+                                        </property>
+                                    </widget>
+                                    <widget class="QRadioButton">
+                                        <property name="name">
+                                            <cstring>DuplexTestRadio</cstring>
+                                        </property>
+                                        <property name="text">
+                                            <string>Play/Record Test</string>
+                                        </property>
+                                    </widget>
+                                    <widget class="QRadioButton">
+                                        <property name="name">
+                                            <cstring>PlayTestRadio</cstring>
+                                        </property>
+                                        <property name="text">
+                                            <string>Play Result</string>
+                                        </property>
+                                    </widget>
+                                </vbox>
+                            </widget>
+                        </hbox>
+                    </widget>
+                </grid>
+            </widget>
+            <widget class="QWidget">
+                <property name="name">
+                    <cstring>TabPage</cstring>
+                </property>
+                <attribute name="title">
+                    <string>Alerting</string>
+                </attribute>
+                <grid>
+                    <property name="name">
+                        <cstring>unnamed</cstring>
+                    </property>
+                    <widget class="QLabel" row="1" column="0">
+                        <property name="name">
+                            <cstring>textLabel9</cstring>
+                        </property>
+                        <property name="text">
+                            <string>Ring Tone File</string>
+                        </property>
+                    </widget>
+                    <widget class="QPushButton" row="1" column="2">
+                        <property name="name">
+                            <cstring>RingToneListFiles</cstring>
+                        </property>
+                        <property name="text">
+                            <string>...</string>
+                        </property>
+                    </widget>
+                    <widget class="QLineEdit" row="1" column="1">
+                        <property name="name">
+                            <cstring>RingToneFile</cstring>
+                        </property>
+                    </widget>
+                    <widget class="QCheckBox" row="0" column="0" rowspan="1" colspan="3">
+                        <property name="name">
+                            <cstring>UseInBandRingTone</cstring>
+                        </property>
+                        <property name="autoMask">
+                            <bool>false</bool>
+                        </property>
+                        <property name="text">
+                            <string>Use Ring Tone From Device If Available</string>
+                        </property>
+                    </widget>
+                </grid>
+            </widget>
+        </widget>
+        <widget class="QLayoutWidget">
+            <property name="name">
+                <cstring>Layout1</cstring>
+            </property>
+            <hbox>
+                <property name="name">
+                    <cstring>unnamed</cstring>
+                </property>
+                <property name="margin">
+                    <number>0</number>
+                </property>
+                <property name="spacing">
+                    <number>6</number>
+                </property>
+                <widget class="QPushButton">
+                    <property name="name">
+                        <cstring>buttonHelp</cstring>
+                    </property>
+                    <property name="enabled">
+                        <bool>false</bool>
+                    </property>
+                    <property name="text">
+                        <string>&amp;Help</string>
+                    </property>
+                    <property name="accel">
+                        <string>F1</string>
+                    </property>
+                    <property name="autoDefault">
+                        <bool>true</bool>
+                    </property>
+                </widget>
+                <spacer>
+                    <property name="name">
+                        <cstring>Horizontal Spacing2</cstring>
+                    </property>
+                    <property name="orientation">
+                        <enum>Horizontal</enum>
+                    </property>
+                    <property name="sizeType">
+                        <enum>Expanding</enum>
+                    </property>
+                    <property name="sizeHint">
+                        <size>
+                            <width>20</width>
+                            <height>20</height>
+                        </size>
+                    </property>
+                </spacer>
+                <widget class="QPushButton">
+                    <property name="name">
+                        <cstring>buttonOk</cstring>
+                    </property>
+                    <property name="text">
+                        <string>&amp;OK</string>
+                    </property>
+                    <property name="accel">
+                        <string></string>
+                    </property>
+                    <property name="autoDefault">
+                        <bool>true</bool>
+                    </property>
+                    <property name="default">
+                        <bool>true</bool>
+                    </property>
+                </widget>
+                <widget class="QPushButton">
+                    <property name="name">
+                        <cstring>buttonCancel</cstring>
+                    </property>
+                    <property name="text">
+                        <string>&amp;Cancel</string>
+                    </property>
+                    <property name="accel">
+                        <string></string>
+                    </property>
+                    <property name="autoDefault">
+                        <bool>true</bool>
+                    </property>
+                </widget>
+            </hbox>
+        </widget>
+    </vbox>
+</widget>
+<connections>
+    <connection>
+        <sender>buttonOk</sender>
+        <signal>clicked()</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>accept()</slot>
+    </connection>
+    <connection>
+        <sender>buttonCancel</sender>
+        <signal>clicked()</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>reject()</slot>
+    </connection>
+    <connection>
+        <sender>Dereverb</sender>
+        <signal>toggled(bool)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>Dereverb_toggled(bool)</slot>
+    </connection>
+    <connection>
+        <sender>EchoCancelTail</sender>
+        <signal>valueChanged(int)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>EchoCancelTail_valueChanged(int)</slot>
+    </connection>
+    <connection>
+        <sender>AutoGainLevel</sender>
+        <signal>valueChanged(int)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>AutoGainLevel_valueChanged(int)</slot>
+    </connection>
+    <connection>
+        <sender>DereverbLevel</sender>
+        <signal>valueChanged(int)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>DereverbLevel_valueChanged(int)</slot>
+    </connection>
+    <connection>
+        <sender>DereverbDecay</sender>
+        <signal>valueChanged(int)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>DereverbDecay_valueChanged(int)</slot>
+    </connection>
+    <connection>
+        <sender>NoiseReduction</sender>
+        <signal>toggled(bool)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>NoiseReduction_toggled(bool)</slot>
+    </connection>
+    <connection>
+        <sender>EchoCancelation</sender>
+        <signal>toggled(bool)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>EchoCancelation_toggled(bool)</slot>
+    </connection>
+    <connection>
+        <sender>RingToneListFiles</sender>
+        <signal>clicked()</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>RingToneListFiles_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>PacketSize</sender>
+        <signal>valueChanged(int)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>PacketSize_valueChanged(int)</slot>
+    </connection>
+    <connection>
+        <sender>OutbufSize</sender>
+        <signal>valueChanged(int)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>OutbufSize_valueChanged(int)</slot>
+    </connection>
+    <connection>
+        <sender>FeedbackTest</sender>
+        <signal>toggled(bool)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>FeedbackTest_toggled(bool)</slot>
+    </connection>
+    <connection>
+        <sender>ProcTest</sender>
+        <signal>toggled(bool)</signal>
+        <receiver>PrefsDialog</receiver>
+        <slot>ProcTest_toggled(bool)</slot>
+    </connection>
+</connections>
+<tabstops>
+    <tabstop>NoiseReduction</tabstop>
+    <tabstop>EchoCancelation</tabstop>
+    <tabstop>EchoCancelTail</tabstop>
+    <tabstop>AutoGainLevel</tabstop>
+    <tabstop>Dereverb</tabstop>
+    <tabstop>DereverbLevel</tabstop>
+    <tabstop>DereverbDecay</tabstop>
+    <tabstop>buttonOk</tabstop>
+    <tabstop>buttonCancel</tabstop>
+    <tabstop>buttonHelp</tabstop>
+    <tabstop>tabWidget</tabstop>
+    <tabstop>AttachAny</tabstop>
+    <tabstop>AttachAuth</tabstop>
+    <tabstop>AttachEncrypt</tabstop>
+    <tabstop>DisableAttachUnknown</tabstop>
+    <tabstop>AutoReconnect</tabstop>
+    <tabstop>DriverOpt</tabstop>
+</tabstops>
+<includes>
+    <include location="local" impldecl="in implementation">prefs.ui.h</include>
+</includes>
+<variables>
+    <variable access="private">bool Configuring;</variable>
+</variables>
+<signals>
+    <signal>UpdatePacketSize(int)</signal>
+    <signal>UpdateNoiseReduction(bool)</signal>
+    <signal>UpdateEchoCancel(int)</signal>
+    <signal>UpdateAutoGain(int)</signal>
+    <signal>UpdateDereverb(float,float)</signal>
+    <signal>ToggleFeedbackTest(bool)</signal>
+    <signal>UpdateMinOutBuffering(bool)</signal>
+    <signal>UpdateOutbufSize(int)</signal>
+    <signal>ToggleProcTest(bool)</signal>
+</signals>
+<slots>
+    <slot>PacketSize_valueChanged( int val )</slot>
+    <slot>OutbufSize_valueChanged( int val )</slot>
+    <slot>NoiseReduction_toggled( bool val )</slot>
+    <slot>EchoCancelation_toggled( bool enable )</slot>
+    <slot>EchoCancelTail_valueChanged( int val )</slot>
+    <slot>AutoGainLevel_valueChanged( int val )</slot>
+    <slot>Dereverb_toggled( bool state )</slot>
+    <slot>DereverbLevel_valueChanged( int val )</slot>
+    <slot>DereverbDecay_valueChanged( int val )</slot>
+    <slot>SetSignalProcValues( int psms, int bsms, int ecms, bool noisereduce, int aglevel, float rvrblvl, float rvrbdecay )</slot>
+    <slot>FeedbackTest_toggled( bool val )</slot>
+    <slot>RingToneListFiles_clicked()</slot>
+    <slot>ProcTest_toggled( bool val )</slot>
+</slots>
+<layoutdefaults spacing="6" margin="11"/>
+</UI>

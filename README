@@ -1,0 +1,117 @@
+HFP for Linux
+=============
+
+Copyright 2006-2008 Sam Revitch <samr7@cs.washington.edu>
+
+HFP for Linux is a software package written in C++ that aims to be a 
+conforming implementation of Bluetooth Hands-Free Profile 1.5.  This 
+package inclues three main pieces:
+
+- hfconsole, a PyGTK console application for hfpd
+- hfpd, the hands-free profile D-Bus service
+- libhfp, the core hands-free profile implementation
+
+Plus, a set of secondary programs as examples:
+
+- standalone, a libhfp Qt application that does not use hfpd
+- hfpdtext, a variant of hfpd with a text protocol instead of D-Bus
+- nhandsfree, an hfpdtext client plugin for nGhost
+
+libhfp is currently very simple and supports only basic HFP and SCO 
+audio.  It does not support phone book access, and hfconsole does not 
+implement a local phone book.
+
+
+Features
+--------
+- Conforms to Bluetooth Hands-Free Profile 1.5
+- Uses libspeexdsp signal processing and echo cancelation library
+- Supports ALSA and OSS sound card drivers
+- Can set BlueZ directives for authentication of incoming connections
+- Supports involuntary device disconnection and reconnection
+- Supports audio system tests, including loopback and DSP test modes
+- libhfp is adaptable and can be plugged in to different environments easily
+- libhfp includes detailed Doxygen documentation
+- hfpd is a D-Bus service compatible with any environmental D-Bus bindings
+- hfpd and standalone support multiple concurrently connected devices
+- hfpd and standalone support ring tones in WAV format
+
+
+Requirements
+------------
+- BlueZ / libbluetooth
+- (optional) Speex >= 1.2b2, for microphone input cleanup
+- (optional) libaudiofile
+- (optional) libasound, for the ALSA backend
+- (optional) D-Bus for hfpd and the D-Bus clients
+- (optional) Qt >= 3.3, for the standalone program
+- (optional) nghost, for the nhandsfree plugin
+
+You will need a full duplex sound card.  Just about any integrated motherboard
+audio device produced within the last ten years should suffice.  Most 
+USB sound cards that support capture should work as well.
+
+You will need a Bluetooth dongle with functional SCO.  I have had reliable
+success with a number of dongles based on Cambridge Silicon Radio BlueCore4.
+I have had less reliable success with dongles based on Broadcom BCM2035,
+seemlingly due to firmware bugs.
+
+
+GUI Operation
+-------------
+- Pair your phone with hfconsole.  Enable Bluetooth on your phone, 
+  configure it to be temporarily discoverable, and click the "Scan" 
+  button on the hfconsole main window.  Your phone should appear on the 
+  list within five seconds.
+
+- Outgoing calls may be placed both directly from your phone, and from the
+  hfconsole dial pad.
+
+- Incoming calls may be answered directly from the phone or from the Accept
+  button that appears on hfconsole.
+
+- To set the ring tone, click the "Configuration" button on the main window,
+  switch to the Alerting tab, click the "..." button, and use the file chooser
+  to select a .WAV file.
+
+- When in a call, the hfconsole dial pad may be used to send DTMF tones 
+  for navigating phone menus, i.e. "Press 1 for more options."
+
+
+Troubleshooting
+---------------
+For all audio problems, open the GUI configuration dialog, go to the 
+device tab, and use the feedback test feature to verify that your sound card 
+can loop back to itself, and that the libhfp audio components are working.
+
+libhfp has been tested only with a small set of phones, and 
+incompatibilities may exist.  If you believe you may have one, please 
+start hfpd manually with the '-f -d4' flags, capture the console output 
+of hfpd and hfconsole to a text file, and mail it to the author with 
+your problem description.
+
+
+Miscellaneous
+-------------
+Wish list:
+- libhfp should support Bluetooth PBAP and vendor AT commands for phonebook
+  access
+- The GUIs need a phone book
+- The GUIs should support window manager alerting
+
+This program was developed with:
+- Various versions of the Linux kernel
+- Various CSR-based Bluetooth dongles
+- A Motorola V3 RAZR
+- A Motorola A780 (bugs!)
+
+Aside, it would not appear to be possible for a mere mortal to create a single
+application implementing complete HFP with any of the Windows Bluetooth
+stacks.  The Microsoft stack does not support SCO, and while the Widcomm stack
+may, it does not have public documentation for this functionality.  This 
+is evidenced by CentraFuse, which _does_ support hands-free profile on 
+Windows, but using a custom-built Bluetooth stack from BlueSoleil.  The 
+CentraFuse solution is both very expensive and doesn't support any signal 
+processing at time of writing.
+
+Mad props to BlueZ for completeness!

@@ -1,0 +1,838 @@
+<!DOCTYPE UI><UI version="3.3" stdsetdef="1">
+<class>NoHands</class>
+<widget class="QDialog">
+    <property name="name">
+        <cstring>NoHands</cstring>
+    </property>
+    <property name="geometry">
+        <rect>
+            <x>0</x>
+            <y>0</y>
+            <width>527</width>
+            <height>441</height>
+        </rect>
+    </property>
+    <property name="caption">
+        <string>No Hands</string>
+    </property>
+    <property name="sizeGripEnabled">
+        <bool>true</bool>
+    </property>
+    <hbox>
+        <property name="name">
+            <cstring>unnamed</cstring>
+        </property>
+        <widget class="QLayoutWidget">
+            <property name="name">
+                <cstring>layout7</cstring>
+            </property>
+            <vbox>
+                <property name="name">
+                    <cstring>unnamed</cstring>
+                </property>
+                <widget class="QLabel">
+                    <property name="name">
+                        <cstring>CallStatus</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>4</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="text">
+                        <string></string>
+                    </property>
+                    <property name="alignment">
+                        <set>AlignTop</set>
+                    </property>
+                </widget>
+                <widget class="QLayoutWidget">
+                    <property name="name">
+                        <cstring>StateShell</cstring>
+                    </property>
+                    <vbox>
+                        <property name="name">
+                            <cstring>unnamed</cstring>
+                        </property>
+                        <widget class="QFrame">
+                            <property name="name">
+                                <cstring>StateDummy1</cstring>
+                            </property>
+                            <property name="frameShape">
+                                <enum>StyledPanel</enum>
+                            </property>
+                            <property name="frameShadow">
+                                <enum>Plain</enum>
+                            </property>
+                            <property name="lineWidth">
+                                <number>0</number>
+                            </property>
+                        </widget>
+                        <widget class="QFrame">
+                            <property name="name">
+                                <cstring>StateDummy2</cstring>
+                            </property>
+                            <property name="frameShape">
+                                <enum>StyledPanel</enum>
+                            </property>
+                            <property name="frameShadow">
+                                <enum>Plain</enum>
+                            </property>
+                            <property name="lineWidth">
+                                <number>0</number>
+                            </property>
+                        </widget>
+                    </vbox>
+                </widget>
+                <widget class="QLayoutWidget">
+                    <property name="name">
+                        <cstring>layout24</cstring>
+                    </property>
+                    <hbox>
+                        <property name="name">
+                            <cstring>unnamed</cstring>
+                        </property>
+                        <widget class="QPushButton">
+                            <property name="name">
+                                <cstring>ScanButton</cstring>
+                            </property>
+                            <property name="sizePolicy">
+                                <sizepolicy>
+                                    <hsizetype>4</hsizetype>
+                                    <vsizetype>4</vsizetype>
+                                    <horstretch>0</horstretch>
+                                    <verstretch>0</verstretch>
+                                </sizepolicy>
+                            </property>
+                            <property name="text">
+                                <string>Scan</string>
+                            </property>
+                            <property name="default">
+                                <bool>true</bool>
+                            </property>
+                        </widget>
+                        <widget class="QPushButton">
+                            <property name="name">
+                                <cstring>PrefsButton</cstring>
+                            </property>
+                            <property name="sizePolicy">
+                                <sizepolicy>
+                                    <hsizetype>4</hsizetype>
+                                    <vsizetype>4</vsizetype>
+                                    <horstretch>0</horstretch>
+                                    <verstretch>0</verstretch>
+                                </sizepolicy>
+                            </property>
+                            <property name="text">
+                                <string>Configuration</string>
+                            </property>
+                        </widget>
+                        <spacer>
+                            <property name="name">
+                                <cstring>spacer3</cstring>
+                            </property>
+                            <property name="orientation">
+                                <enum>Horizontal</enum>
+                            </property>
+                            <property name="sizeType">
+                                <enum>Preferred</enum>
+                            </property>
+                            <property name="sizeHint">
+                                <size>
+                                    <width>41</width>
+                                    <height>31</height>
+                                </size>
+                            </property>
+                        </spacer>
+                    </hbox>
+                </widget>
+            </vbox>
+        </widget>
+        <widget class="QLayoutWidget">
+            <property name="name">
+                <cstring>layout19</cstring>
+            </property>
+            <grid>
+                <property name="name">
+                    <cstring>unnamed</cstring>
+                </property>
+                <property name="spacing">
+                    <number>2</number>
+                </property>
+                <widget class="QPushButton" row="3" column="1">
+                    <property name="name">
+                        <cstring>NumButton5</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>5</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>5</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="4" column="1">
+                    <property name="name">
+                        <cstring>NumButton8</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>5</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>8</string>
+                    </property>
+                </widget>
+                <widget class="QLayoutWidget" row="7" column="0" rowspan="1" colspan="3">
+                    <property name="name">
+                        <cstring>layout17</cstring>
+                    </property>
+                    <hbox>
+                        <property name="name">
+                            <cstring>unnamed</cstring>
+                        </property>
+                        <property name="spacing">
+                            <number>2</number>
+                        </property>
+                        <widget class="QPushButton">
+                            <property name="name">
+                                <cstring>RedialButton</cstring>
+                            </property>
+                            <property name="sizePolicy">
+                                <sizepolicy>
+                                    <hsizetype>5</hsizetype>
+                                    <vsizetype>5</vsizetype>
+                                    <horstretch>0</horstretch>
+                                    <verstretch>5</verstretch>
+                                </sizepolicy>
+                            </property>
+                            <property name="font">
+                                <font>
+                                    <family>Adobe Sans MM</family>
+                                    <pointsize>14</pointsize>
+                                </font>
+                            </property>
+                            <property name="text">
+                                <string>Redial</string>
+                            </property>
+                            <property name="default">
+                                <bool>true</bool>
+                            </property>
+                        </widget>
+                        <widget class="QPushButton">
+                            <property name="name">
+                                <cstring>HandsetButton</cstring>
+                            </property>
+                            <property name="sizePolicy">
+                                <sizepolicy>
+                                    <hsizetype>5</hsizetype>
+                                    <vsizetype>5</vsizetype>
+                                    <horstretch>0</horstretch>
+                                    <verstretch>4</verstretch>
+                                </sizepolicy>
+                            </property>
+                            <property name="font">
+                                <font>
+                                    <family>Adobe Sans MM</family>
+                                    <pointsize>14</pointsize>
+                                </font>
+                            </property>
+                            <property name="text">
+                                <string>Handset</string>
+                            </property>
+                            <property name="default">
+                                <bool>true</bool>
+                            </property>
+                        </widget>
+                    </hbox>
+                </widget>
+                <widget class="QPushButton" row="2" column="2">
+                    <property name="name">
+                        <cstring>NumButton3</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>3</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="3" column="2">
+                    <property name="name">
+                        <cstring>NumButton6</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>6</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="2" column="0">
+                    <property name="name">
+                        <cstring>NumButton1</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>1</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="5" column="0">
+                    <property name="name">
+                        <cstring>NumButtonS</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>*</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="4" column="2">
+                    <property name="name">
+                        <cstring>NumButton9</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>9</string>
+                    </property>
+                </widget>
+                <widget class="QLayoutWidget" row="1" column="0" rowspan="1" colspan="3">
+                    <property name="name">
+                        <cstring>layout18</cstring>
+                    </property>
+                    <hbox>
+                        <property name="name">
+                            <cstring>unnamed</cstring>
+                        </property>
+                        <widget class="QLineEdit">
+                            <property name="name">
+                                <cstring>PhoneNumberEdit</cstring>
+                            </property>
+                            <property name="sizePolicy">
+                                <sizepolicy>
+                                    <hsizetype>5</hsizetype>
+                                    <vsizetype>0</vsizetype>
+                                    <horstretch>0</horstretch>
+                                    <verstretch>1</verstretch>
+                                </sizepolicy>
+                            </property>
+                            <property name="font">
+                                <font>
+                                    <family>Courier Std</family>
+                                    <pointsize>14</pointsize>
+                                    <bold>1</bold>
+                                </font>
+                            </property>
+                            <property name="margin">
+                                <number>0</number>
+                            </property>
+                            <property name="text">
+                                <string></string>
+                            </property>
+                            <property name="readOnly">
+                                <bool>false</bool>
+                            </property>
+                        </widget>
+                        <widget class="QPushButton">
+                            <property name="name">
+                                <cstring>NumDelButton</cstring>
+                            </property>
+                            <property name="sizePolicy">
+                                <sizepolicy>
+                                    <hsizetype>0</hsizetype>
+                                    <vsizetype>0</vsizetype>
+                                    <horstretch>0</horstretch>
+                                    <verstretch>0</verstretch>
+                                </sizepolicy>
+                            </property>
+                            <property name="text">
+                                <string>&lt;</string>
+                            </property>
+                        </widget>
+                    </hbox>
+                </widget>
+                <widget class="QPushButton" row="5" column="1">
+                    <property name="name">
+                        <cstring>NumButton0</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>5</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>0</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="5" column="2">
+                    <property name="name">
+                        <cstring>NumButtonH</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>#</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="4" column="0">
+                    <property name="name">
+                        <cstring>NumButton7</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>7</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="2" column="1">
+                    <property name="name">
+                        <cstring>NumButton2</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>5</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>2</string>
+                    </property>
+                </widget>
+                <widget class="QLabel" row="0" column="0" rowspan="1" colspan="3">
+                    <property name="name">
+                        <cstring>textLabel1</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>0</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="text">
+                        <string>Dial Pad</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="3" column="0">
+                    <property name="name">
+                        <cstring>NumButton4</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>4</string>
+                    </property>
+                </widget>
+                <widget class="QPushButton" row="6" column="0" rowspan="1" colspan="3">
+                    <property name="name">
+                        <cstring>DialButton</cstring>
+                    </property>
+                    <property name="sizePolicy">
+                        <sizepolicy>
+                            <hsizetype>5</hsizetype>
+                            <vsizetype>5</vsizetype>
+                            <horstretch>0</horstretch>
+                            <verstretch>4</verstretch>
+                        </sizepolicy>
+                    </property>
+                    <property name="font">
+                        <font>
+                            <family>Adobe Sans MM</family>
+                            <pointsize>14</pointsize>
+                        </font>
+                    </property>
+                    <property name="text">
+                        <string>Dial</string>
+                    </property>
+                    <property name="default">
+                        <bool>true</bool>
+                    </property>
+                </widget>
+            </grid>
+        </widget>
+    </hbox>
+</widget>
+<connections>
+    <connection>
+        <sender>NumButton1</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton1_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton2</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton2_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton3</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton3_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton4</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton4_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton5</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton5_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton6</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton6_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton7</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton7_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton8</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton8_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton9</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton9_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButtonH</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButtonH_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton0</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton0_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButtonS</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButtonS_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumDelButton</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumDelButton_clicked()</slot>
+    </connection>
+    <connection>
+        <sender>DialButton</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>DialClicked()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton1</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton1_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton2</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton2_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton3</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton3_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton4</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton4_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton5</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton5_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton6</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton6_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton7</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton7_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton8</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton8_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton9</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton9_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButtonH</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButtonH_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButton0</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButton0_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>NumButtonS</sender>
+        <signal>pressed()</signal>
+        <receiver>NoHands</receiver>
+        <slot>NumButtonS_pressed()</slot>
+    </connection>
+    <connection>
+        <sender>RedialButton</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>RedialClicked()</slot>
+    </connection>
+    <connection>
+        <sender>HandsetButton</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>HandsetClicked()</slot>
+    </connection>
+    <connection>
+        <sender>ScanButton</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>OpenScanDialog()</slot>
+    </connection>
+    <connection>
+        <sender>PrefsButton</sender>
+        <signal>clicked()</signal>
+        <receiver>NoHands</receiver>
+        <slot>OpenPrefsDialog()</slot>
+    </connection>
+</connections>
+<tabstops>
+    <tabstop>PhoneNumberEdit</tabstop>
+    <tabstop>NumDelButton</tabstop>
+    <tabstop>NumButton1</tabstop>
+    <tabstop>NumButton2</tabstop>
+    <tabstop>NumButton3</tabstop>
+    <tabstop>NumButton4</tabstop>
+    <tabstop>NumButton5</tabstop>
+    <tabstop>NumButton6</tabstop>
+    <tabstop>NumButton7</tabstop>
+    <tabstop>NumButton8</tabstop>
+    <tabstop>NumButton9</tabstop>
+    <tabstop>NumButton0</tabstop>
+    <tabstop>NumButtonH</tabstop>
+    <tabstop>NumButtonS</tabstop>
+    <tabstop>DialButton</tabstop>
+</tabstops>
+<includes>
+    <include location="local" impldecl="in implementation">nohands.ui.h</include>
+</includes>
+<slots>
+    <slot>NumButton1_clicked()</slot>
+    <slot>NumButton2_clicked()</slot>
+    <slot>NumButton3_clicked()</slot>
+    <slot>NumButton4_clicked()</slot>
+    <slot>NumButton5_clicked()</slot>
+    <slot>NumButton6_clicked()</slot>
+    <slot>NumButton7_clicked()</slot>
+    <slot>NumButton8_clicked()</slot>
+    <slot>NumButton9_clicked()</slot>
+    <slot>NumButtonH_clicked()</slot>
+    <slot>NumButton0_clicked()</slot>
+    <slot>NumButtonS_clicked()</slot>
+    <slot>NumButton1_pressed()</slot>
+    <slot>NumButton2_pressed()</slot>
+    <slot>NumButton3_pressed()</slot>
+    <slot>NumButton4_pressed()</slot>
+    <slot>NumButton5_pressed()</slot>
+    <slot>NumButton6_pressed()</slot>
+    <slot>NumButton7_pressed()</slot>
+    <slot>NumButton8_pressed()</slot>
+    <slot>NumButton9_pressed()</slot>
+    <slot>NumButtonH_pressed()</slot>
+    <slot>NumButton0_pressed()</slot>
+    <slot>NumButtonS_pressed()</slot>
+    <slot>NumDelButton_clicked()</slot>
+    <slot>DialClicked()</slot>
+    <slot>setHandsetButtonEnabled( bool enabled, bool muted )</slot>
+    <slot>DeviceSelectionChanged()</slot>
+    <slot>RedialClicked()</slot>
+    <slot>HandsetClicked()</slot>
+    <slot>OpenScanDialog()</slot>
+    <slot>OpenPrefsDialog()</slot>
+</slots>
+<functions>
+    <function>KeypadPress( char c )</function>
+    <function>KeypadClick( char c )</function>
+    <function specifier="non virtual">setStatus( const QString &amp; status )</function>
+    <function>Dial( const QString &amp; phoneNumber )</function>
+    <function access="protected">setDialButtonsEnabled( bool enabled )</function>
+    <function access="protected">setDigitButtonsEnabled( bool enabled )</function>
+    <function>disableAllButtons()</function>
+</functions>
+<layoutdefaults spacing="6" margin="11"/>
+</UI>

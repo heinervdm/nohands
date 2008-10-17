@@ -1,0 +1,8 @@
+Installing NoHands
+------------------
+
+After building, run 'make install'.
+
+Binaries will be placed in the prefix path, which defaults to /usr/local, 
+i.e. the Qt UI will be installed as /usr/local/bin/nohands.  To set the 
+prefix, use 'configure --prefix=/XYZ'
