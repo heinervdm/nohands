@@ -176,7 +176,7 @@ if test $want_dbus != "no"; then
 	PKG_CHECK_MODULES([DBUS], [dbus-1],
 			[use_dbus="yes"], [use_dbus="no"])
 
-	if test $use_dbus = "no" -a $want_hfpd = "yes"; then
+	if test $use_dbus = "no" -a $want_dbus = "yes"; then
 	        AC_MSG_ERROR([[
 ***
 *** libspeexdsp support has been requested, but was not found.
