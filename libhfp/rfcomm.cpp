@@ -163,7 +163,7 @@ RfcommListen(uint8_t channel)
 	rsock = socket(PF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
 	if (rsock < 0) {
 		GetDi()->LogWarn("Create RFCOMM socket");
-		goto failed;
+		return false;
 	}
 
 	memset(&raddr, 0, sizeof(raddr));

@@ -134,7 +134,7 @@ ScoListen(void)
 	sock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_SCO);
 	if (sock < 0) {
 		GetDi()->LogWarn("Create SCO socket: %d\n", errno);
-		goto failed;
+		return false;
 	}
 
 	memset(&saddr, 0, sizeof(saddr));
