@@ -421,8 +421,8 @@ public:
 static inline SoundIo *
 DoOssConfig(DispatchInterface *dip, const char *driveropts)
 {
-	char *opts = 0, *tok, *save = 0;
-	char *ind = "/dev/dsp", *outd = "/dev/dsp";
+	char *opts = 0, *tok, *save = 0, *tmp;
+	const char *ind = "/dev/dsp", *outd = "/dev/dsp";
 	SoundIo *ossp = 0;
 
 	if (driveropts && driveropts[0]) {
@@ -435,30 +435,32 @@ DoOssConfig(DispatchInterface *dip, const char *driveropts)
 	while (tok) {
 		trim_leading_ws(tok);
 		if (!strncmp(tok, "in=", 3)) {
-			ind = &tok[3];
-			trim_leading_ws(ind);
-			trim_trailing_ws(ind);
+			tmp = &tok[3];
+			trim_leading_ws(tmp);
+			trim_trailing_ws(tmp);
+			ind = tmp;
 		}
 		else if (!strncmp(tok, "out=", 4)) {
-			outd = &tok[4];
-			trim_leading_ws(outd);
-			trim_trailing_ws(outd);
+			tmp = &tok[4];
+			trim_leading_ws(tmp);
+			trim_trailing_ws(tmp);
+			outd = tmp;
 		}
 		else if (!strncmp(tok, "dev=", 4)) {
-			outd = &tok[4];
-			trim_leading_ws(outd);
-			trim_trailing_ws(outd);
-			ind = outd;
+			tmp = &tok[4];
+			trim_leading_ws(tmp);
+			trim_trailing_ws(tmp);
+			ind = outd = tmp;
 		}
 		else if (strchr(tok, '=')) {
 			dip->LogWarn("OSS: unrecognized option \"%s\"\n",
 				     tok);
 		}
 		else {
-			outd = tok;
-			trim_leading_ws(outd);
-			trim_trailing_ws(outd);
-			ind = outd;
+			tmp = tok;
+			trim_leading_ws(tmp);
+			trim_trailing_ws(tmp);
+			ind = outd = tmp;
 		}
 
 		tok = strtok_r(NULL, "&", &save);

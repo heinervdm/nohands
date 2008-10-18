@@ -40,11 +40,11 @@ CreateSection(const char *name, int len)
 
 	assert(name && strlen(name));
 	asize = sizeof(*secp) + len + 1;
-	secp = (struct ConfigFile::Section *) malloc(asize);
+	secp = (Section *) malloc(asize);
 	if (!secp)
 		return 0;
 
-	secp = new (secp) struct ConfigFile::Section;
+	secp = new (secp) Section;
 	buf = (char *) (secp + 1);
 	strncpy(buf, name, len);
 	buf[len] = '\0';
