@@ -290,6 +290,21 @@ if test $use_alsa = "yes"; then
 	AC_DEFINE([USE_ALSA_SOUNDIO], [], [Enable support for libasound])
 	libhfp_CXXFLAGS="$libhfp_CXXFLAGS $ALSA_CFLAGS"
 	libhfp_LIBS="$libhfp_LIBS $ALSA_LIBS"
+else
+	if test $want_alsa != "no"; then
+		echo "***"
+		echo "***"
+		echo "*** WARNING: Support for ALSA is being omitted"
+		echo "*** WARNING: This probably isn't what you want"
+		echo "*** WARNING: Install libasound development package"
+		echo "***"
+		echo "***"
+		echo -n -e "\a"
+		sleep 1
+		echo -n -e "\a"
+		sleep 1
+		echo -n -e "\a"
+	fi
 fi
 if test $want_oss = "yes"; then
 	AC_DEFINE([USE_OSS_SOUNDIO], [], [Enable support for OSS])
@@ -303,6 +318,21 @@ if test $use_speexdsp = "yes"; then
 	AC_DEFINE([USE_SPEEXDSP], [], [Enable support for libspeexdsp])
 	libhfp_CXXFLAGS="$libhfp_CXXFLAGS $SPEEXDSP_CFLAGS"
 	libhfp_LIBS="$libhfp_LIBS $SPEEXDSP_LIBS"
+else
+	if test $want_speexdsp != "no"; then
+		echo "***"
+		echo "***"
+		echo "*** WARNING: Support for libspeexdsp is being omitted"
+		echo "*** WARNING: This probably isn't what you want"
+		echo "*** WARNING: Install libspeexdsp development package"
+		echo "***"
+		echo "***"
+		echo -n -e "\a"
+		sleep 1
+		echo -n -e "\a"
+		sleep 1
+		echo -n -e "\a"
+	fi
 fi
 
 if test $use_nghost = "yes"; then

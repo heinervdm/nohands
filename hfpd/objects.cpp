@@ -743,6 +743,8 @@ HandsFree::
 bool HandsFree::
 Init(const char *cfgfile)
 {
+	bool res;
+
 	m_config = new ConfigHandler(GetDi());
 	if (!m_config)
 		goto failed;
@@ -767,7 +769,8 @@ Init(const char *cfgfile)
 	m_hfp->cb_HfpSessionFactory.Register(this,
 					     &HandsFree::SessionFactory);
 
-	m_hub->AddService(m_hfp);
+	res = m_hub->AddService(m_hfp);
+	assert(res);
 
 	m_sound = new SoundIoObj(this);
 	if (!m_sound)
@@ -801,6 +804,7 @@ Cleanup(void)
 		m_sound = 0;
 	}
 	if (m_hfp) {
+		m_hub->RemoveService(m_hfp);
 		delete m_hfp;
 		m_hfp = 0;
 	}
@@ -1909,6 +1913,13 @@ Init(DbusSession *dbusp)
 	m_config->Get("audio", "jitterwindow", val, 0);
 	m_sound->SetJitterWindowHint(val);
 
+#if defined(USE_SPEEXDSP)
+	m_sigproc = SoundIoFltCreateSpeex(GetDi());
+	if (!m_sigproc) {
+		GetDi()->LogWarn("Could not create DSP filter object\n");
+		goto failed;
+	}
+
 	m_config->Get("dsp", "denoise",
 		      m_procprops.noisereduce, true);
 	m_config->Get("dsp", "echocancel_ms",
@@ -1920,16 +1931,13 @@ Init(DbusSession *dbusp)
 	m_config->Get("dsp", "dereverb_decay",
 		      m_procprops.dereverb_decay, 0.0);
 
-	m_sigproc = SoundIoFltCreateSpeex(GetDi());
-	if (!m_sigproc)
-		goto failed;
-
 	if (!m_sigproc->Configure(m_procprops)) {
 		GetDi()->LogWarn("Could not configure DSP settings\n");
 		goto failed;
 	}
 
 	m_sound->SetDsp(m_sigproc);
+#endif /* defined(USE_SPEEXDSP) */
 
 	if (!dbusp->ExportObject(this))
 		goto failed;

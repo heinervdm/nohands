@@ -474,6 +474,7 @@ static const DbusProperty g_SoundIo_properties[] = {
 			     GetMinBufferFillHint, SetMinBufferFillHint),
 	DbusPropertyMarshall(dbus_uint32_t, JitterWindowHint, SoundIoObj,
 			     GetJitterWindowHint, SetJitterWindowHint),
+#if defined(USE_SPEEXDSP)
 	DbusPropertyMarshall(bool, Denoise, SoundIoObj,
 			     GetDenoise, SetDenoise),
 	DbusPropertyMarshall(dbus_uint32_t, AutoGain, SoundIoObj,
@@ -484,7 +485,7 @@ static const DbusProperty g_SoundIo_properties[] = {
 			     GetDereverbLevel, SetDereverbLevel),
 	DbusPropertyMarshall(float, DereverbDecay, SoundIoObj,
 			     GetDereverbDecay, SetDereverbDecay),
-
+#endif /* defined(USE_SPEEXDSP) */
 	{ 0, }
 };
 
