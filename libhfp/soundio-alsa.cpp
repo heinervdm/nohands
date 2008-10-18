@@ -29,15 +29,18 @@
 #include <libhfp/soundio.h>
 #include <libhfp/soundio-buf.h>
 
+#if defined(USE_ALSA_SOUNDIO)
+#include <alsa/asoundlib.h>
+#endif
+
 /*
  * ALSA backend SoundIo implementation, including support for procedural
  * and mmap access.
  */
 
-#if defined(USE_ALSA_SOUNDIO)
-#include <alsa/asoundlib.h>
-
 namespace libhfp {
+
+#if defined(USE_ALSA_SOUNDIO)
 
 /*
  * Linux ALSA sound I/O base class.

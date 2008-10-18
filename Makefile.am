@@ -10,5 +10,11 @@ else !BUILD_QT
 QT=
 endif !BUILD_QT
 
-SUBDIRS = libhfp hfpd $(NHANDSFREE) $(QT) data
+if BUILD_DBUS
+DBUS=hfpd
+else !BUILD_DBUS
+DBUS=
+endif !BUILD_DBUS
+
+SUBDIRS = libhfp $(DBUS) $(NHANDSFREE) $(QT) data
 include m4/doxy.am

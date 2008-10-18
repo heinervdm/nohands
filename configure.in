@@ -109,9 +109,9 @@ AC_ARG_ENABLE(speexdsp,
 	AC_HELP_STRING([--enable-speexdsp], [build the speexdsp AEC filter]),
 	want_speexdsp=$enableval, want_speexdsp=maybe)
 
-AC_ARG_ENABLE(hfpd,
-	AC_HELP_STRING([--enable-speexdsp], [build the D-BUS based hfpd]),
-	want_hfpd=$enableval, want_hfpd=maybe)
+AC_ARG_ENABLE(dbus,
+	AC_HELP_STRING([--enable-dbus], [build D-Bus components -- hfpd]),
+	want_dbus=$enableval, want_dbus=maybe)
 
 AC_ARG_ENABLE(nghost,
 	AC_HELP_STRING([--enable-nghost], [build the nhandsfree nGhost plugin]),
@@ -172,7 +172,7 @@ fi
 
 dnl dbus is optional
 use_dbus=no
-if test $want_hfpd != "no"; then
+if test $want_dbus != "no"; then
 	PKG_CHECK_MODULES([DBUS], [dbus-1],
 			[use_dbus="yes"], [use_dbus="no"])
 

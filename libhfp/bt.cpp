@@ -225,7 +225,7 @@ void SdpAsyncTaskHandler::
 SdpNextQueue(void)
 {
 	SdpTask *taskp;
-	sigset_t sigs;
+	sighandler_t sigsave;
 	ssize_t res;
 
 	assert(m_rqpipe >= 0);
@@ -238,11 +238,9 @@ SdpNextQueue(void)
 	 * We never put more than sizeof(SdpTaskParams) through the pipe
 	 * before reading a reply, so it should never block.
 	 */
-	sigemptyset(&sigs);
-	sigaddset(&sigs, SIGPIPE);
-	pthread_sigmask(SIG_BLOCK, &sigs, &sigs);
+	sigsave = signal(SIGPIPE, SIG_IGN);
 	res = write(m_rqpipe, &taskp->m_params, sizeof(taskp->m_params));
-	pthread_sigmask(SIG_SETMASK, &sigs, NULL);
+	(void) signal(SIGPIPE, sigsave);
 
 	if (res != sizeof(taskp->m_params)) {
 		/* TODO: async involuntary stop */
