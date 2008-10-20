@@ -68,6 +68,9 @@ class AudioGateway : public DbusExportObject {
 
 	void DoDisconnect(void);
 
+	bool DoPendingCommand(DBusMessage *msgp,
+			      libhfp::HfpPendingCommand *cmdp);
+
 public:
 	AudioGateway(HandsFree *hfp, libhfp::HfpSession *sessp, char *name);
 	virtual ~AudioGateway();
@@ -101,10 +104,17 @@ public:
 	/* D-Bus method handler methods */
 	bool Connect(DBusMessage *msgp);
 	bool Disconnect(DBusMessage *msgp);
+	bool CloseVoice(DBusMessage *msgp);
 	bool Dial(DBusMessage *msgp);
 	bool Redial(DBusMessage *msgp);
 	bool HangUp(DBusMessage *msgp);
 	bool SendDtmf(DBusMessage *msgp);
+	bool Answer(DBusMessage *msgp);
+	bool CallDropHeldUdub(DBusMessage *msgp);
+	bool CallSwapDropActive(DBusMessage *msgp);
+	bool CallSwapHoldActive(DBusMessage *msgp);
+	bool CallLink(DBusMessage *msgp);
+	bool CallTransfer(DBusMessage *msgp);
 
 	/* D-Bus Property related methods */
 	bool GetState(DBusMessage *msgp, unsigned char &val);
@@ -127,10 +137,17 @@ public:
 static const DbusMethod g_AudioGateway_methods[] = {
 	DbusMethodEntry(AudioGateway, Connect, "", ""),
 	DbusMethodEntry(AudioGateway, Disconnect, "", ""),
+	DbusMethodEntry(AudioGateway, CloseVoice, "", ""),
 	DbusMethodEntry(AudioGateway, Dial, "s", ""),
 	DbusMethodEntry(AudioGateway, Redial, "", ""),
 	DbusMethodEntry(AudioGateway, HangUp, "", ""),
 	DbusMethodEntry(AudioGateway, SendDtmf, "y", ""),
+	DbusMethodEntry(AudioGateway, Answer, "", ""),
+	DbusMethodEntry(AudioGateway, CallDropHeldUdub, "", ""),
+	DbusMethodEntry(AudioGateway, CallSwapDropActive, "", ""),
+	DbusMethodEntry(AudioGateway, CallSwapHoldActive, "", ""),
+	DbusMethodEntry(AudioGateway, CallLink, "", ""),
+	DbusMethodEntry(AudioGateway, CallTransfer, "", ""),
 	{ 0, }
 };
 
@@ -138,7 +155,7 @@ static const DbusMethod g_AudioGateway_signals[] = {
 	DbusSignalEntry(StateChanged, "y"),
 	DbusSignalEntry(CallStateChanged, "y"),
 	DbusSignalEntry(VoiceStateChanged, "y"),
-	DbusSignalEntry(Ring, "s"),
+	DbusSignalEntry(Ring, "ss"),
 	DbusSignalEntry(IndicatorChanged, "si"),
 	DbusSignalEntry(NameResolved, "s"),
 	{ 0, }
@@ -373,7 +390,7 @@ public:
 	 * secondary endpoint and start it.
 	 */
 	void EpRelease(SoundIoState st = HFPD_SIO_INVALID);
-	bool EpAudioGateway(AudioGateway *agp);
+	bool EpAudioGateway(AudioGateway *agp, bool can_connect);
 	bool EpAudioGatewayComplete(AudioGateway *agp);
 	bool EpLoopback(void);
 	bool EpMembuf(bool in, bool out, libhfp::SoundIoFilter *fltp);
@@ -382,6 +399,7 @@ public:
 
 	/* D-Bus SoundIo interface related methods */
 	bool SetDriver(DBusMessage *msgp);
+	bool ProbeDevices(DBusMessage *msgp);
 	bool Stop(DBusMessage *msgp);
 	bool AudioGatewayStart(DBusMessage *msgp);
 	bool LoopbackStart(DBusMessage *msgp);
@@ -434,8 +452,9 @@ public:
 #if defined(HFPD_SOUNDIO_DEFINE_INTERFACES)
 static const DbusMethod g_SoundIo_methods[] = {
 	DbusMethodEntry(SoundIoObj, SetDriver, "ss", ""),
+	DbusMethodEntry(SoundIoObj, ProbeDevices, "s", "a(ss)"),
 	DbusMethodEntry(SoundIoObj, Stop, "", ""),
-	DbusMethodEntry(SoundIoObj, AudioGatewayStart, "o", ""),
+	DbusMethodEntry(SoundIoObj, AudioGatewayStart, "ob", ""),
 	DbusMethodEntry(SoundIoObj, LoopbackStart, "", ""),
 	DbusMethodEntry(SoundIoObj, MembufStart, "bbuu", ""),
 	DbusMethodEntry(SoundIoObj, MembufClear, "", ""),

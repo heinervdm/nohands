@@ -482,20 +482,21 @@ HfpSession::
 HfpSession(HfpService *svcp, BtDevice *devp)
 	: RfcommSession(svcp, devp), m_conn_state(BTS_Disconnected),
 	  m_conn_autoreconnect(false), 
-	  m_cmd_cur(NULL), m_cmd_tail(NULL),
+	  m_chld_0(false), m_chld_1(false), m_chld_1x(false),
+	  m_chld_2(false), m_chld_2x(false),m_chld_3(false), m_chld_4(false),
 	  m_clip_enabled(false), m_ccwa_enabled(false),
 	  m_inum_service(0), m_inum_call(0), m_inum_callsetup(0),
 	  m_inum_signal(0), m_inum_roam(0), m_inum_battchg(0),
 	  m_inum_names(NULL), m_inum_names_len(0),
 	  m_state_service(false), m_state_call(false), m_state_callsetup(0),
 	  m_state_signal(-1), m_state_roam(-1), m_state_battchg(-1),
+	  m_state_incomplete_clip(0),
 	  m_sco_state(BVS_Invalid), m_sco_sock(-1), m_sco_nonblock(false), 
 	  m_sco_not(0), m_timer(0),
 	  m_timeout_ring(5000), m_timeout_ring_ccwa(20000),
 	  m_timeout_dial(20000),
 	  m_rsp_start(0), m_rsp_len(0)
 {
-	m_state_incomplete_cli[0] = '\0';
 }
 
 HfpSession::
@@ -503,7 +504,7 @@ HfpSession::
 {
 	assert(!m_timer);
 	assert(m_conn_state == BTS_Disconnected);
-	assert(!m_cmd_cur);
+	assert(m_commands.Empty());
 	assert(!m_inum_names);
 	assert(m_sco_state == BVS_Invalid);
 	assert(m_sco_sock < 0);
@@ -546,7 +547,7 @@ void HfpSession::
 __Disconnect(bool notify, bool voluntary)
 {
 	/* Trash the command list */
-	while (m_cmd_cur) {
+	while (!m_commands.Empty()) {
 		DeleteFirstCommand();
 	}
 
@@ -564,6 +565,8 @@ __Disconnect(bool notify, bool voluntary)
 			GetService()->AddAutoReconnect(this);
 	}
 	m_rsp_start = m_rsp_len = 0;
+	m_chld_0 = m_chld_1 = m_chld_1x = m_chld_2 = m_chld_2x = m_chld_3 =
+		m_chld_4 = false;
 	m_clip_enabled = false;
 	m_ccwa_enabled = false;
 	m_inum_service = m_inum_call = m_inum_callsetup = 0;
@@ -572,7 +575,11 @@ __Disconnect(bool notify, bool voluntary)
 	m_state_call = false;
 	m_state_callsetup = 0;
 	m_state_signal = m_state_roam = m_state_battchg = -1;
-	m_state_incomplete_cli[0] = '\0';
+
+	if (m_state_incomplete_clip) {
+		delete m_state_incomplete_clip;
+		m_state_incomplete_clip = 0;
+	}
 
 	RfcommSession::__Disconnect(notify, voluntary);
 }
@@ -1074,7 +1081,7 @@ SndAsyncStart(bool play, bool capture)
 void HfpSession::
 SndAsyncStop(void)
 {
-	if (IsConnectedVoice() && (m_sco_not != NULL)) {
+	if (m_sco_not) {
 		delete m_sco_not;
 		m_sco_not = 0;
 	}
@@ -1092,31 +1099,49 @@ SndAsyncStop(void)
 
 class AtCommand {
 	friend class HfpSession;
-	AtCommand	*m_next;
-	bool		m_dynamic_cmdtext;
+	friend class HfpPendingCommandImpl;
 
-	bool iResponse(HfpSession *sessp, const char *buf) {
+	ListItem		m_links;
+	HfpSession		*m_sess;
+	HfpPendingCommand	*m_pend;
+	bool			m_dynamic_cmdtext;
+
+	bool iResponse(const char *buf) {
 		if (!strcmp(buf, "OK")) {
-			OK(sessp);
+			OK();
 			return true;
 		}
 		if (!strcmp(buf, "ERROR")) {
-			ERROR(sessp);
+			ERROR();
 			return true;
 		}
-		return Response(sessp, buf);
+		return Response(buf);
+	}
+
+	bool Cancel(void) {
+		return m_sess->CancelCommand(this);
 	}
 
 protected:
-	static DispatchInterface *GetDi(HfpSession *sessp)
-		{ return sessp->GetDi(); }
-
+	HfpSession *GetSession(void) const { return m_sess; }
+	DispatchInterface *GetDi(void) const { return m_sess->GetDi(); }
+	void CompletePending(bool success, const char *info) {
+		HfpPendingCommand *cmdp =  m_pend;
+		if (cmdp) {
+			m_pend = 0;
+			(*cmdp)(cmdp, success, info);
+		}
+	}
 public:
 	const char	*m_command_text;
-	virtual bool Response(HfpSession *sessp, const char *buf)
+	virtual bool Response(const char *buf)
 		{ return false; };
-	virtual void OK(HfpSession *sessp) {};
-	virtual void ERROR(HfpSession *sessp) {};
+	virtual void OK(void) {
+		CompletePending(true, "Command Succeeded");
+	}
+	virtual void ERROR(void) {
+		CompletePending(false, "Command Failed");
+	}
 
 	void SetText(const char *cmd) {
 		if (m_dynamic_cmdtext) {
@@ -1131,13 +1156,46 @@ public:
 		}
 	}
 
-	AtCommand(const char *cmd = NULL)
-		: m_next(NULL), m_dynamic_cmdtext(false),
+	AtCommand(HfpSession *sessp, const char *cmd = NULL)
+		: m_sess(sessp), m_pend(0), m_dynamic_cmdtext(false),
 		  m_command_text(NULL) {
 		if (cmd) { SetText(cmd); }
 	}
 	virtual ~AtCommand() {
+		assert(m_links.Empty());
+		CompletePending(false, "Command Canceled");
 		SetText(NULL);
+	}
+};
+
+HfpPendingCommand::
+~HfpPendingCommand()
+{
+}
+
+class HfpPendingCommandImpl : public HfpPendingCommand {
+	AtCommand	*m_cmd;
+
+	void Unlink(void) {
+		assert(!m_cmd->m_pend || (m_cmd->m_pend == this));
+		m_cmd->m_pend = 0;
+		m_cmd = 0;
+	}
+
+public:
+	virtual bool Cancel(void) {
+		if (!m_cmd)
+			return false;
+		return m_cmd->Cancel();
+	}
+
+	HfpPendingCommandImpl(AtCommand *cmdp) : m_cmd(cmdp) {
+		assert(!m_cmd->m_pend);
+		m_cmd->m_pend = this;
+	}
+	virtual ~HfpPendingCommandImpl() {
+		if (m_cmd)
+			Unlink();
 	}
 };
 
@@ -1227,6 +1285,7 @@ static bool IsNL(char c) { return ((c == '\r') || (c == '\n')); }
 size_t HfpSession::
 HfpConsume(char *buf, size_t len)
 {
+	AtCommand *cmdp;
 	size_t pos = 0;
 	char c;
 
@@ -1248,9 +1307,11 @@ HfpConsume(char *buf, size_t len)
 			GetDi()->LogDebug(">> %s\n", buf);
 
 			/* Do we have a waiting command? */
-			if ((m_cmd_cur != NULL) &&
-			    m_cmd_cur->iResponse(this, buf)) {
-				DeleteFirstCommand();
+			if (!m_commands.Empty()) {
+				cmdp = GetContainer(m_commands.next,
+						    AtCommand, m_links);
+				if (cmdp->iResponse(buf))
+					DeleteFirstCommand();
 			}
 
 			if (IsRfcommConnected()) {
@@ -1273,59 +1334,245 @@ HfpConsume(char *buf, size_t len)
 	return 0;
 }
 
-static char *
-ParsePhoneNum(char *buf, int &type)
+static bool
+ParseGsmStringField(char *&buf, const char *&result)
 {
-	char *phnum;
-	int pos;
+	char *xbuf, *xres;
+	int count;
 
-	while (buf[0] && IsWS(buf[0])) { buf++; }
-	if (!buf[0]) {
-		return NULL;
-	}
-	if (buf[0] == '"') {
+	xbuf = buf;
+	while (*xbuf && IsWS(*xbuf)) { xbuf++; }
+	if (!*xbuf)
+		return false;
+
+	if (*xbuf == '"') {
 		/* Find the close quote */
-		buf++;
-		phnum = buf;
-		while (*buf && (*buf != '"')) { buf++; }
-		if (!*buf) { return NULL; }
-
-		*buf = '\0';
-		buf++;
-
-		/* Find the comma */
-		while (*buf && (*buf != ',')) { buf++; }
-		if (!*buf) { return NULL; }
-
-		buf++;
+		xres = xbuf + 1;
+		xbuf = strchr(xres, '"');
+		if (!xbuf) { return false; }
+		*xbuf = '\0';
+		xbuf++;
 
 	} else {
-		/* Find the comma, trim whitespace */
-		phnum = buf;
-		pos = 0;
-		while (buf[pos] && (buf[pos] != ',')) { pos++; }
-		buf = &buf[pos + 1];
-		while (pos && IsWS(phnum[pos - 1])) { pos--; }
-		phnum[pos] = '\0';
+		xres = xbuf;
 	}
 
-	/* Trim whitespace */
-	while (*buf && IsWS(*buf)) { buf++; }
-	if (!*buf) { return NULL; }
+	/* Find the comma */
+	while (*xbuf && (*xbuf != ',')) xbuf++;
+	if (*xbuf) {
+		count = xbuf - xres;
+		*(xbuf++) = '\0';
 
-	/* Read the type code */
-	type = strtol(buf, NULL, 0);
+		/* Trim trailing whitespace */
+		while (count && IsWS(xres[count - 1])) {
+			xres[--count] = '\0';
+		}
+	}
+	if (!*xres)
+		xres = 0;
+	buf = xbuf;
+	result = xres;
+	return true;
+}
 
-	return phnum;
+static bool
+ParseGsmIntField(char *&buf, int &result)
+{
+	char *xbuf, *endp;
+	int value;
+
+	xbuf = buf;
+	while (*xbuf && IsWS(*xbuf)) { xbuf++; }
+	if (!*xbuf)
+		return false;
+
+	
+	value = strtol(xbuf, &endp, 10);
+	if (endp != xbuf) {
+		result = value;
+		xbuf = endp;
+	}
+
+	while (*xbuf && IsWS(*xbuf)) { xbuf++; }
+	if (*xbuf == ',') {
+		*xbuf = '\0';
+		xbuf++;
+	}
+	else if (*xbuf) {
+		return false;
+	}
+
+	buf = xbuf;
+	return true;
+}
+
+void *GsmClipPhoneNumber::
+operator new(size_t nb, size_t extra)
+{
+	return malloc(nb + extra);
+}
+
+void GsmClipPhoneNumber::
+operator delete(void *mem)
+{
+	free(mem);
+}
+
+GsmClipPhoneNumber *GsmClipPhoneNumber::
+Create(const char *src)
+{
+	GsmClipPhoneNumber *res;
+	size_t extra;
+
+	extra = strlen(src) + 1;
+	res = new (extra) GsmClipPhoneNumber;
+	if (!res)
+		return 0;
+
+	strcpy((char *)(res + 1), src);
+	memset(res, 0, sizeof(*res));
+	res->extra = extra;
+	return res;
+}
+
+GsmClipPhoneNumber *GsmClipPhoneNumber::
+Parse(const char *clip)
+{
+	GsmClipPhoneNumber *res;
+	char *buf;
+
+	res = Create(clip);
+	if (!res)
+		return 0;
+	buf = (char *) (res + 1);
+
+	if (!ParseGsmStringField(buf, res->number))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->type))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmStringField(buf, res->subaddr))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->satype))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmStringField(buf, res->alpha))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->cli_validity))
+		goto bad;
+	return res;
+
+bad:
+	delete res;
+	return 0;
+}
+
+GsmClipPhoneNumber *GsmClipPhoneNumber::
+ParseCcwa(const char *clip)
+{
+	GsmClipPhoneNumber *res;
+	char *buf;
+	int class_drop;
+
+	res = Create(clip);
+	if (!res)
+		return 0;
+	buf = (char *) (res + 1);
+
+	if (!ParseGsmStringField(buf, res->number))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->type))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, class_drop))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmStringField(buf, res->alpha))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->cli_validity))
+		goto bad;
+	return res;
+
+bad:
+	delete res;
+	return 0;
+}
+
+bool GsmClipPhoneNumber::
+Compare(const GsmClipPhoneNumber *clip) const
+{
+	const GsmClipPhoneNumber *src = this;
+	if (src->number || clip->number) {
+		if (!src->number || !clip->number)
+			return false;
+		if (strcmp(src->number, clip->number))
+			return false;
+		if (src->type != clip->type)
+			return false;
+	}
+	if (src->subaddr || clip->subaddr) {
+		if (!src->subaddr || !clip->subaddr)
+			return false;
+		if (strcmp(src->subaddr, clip->subaddr))
+			return false;
+		if (src->satype != clip->satype)
+			return false;
+	}
+	if (src->alpha || clip->alpha) {
+		if (!src->alpha || !clip->alpha)
+			return false;
+		if (strcmp(src->alpha, clip->alpha))
+			return false;
+	}
+	return true;
+}
+
+GsmClipPhoneNumber *GsmClipPhoneNumber::
+Duplicate(void) const
+{
+	const GsmClipPhoneNumber *src = this;
+	GsmClipPhoneNumber *res;
+	const char *from;
+	char *buf;
+
+	res = new (src->extra) GsmClipPhoneNumber;
+	if (!res)
+		return 0;
+	*res = *src;
+	buf = (char *) (res + 1);
+	from = (const char *) (src + 1);
+	memcpy(buf, from, src->extra);
+	if (src->number)
+		res->number = buf + (src->number - from);
+	if (src->subaddr)
+		res->subaddr = buf + (src->subaddr - from);
+	if (src->alpha)
+		res->alpha = buf + (src->alpha - from);
+	return res;
 }
 
 void HfpSession::
 ResponseDefault(char *buf)
 {
+	GsmClipPhoneNumber *phnum;
+	int indnum;
+
 	if (!strncmp(buf, "+CIEV:", 6)) {
 		/* Event notification */
-		int indnum;
-
 		buf += 6;
 		while (buf[0] && IsWS(buf[0])) { buf++; }
 		if (!buf[0]) {
@@ -1348,25 +1595,24 @@ ResponseDefault(char *buf)
 
 	else if (!strncmp(buf, "RING", 4) && IsConnected()) {
 		/* Incoming call notification */
-		UpdateCallSetup(1, 1, NULL, m_timeout_ring);
+		UpdateCallSetup(1, 1, 0, m_timeout_ring);
 	}
 
 	else if (!strncmp(buf, "+CLIP:", 6) && IsConnected()) {
 		/* Line identification for incoming call */
-		int pntype;
-		buf = ParsePhoneNum(buf + 6, pntype);
-		if (buf == NULL)
+		phnum = GsmClipPhoneNumber::Parse(buf + 6);
+		if (!phnum)
 			GetDi()->LogWarn("Parse error on CLIP\n");
-		UpdateCallSetup(1, 1, buf, m_timeout_ring);
+		UpdateCallSetup(1, 1, phnum, m_timeout_ring);
+		delete phnum;
 	}
 
 	else if (!strncmp(buf, "+CCWA:", 6) && IsConnected()) {
 		/* Call waiting + line identification for call waiting */
-		int pntype;
-		buf = ParsePhoneNum(buf + 6, pntype);
-		if (buf == NULL)
+		phnum = GsmClipPhoneNumber::ParseCcwa(buf + 6);
+		if (!phnum)
 			GetDi()->LogWarn("Parse error on CCWA\n");
-		UpdateCallSetup(1, 2, buf, m_timeout_ring_ccwa);
+		UpdateCallSetup(1, 2, phnum, m_timeout_ring_ccwa);
 	}
 }
 
@@ -1382,48 +1628,67 @@ ResponseDefault(char *buf)
 void HfpSession::
 DeleteFirstCommand(void)
 {
-	AtCommand *cmd = m_cmd_cur;
-	m_cmd_cur = cmd->m_next;
-	if (cmd == m_cmd_tail) {
-		assert(m_cmd_cur == NULL);
-		m_cmd_tail = NULL;
-	}
+	AtCommand *cmd;
+
+	assert(!m_commands.Empty());
+	cmd = GetContainer(m_commands.next, AtCommand, m_links);
+	cmd->m_links.Unlink();
 	delete cmd;
 
-	if (m_cmd_cur != NULL) {
+	if (!m_commands.Empty())
 		StartCommand();
-	}
 }
 
 void HfpSession::
 AppendCommand(AtCommand *cmdp)
 {
+	bool was_empty;
+
 	if (!IsRfcommConnected()) {
 		delete cmdp;
 		return;
 	}
-	if (m_cmd_tail == NULL) {
-		assert(m_cmd_cur == NULL);
-		m_cmd_cur = cmdp;
-		m_cmd_tail = cmdp;
 
+	was_empty = m_commands.Empty();
+	m_commands.AppendItem(cmdp->m_links);
+
+	if (was_empty)
 		StartCommand();
+}
 
-	} else {
-		m_cmd_tail->m_next = cmdp;
-		m_cmd_tail = cmdp;
+HfpPendingCommand *HfpSession::
+PendingCommand(AtCommand *cmdp)
+{
+	HfpPendingCommand *pendp;
+
+	if (!IsConnected()) {
+		delete cmdp;
+		return 0;
 	}
+
+	if (!cmdp)
+		return 0;
+
+	pendp = new HfpPendingCommandImpl(cmdp);
+	if (!pendp) {
+		delete cmdp;
+		return 0;
+	}
+
+	AppendCommand(cmdp);
+	return pendp;
 }
 
 void HfpSession::
 StartCommand(void)
 {
-	AtCommand *cmdp = m_cmd_cur;
+	AtCommand *cmdp;
 	int cl, rl;
 
-	if (!IsRfcommConnected() || (cmdp == NULL)) {
+	if (!IsRfcommConnected() || m_commands.Empty())
 		return;
-	}
+
+	cmdp = GetContainer(m_commands.next, AtCommand, m_links);
 
 	GetDi()->LogDebug("<< %s", cmdp->m_command_text);
 
@@ -1445,25 +1710,124 @@ StartCommand(void)
 	}
 }
 
+bool HfpSession::
+CancelCommand(AtCommand *cmdp)
+{
+	/* Don't throw out the current command */
+	if (&cmdp->m_links != m_commands.next) {
+		cmdp->m_links.Unlink();
+		delete cmdp;
+		return true;
+	}
+
+	return false;
+}
+
+
 /*
  * Commands used for handshaking
  */
 
 void HfpSession::
+SetSupportedHoldRange(int start, int end)
+{
+	if ((start <= 0) && (end >= 0))
+		m_chld_0 = true;
+	if ((start <= 1) && (end >= 1))
+		m_chld_1 = true;
+	if ((start <= 2) && (end >= 2))
+		m_chld_2 = true;
+	if ((start <= 3) && (end >= 3))
+		m_chld_3 = true;
+	if ((start <= 4) && (end >= 4))
+		m_chld_4 = true;
+}
+
+void HfpSession::
 SetSupportedHoldModes(const char *hold_mode_list)
 {
-	/* TODO */
+	char *alloc, *modes, *tok, *rend, *rex, *save;
+	int st, end;
+
+	m_chld_0 = m_chld_1 = m_chld_1x = m_chld_2 = m_chld_2x = m_chld_3 =
+		m_chld_4 = false;
+
+	alloc = strdup(hold_mode_list);
+	if (!alloc) {
+		GetDi()->LogWarn("Allocation failure in %s\n", __FUNCTION__);
+		__Disconnect(true, false);
+		return;
+	}
+
+	modes = alloc;
+	if (modes[0] != '(')
+		goto parsefailed;
+	modes++;
+
+	end = strlen(modes);
+	while (end && IsWS(modes[end - 1])) end--;
+	if (!end || (modes[end - 1] != ')'))
+		goto parsefailed;
+	modes[end - 1] = '\0';
+	end--;
+
+	tok = strtok_r(modes, ",", &save);
+	while (tok) {
+		while (*tok && IsWS(*tok)) tok++;
+		st = strtol(tok, &rend, 10);
+		while (*rend && IsWS(*rend)) rend++;
+		if (*rend == '-') {
+			*(rend++) = '\0';
+			end = strtol(rend, &rex, 10);
+			while (*rex && IsWS(*rex)) rex++;
+			if (*rex)
+				goto parsefailed;
+			if (st >= end)
+				goto parsefailed;
+			SetSupportedHoldRange(st, end);
+		}
+		else if (*rend == 'x') {
+			if (!rend[1]) {
+				if (st == 1)
+					m_chld_1x = true;
+				else if (st == 2)
+					m_chld_2x = true;
+			}
+		}
+		else if (!*rend) {
+			SetSupportedHoldRange(st, st);
+		}
+
+		tok = strtok_r(0, ",", &save);
+	}
+
+	GetDi()->LogDebug("Hold modes:%s%s%s%s%s%s%s\n",
+			  m_chld_0 ? " 0" : "",
+			  m_chld_1 ? " 1" : "",
+			  m_chld_1x ? " 1x" : "",
+			  m_chld_2 ? " 2" : "",
+			  m_chld_2x ? " 2x" : "",
+			  m_chld_3 ? " 3" : "",
+			  m_chld_4 ? " 4" : "");
+
+	free(alloc);
+	return;
+
+parsefailed:
+	GetDi()->LogWarn("AG sent unrecognized response to CHLD=?: \"%s\"\n",
+			 hold_mode_list);
+	free(alloc);
 }
 
 /* Cellular Hold Command Test */
 class ChldTCommand : public AtCommand {
 public:
-	ChldTCommand(void) : AtCommand("AT+CHLD=?\r\n") {}
-	bool Response(HfpSession *hfp, const char *buf) {
+	ChldTCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CHLD=?\r\n") {}
+	bool Response(const char *buf) {
 		if (!strncmp("+CHLD:", buf, 6)) {
 			int pos = 6;
 			while (IsWS(buf[pos])) { pos++; }
-			hfp->SetSupportedHoldModes(&buf[pos]);
+			GetSession()->SetSupportedHoldModes(&buf[pos]);
 		}
 		return false;
 	}
@@ -1474,13 +1838,14 @@ class BrsfCommand : public AtCommand {
 	int		m_brsf;
 
 public:
-	BrsfCommand(int caps) : AtCommand(), m_brsf(0) {
+	BrsfCommand(HfpSession *sessp, int caps)
+		: AtCommand(sessp), m_brsf(0) {
 		char tmpbuf[32];
 		sprintf(tmpbuf, "AT+BRSF=%d\r\n", caps);
 		SetText(tmpbuf);
 	}
 
-	bool Response(HfpSession *hfp, const char *buf) {
+	bool Response(const char *buf) {
 		if (!strncmp(buf, "+BRSF:", 6)) {
 			int pos = 6;
 			while (IsWS(buf[pos])) { pos++; }
@@ -1491,28 +1856,37 @@ public:
 		return false;
 	}
 
-	void OK(HfpSession *hfp) {
-		hfp->SetSupportedFeatures(m_brsf);
-		if (hfp->FeatureThreeWayCalling()) {
-			hfp->AppendCommand(new ChldTCommand());
+	void OK(void) {
+		GetSession()->SetSupportedFeatures(m_brsf);
+		if (GetSession()->FeatureThreeWayCalling()) {
+			AtCommand *cmdp;
+			cmdp = new ChldTCommand(GetSession());
+			if (!cmdp) {
+				GetDi()->LogWarn("Could not allocate "
+						 "ChldTCommand\n");
+			} else {
+				GetSession()->AppendCommand(cmdp);
+			}
 		}
+		AtCommand::OK();
 	}
-	void ERROR(HfpSession *hfp) {
+	void ERROR(void) {
 		/*
 		 * Supported features can also come from the
 		 * SDP record of the device, and if we initiated
 		 * the connection, we should have them.  If not,
 		 * we could get them, but we don't, at least not yet.
 		 */
+		AtCommand::ERROR();
 	}
 };
 
 /* Cellular Indicator Test */
 class CindTCommand : public AtCommand {
 public:
-	CindTCommand(void) : AtCommand("AT+CIND=?\r\n") {}
+	CindTCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CIND=?\r\n") {}
 
-	bool Response(HfpSession *hfp, const char *buf) {
+	bool Response(const char *buf) {
 		if (!strncmp(buf, "+CIND:", 6)) {
 			int pos = 6;
 			int parens = 0;
@@ -1542,8 +1916,9 @@ public:
 						/*
 						 * New indicator record
 						 */
-						hfp->SetIndicatorNum(indnum,
-								     buf, pos);
+						GetSession()->
+							SetIndicatorNum(indnum,
+								buf, pos);
 
 						buf += (pos - 1);
 					}
@@ -1567,9 +1942,9 @@ public:
 
 class CindRCommand : public AtCommand {
 public:
-	CindRCommand(void) : AtCommand("AT+CIND?\r\n") {}
+	CindRCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CIND?\r\n") {}
 
-	bool Response(HfpSession *hfp, const char *buf) {
+	bool Response(const char *buf) {
 		if (!strncmp(buf, "+CIND:", 6)) {
 			int pos = 6;
 			int indnum = 1;
@@ -1591,7 +1966,7 @@ public:
 				memcpy(xbuf, buf, pos);
 				xbuf[pos] = '\0';
 
-				hfp->UpdateIndicator(indnum, xbuf);
+				GetSession()->UpdateIndicator(indnum, xbuf);
 
 				free(xbuf);
 				buf += pos;
@@ -1748,7 +2123,10 @@ UpdateIndicator(int indnum, const char *buf)
 				m_timer->Cancel();
 			m_state_call = false;
 			m_state_callsetup = 0;
-			m_state_incomplete_cli[0] = '\0';
+			if (m_state_incomplete_clip) {
+				delete m_state_incomplete_clip;
+				m_state_incomplete_clip = 0;
+			}
 		}
 	}
 	else if (indnum == m_inum_signal) {
@@ -1791,9 +2169,18 @@ Timeout(TimerNotifier *notp)
 }
 
 void HfpSession::
-UpdateCallSetup(int val, int ring, const char *cli, int timeout_ms)
+UpdateCallSetup(int val, int ring, GsmClipPhoneNumber *clip, int timeout_ms)
 {
 	bool upd_wc = false, upd_ac = false;
+	GsmClipPhoneNumber *cpy = 0;
+
+/*
+	GetDi()->LogDebug("UpdateCallSetup: v:%d r:%d clip:\"%s\", to:%d\n",
+			  val, ring, clip
+			  ? (clip->number ? clip->number : "[PRIV]")
+			  : "[NONE]", timeout_ms);
+*/
+
 	if (!FeatureIndCallSetup() && m_timer) {
 		/* Reset the timer */
 		m_timer->Cancel();
@@ -1802,23 +2189,34 @@ UpdateCallSetup(int val, int ring, const char *cli, int timeout_ms)
 		}
 	}
 	if (!val) {
-		assert(!cli);
-		m_state_incomplete_cli[0] = '\0';
+		assert(!clip);
+		if (m_state_incomplete_clip) {
+			delete m_state_incomplete_clip;
+			m_state_incomplete_clip = 0;
+		}
 	}
-	else if (cli) {
+	else if (clip) {
 		assert(val == 1);
 		assert(ring != 0);
-		if (m_state_incomplete_cli[0] &&
-		    strcmp(m_state_incomplete_cli, cli)) {
+		if (m_state_incomplete_clip &&
+		    !m_state_incomplete_clip->Compare(clip)) {
 			/*
 			 * Did we miss an event here?
 			 * A different caller ID value is being reported
 			 */
-			upd_wc = true;
+			cpy = clip->Duplicate();
+			if (cpy)
+				upd_wc = true;
 		}
-		strncpy(m_state_incomplete_cli, cli,
-			sizeof(m_state_incomplete_cli) - 1);
-		m_state_incomplete_cli[sizeof(m_state_incomplete_cli)-1] ='\0';
+		else if (!m_state_incomplete_clip) {
+			cpy = clip->Duplicate();
+		}
+
+		if (cpy) {
+			if (m_state_incomplete_clip)
+				delete m_state_incomplete_clip;
+			m_state_incomplete_clip = cpy;
+		}
 	}
 	if (val != m_state_callsetup) {
 		m_state_callsetup = val;
@@ -1843,24 +2241,32 @@ UpdateCallSetup(int val, int ring, const char *cli, int timeout_ms)
 /* Cellular Modify Event Reporting */
 class CmerCommand : public AtCommand {
 public:
-	CmerCommand(void) : AtCommand("AT+CMER=3,0,0,1\r\n") {}
-	void ERROR(HfpSession *hfp) {
-		GetDi(hfp)->LogWarn("Could not enable AG event reporting\n");
+	CmerCommand(HfpSession *sessp)
+		: AtCommand(sessp, "AT+CMER=3,0,0,1\r\n") {}
+	void ERROR(void) {
+		GetDi()->LogWarn("Could not enable AG event reporting\n");
+		AtCommand::ERROR();
 	}
 };
 
 /* Cellular Line Identification */
 class ClipCommand : public AtCommand {
 public:
-	ClipCommand(void) : AtCommand("AT+CLIP=1\r\n") {}
-	void OK(HfpSession *hfp) { hfp->m_clip_enabled = true; }
+	ClipCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CLIP=1\r\n") {}
+	void OK(void) {
+		GetSession()->m_clip_enabled = true;
+		AtCommand::OK();
+	}
 };
 
 /* Cellular Call Waiting */
 class CcwaCommand : public AtCommand {
 public:
-	CcwaCommand(void) : AtCommand("AT+CCWA=1\r\n") {}
-	void OK(HfpSession *hfp) { hfp->m_ccwa_enabled = true; }
+	CcwaCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CCWA=1\r\n") {}
+	void OK(void) {
+		GetSession()->m_ccwa_enabled = true;
+		AtCommand::OK();
+	}
 };
 
 
@@ -1879,19 +2285,19 @@ HfpHandshake(void)
 	 * Throw in the basic set of handshaking commands,
 	 * with absolutely no regard for memory allocation failures!
 	 */
-	if (!(cmdp = new BrsfCommand(GetService()->m_brsf_my_caps)))
+	if (!(cmdp = new BrsfCommand(this, GetService()->m_brsf_my_caps)))
 		goto failed;
 	AppendCommand(cmdp);
-	if (!(cmdp = new CindTCommand()))
+	if (!(cmdp = new CindTCommand(this)))
 		goto failed;
 	AppendCommand(cmdp);
-	if (!(cmdp = new CmerCommand()))
+	if (!(cmdp = new CmerCommand(this)))
 		goto failed;
 	AppendCommand(cmdp);
-	if (!(cmdp = new ClipCommand()))
+	if (!(cmdp = new ClipCommand(this)))
 		goto failed;
 	AppendCommand(cmdp);
-	if (!(cmdp = new CcwaCommand()))
+	if (!(cmdp = new CcwaCommand(this)))
 		goto failed;
 	AppendCommand(cmdp);
 	return true;
@@ -1910,7 +2316,7 @@ HfpHandshakeDone(void)
 	m_conn_state = BTS_Connected;
 
 	/* Query current state */
-	AppendCommand(new CindRCommand());
+	AppendCommand(new CindRCommand(this));
 
 	if (cb_NotifyConnection.Registered())
 		cb_NotifyConnection(this);
@@ -1921,77 +2327,65 @@ HfpHandshakeDone(void)
  * Commands
  */
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdSetVoiceRecog(bool enabled)
 {
 	char buf[32];
-	if (!IsConnected()) { return false; }
 	sprintf(buf, "AT+BVRA=%d\r\n", enabled ? 1 : 0);
-	AppendCommand(new AtCommand(buf));
-	return IsConnected();
+	return PendingCommand(new AtCommand(this, buf));
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdSetEcnr(bool enabled)
 {
 	char buf[32];
-	if (!IsConnected()) { return false; }
 	sprintf(buf, "AT+NREC=%d\r\n", enabled ? 1 : 0);
-	AppendCommand(new AtCommand(buf));
-	return IsConnected();
+	return PendingCommand(new AtCommand(this, buf));
 }
 
 class AtdCommand : public AtCommand {
-	char		m_phnum[HfpSession::PHONENUM_MAX_LEN];
-
 public:
-	AtdCommand(const char *phnum) : AtCommand() {
+	AtdCommand(HfpSession *sessp, const char *phnum) : AtCommand(sessp) {
 		char buf[64];
-		assert(strlen(phnum) <= HfpSession::PHONENUM_MAX_LEN);
-		strcpy(m_phnum, phnum);
 		sprintf(buf, "ATD%s;\r\n", phnum);
 		SetText(buf);
 	}
 	/* Redial mode - Bluetooth Last Dialed Number */
-	AtdCommand(void) : AtCommand("AT+BLDN\r\n") {
-		strcpy(m_phnum, "[REDIAL]");
+	AtdCommand(HfpSession *sessp) : AtCommand(sessp, "AT+BLDN\r\n") {
 	}
-	void OK(HfpSession *devp) {
-		/* Set the new call line ID of the in-progress call */
-		strcpy(devp->m_state_incomplete_cli, m_phnum);
-		if (!devp->FeatureIndCallSetup() &&
-		    !devp->HasConnectingCall()) {
-			devp->UpdateCallSetup(2, 0, NULL,
-					      devp->m_timeout_dial);
+	void OK(void) {
+		if (!GetSession()->FeatureIndCallSetup() &&
+		    !GetSession()->HasConnectingCall()) {
+			GetSession()->UpdateCallSetup(2, 0, NULL,
+					      GetSession()->m_timeout_dial);
 		}
+		AtCommand::OK();
 	}
 };
 
 class AtCommandClearCallSetup : public AtCommand {
 public:
-	AtCommandClearCallSetup(const char *cmd) : AtCommand(cmd) {}
-	void OK(HfpSession *devp) {
+	AtCommandClearCallSetup(HfpSession *sessp, const char *cmd)
+		: AtCommand(sessp, cmd) {}
+	void OK(void) {
 		/* Emulate call setup change */
-		if (!devp->FeatureIndCallSetup()) {
-			devp->UpdateCallSetup(0);
+		if (!GetSession()->FeatureIndCallSetup()) {
+			GetSession()->UpdateCallSetup(0);
 		}
+		AtCommand::OK();
 	}
 };
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdAnswer(void)
 {
-	if (!IsConnected()) { return false; }
-	AppendCommand(new AtCommandClearCallSetup("ATA\r\n"));
-	return IsConnected();
+	return PendingCommand(new AtCommandClearCallSetup(this, "ATA\r\n"));
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdHangUp(void)
 {
-	if (!IsConnected()) { return false; }
-	AppendCommand(new AtCommandClearCallSetup("AT+CHUP\r\n"));
-	return IsConnected();
+	return PendingCommand(new AtCommandClearCallSetup(this,"AT+CHUP\r\n"));
 }
 
 bool HfpSession::
@@ -2017,64 +2411,107 @@ ValidPhoneNum(const char *ph)
 	return true;
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdDial(const char *phnum)
 {
-	if (!IsConnected()) { return false; }
-	if (!ValidPhoneNum(phnum)) { return false; }
-	AppendCommand(new AtdCommand(phnum));
-	return IsConnected();
+	if (!ValidPhoneNum(phnum)) { return 0; }
+	return PendingCommand(new AtdCommand(this, phnum));
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdRedial(void)
 {
-	if (!IsConnected()) { return false; }
-	AppendCommand(new AtdCommand());
-	return IsConnected();
+	return PendingCommand(new AtdCommand(this));
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdSendDtmf(char code)
 {
 	char buf[32];
-	if (!IsConnected()) { return false; }
-	if (!ValidPhoneNumChar(code)) { return false; }
+
+	if (!ValidPhoneNumChar(code)) {
+		GetDi()->LogWarn("CmdSendDtmf: Invalid DTMF code %d\n", code);
+		return 0;
+	}
 	sprintf(buf, "AT+VTS=%c\r\n", code);
-	AppendCommand(new AtCommand(buf));
-	return IsConnected();
+	return PendingCommand(new AtCommand(this, buf));
 }
 
-bool HfpSession::
-CmdCallDropWaiting(void)
+HfpPendingCommand *HfpSession::
+CmdCallDropHeldUdub(void)
 {
-	if (!IsConnected()) { return false; }
-	AppendCommand(new AtCommandClearCallSetup("AT+CHLD=0\r\n"));
-	return IsConnected();
+	if (!m_chld_0) {
+		GetDi()->LogWarn("Requested CmdCallDropHeldUdub, "
+				 "but AG does not claim support\n");
+	}
+	return PendingCommand(new AtCommandClearCallSetup(this,
+							  "AT+CHLD=0\r\n"));
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
 CmdCallSwapDropActive(void)
 {
-	if (!IsConnected()) { return false; }
-	AppendCommand(new AtCommand("AT+CHLD=1\r\n"));
-	return IsConnected();
+	if (!m_chld_1) {
+		GetDi()->LogWarn("Requested CmdCallSwapDropActive, "
+				 "but AG does not claim support\n");
+	}
+	return PendingCommand(new AtCommand(this, "AT+CHLD=1\r\n"));
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
+CmdCallDropActive(unsigned int actnum)
+{
+	char buf[32];
+
+	if (!m_chld_1x) {
+		GetDi()->LogWarn("Requested CmdCallDropActive(%d), "
+				 "but AG does not claim support\n", actnum);
+	}
+	sprintf(buf, "AT+CHLD=1%d\r\n", actnum);
+	return PendingCommand(new AtCommand(this, buf));
+}
+
+HfpPendingCommand *HfpSession::
 CmdCallSwapHoldActive(void)
 {
-	if (!IsConnected()) { return false; }
-	AppendCommand(new AtCommand("AT+CHLD=2\r\n"));
-	return IsConnected();
+	if (!m_chld_2) {
+		GetDi()->LogWarn("Requested CmdCallSwapHoldActive, "
+				 "but AG does not claim support\n");
+	}
+	return PendingCommand(new AtCommand(this, "AT+CHLD=2\r\n"));
 }
 
-bool HfpSession::
+HfpPendingCommand *HfpSession::
+CmdCallPrivateConsult(unsigned int callnum)
+{
+	char buf[32];
+
+	if (!m_chld_2x) {
+		GetDi()->LogWarn("Requested CmdCallPrivateConsult(%d), "
+				 "but AG does not claim support\n", callnum);
+	}
+	sprintf(buf, "AT+CHLD=2%d\r\n", callnum);
+	return PendingCommand(new AtCommand(this, buf));
+}
+
+HfpPendingCommand *HfpSession::
 CmdCallLink(void)
 {
-	if (!IsConnected()) { return false; }
-	AppendCommand(new AtCommand("AT+CHLD=3\r\n"));
-	return IsConnected();
+	if (!m_chld_3) {
+		GetDi()->LogWarn("Requested CmdCallLink, "
+				 "but AG does not claim support\n");
+	}
+	return PendingCommand(new AtCommand(this, "AT+CHLD=3\r\n"));
+}
+
+HfpPendingCommand *HfpSession::
+CmdCallTransfer(void)
+{
+	if (!m_chld_4) {
+		GetDi()->LogWarn("Requested CmdCallTransfer, "
+				 "but AG does not claim support\n");
+	}
+	return PendingCommand(new AtCommand(this, "AT+CHLD=4\r\n"));
 }
 
 } /* namespace libhfp */

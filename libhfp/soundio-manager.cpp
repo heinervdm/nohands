@@ -40,23 +40,27 @@ namespace libhfp {
  */
 
 typedef SoundIo *(*sound_driver_factory_t)(DispatchInterface *, const char *);
+typedef SoundIoDeviceList *(*sound_driver_device_enum_t)(void);
 
 struct SoundIoDriver {
 	const char *name;
 	const char *descr;
 	sound_driver_factory_t factory;
+	sound_driver_device_enum_t deviceenum;
 };
 
 static SoundIoDriver sound_drivers[] = {
 #if defined(USE_ALSA_SOUNDIO)
 	{ "ALSA",
 	  "Advanced Linux Sound Architecture back-end",
-	  SoundIoCreateAlsa },
+	  SoundIoCreateAlsa,
+	  SoundIoGetDeviceListAlsa },
 #endif
 #if defined(USE_OSS_SOUNDIO)
 	{ "OSS",
 	  "Open Sound System back-end (deprecated)",
-	  SoundIoCreateOss },
+	  SoundIoCreateOss,
+	  SoundIoGetDeviceListOss },
 #endif
 	{ 0 }
 };
@@ -366,8 +370,11 @@ CreatePrimary(const char *name, const char *opts)
 
 
 bool SoundIoManager::
-GetDriverInfo(int index, const char **name, const char **desc)
+GetDriverInfo(int index, const char **name, const char **desc,
+	      SoundIoDeviceList **devlist)
 {
+	sound_driver_device_enum_t enumfun;
+
 	if ((index < 0) ||
 	    (index >= (int) (sizeof(sound_drivers)/sizeof(sound_drivers[0]))))
 		return false;
@@ -375,10 +382,14 @@ GetDriverInfo(int index, const char **name, const char **desc)
 	if (!sound_drivers[index].name)
 		return false;
 
+	enumfun = sound_drivers[index].deviceenum;
+
 	if (name)
 		*name = sound_drivers[index].name;
 	if (desc)
 		*desc = sound_drivers[index].descr;
+	if (devlist)
+		*devlist = enumfun();
 	return true;
 }
 

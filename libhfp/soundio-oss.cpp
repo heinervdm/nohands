@@ -88,6 +88,14 @@ public:
 			m_play_path = strdup(play_dev);
 		if (rec_dev)
 			m_rec_path = strdup(rec_dev);
+
+		/* Set a default format */
+		memset(&m_format, 0, sizeof(m_format));
+		m_format.sampletype = SIO_PCM_S16_LE;
+		m_format.samplerate = 8000;
+		m_format.packet_samps = 128;
+		m_format.nchannels = 1;
+		m_format.bytes_per_record = 2;
 	}
 
 	virtual ~OssSoundIo() {
@@ -418,8 +426,8 @@ public:
 			(X)[--siz] = '\0';				\
 		} } while(0)
 
-static inline SoundIo *
-DoOssConfig(DispatchInterface *dip, const char *driveropts)
+SoundIo *
+SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
 {
 	char *opts = 0, *tok, *save = 0, *tmp;
 	const char *ind = "/dev/dsp", *outd = "/dev/dsp";
@@ -472,18 +480,55 @@ DoOssConfig(DispatchInterface *dip, const char *driveropts)
 		free(opts);
 	return ossp;
 }
+
+SoundIoDeviceList *
+SoundIoGetDeviceListOss(void)
+{
+	SoundIoDeviceList *infop;
+	mixer_info mi;
+	int i, fh, res;
+	char buf[16];
+
+	infop = new SoundIoDeviceList;
+	if (!infop)
+		return 0;
+
+	/* Probe for devices the hard way */
+	for (i = 0; i < 16; i++) {
+		if (i > 0) {
+			snprintf(buf, sizeof(buf), "/dev/dsp%d", i);
+		} else {
+			strcpy(buf, "/dev/dsp");
+		}
+
+		fh = open(buf, O_RDONLY);
+		if (fh < 0)
+			continue;
+
+		res = ioctl(fh, SOUND_MIXER_INFO, &mi);
+		close(fh);
+
+		mi.name[sizeof(mi.name) - 1] = '\0';
+		if ((res >= 0) && !infop->Add(buf, mi.name)) {
+			delete infop;
+			return 0;
+		}
+	}
+
+	return infop;
+}
+
 #else  /* defined(USE_OSS_SOUNDIO) */
-static inline SoundIo *
-DoOssConfig(DispatchInterface *dip, const char *driveropts)
+SoundIo *
+SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
+{
+	return 0;
+}
+SoundIoDeviceList *
+SoundIoGetDeviceInfoOss(void)
 {
 	return 0;
 }
 #endif  /* defined(USE_OSS_SOUNDIO) */
-
-SoundIo *
-SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
-{
-	return DoOssConfig(dip, driveropts);
-}
 
 } /* namespace libhfp */

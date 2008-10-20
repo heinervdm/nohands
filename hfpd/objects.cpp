@@ -128,11 +128,61 @@ public:
 };
 
 
+struct AgPendingCommand {
+	ListItem		m_links;
+	DBusMessage		*m_msg;
+	HfpPendingCommand	*m_pend;
+	AudioGateway		*m_ag;
+
+	void HfpCommandResult(HfpPendingCommand *pendp,
+			      bool success, const char *info) {
+		assert(pendp == m_pend);
+		assert(m_msg);
+		assert(m_ag);
+
+		/*
+		 * We could try to allocate a must succeed
+		 * structure here.
+		 */
+		if (success) {
+			(void) m_ag->SendReplyArgs(m_msg, DBUS_TYPE_INVALID);
+		} else {
+			(void) m_ag->SendReplyError(m_msg,
+						    DBUS_ERROR_FAILED,
+						    info ? info :
+						    "Command failed");
+		}
+
+		delete this;
+	}
+
+	AgPendingCommand(AudioGateway *agp, DBusMessage *msgp,
+			 HfpPendingCommand *pendp)
+		: m_msg(msgp), m_pend(pendp), m_ag(agp) {
+		dbus_message_ref(m_msg);
+		m_ag->Get();
+		m_pend->Register(this, &AgPendingCommand::HfpCommandResult);
+	}
+
+	~AgPendingCommand() {
+		if (m_pend)
+			delete m_pend;
+		if (m_msg)
+			dbus_message_unref(m_msg);
+		if (m_ag)
+			m_ag->Put();
+	}
+};
+
 AudioGateway::
 AudioGateway(HandsFree *hfp, HfpSession *sessp, char *name)
 	: DbusExportObject(name, s_ifaces), m_sess(sessp),
 	  m_name_free(name), m_known(false), 
-	  m_unbind_on_voice_close(false), m_hf(hfp), m_owner(0),
+	  m_unbind_on_voice_close(false),
+	  m_state(HFPD_AG_INVALID),
+	  m_call_state(HFPD_AG_CALL_INVALID),
+	  m_voice_state(HFPD_AG_VOICE_INVALID),
+	  m_hf(hfp), m_owner(0),
 	  m_voice_bind(0) {
 
 	/*
@@ -180,8 +230,7 @@ OwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp)
 	if (!m_known)
 		m_sess->SetAutoReconnect(false);
 	if (!m_known && (State() > HFPD_AG_DISCONNECTED)) {
-		if ((VoiceState() == HFPD_AG_VOICE_CONNECTED) &&
-		    m_hf->m_voice_persist) {
+		if (m_sess->SndIsAsyncStarted() && m_hf->m_voice_persist) {
 			/* Defer the disconnect until voice closes */
 			m_unbind_on_voice_close = true;
 		} else {
@@ -358,10 +407,23 @@ NotifyCall(libhfp::HfpSession *sessp, bool act, bool waiting, bool ring)
 		UpdateCallState(CallState());
 
 	if (ring) {
-		const char *clip = sessp->WaitingCallIdentity();
+		const char *num = 0, *alpha = 0;
+		const GsmClipPhoneNumber *clip;
+
+		clip = sessp->WaitingCallIdentity();
+		if (clip) {
+			num = clip->number;
+			alpha = clip->alpha;
+		}
+		if (!num)
+			num = "";
+		if (!alpha)
+			alpha = "";
+
 		SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
 			       "Ring",
-			       DBUS_TYPE_STRING, &clip,
+			       DBUS_TYPE_STRING, &num,
+			       DBUS_TYPE_STRING, &alpha,
 			       DBUS_TYPE_INVALID);
 	}
 }
@@ -407,7 +469,7 @@ NotifyVoiceConnection(libhfp::HfpSession *sessp)
 		 * Make an effort to set up the audio pipe.
 		 */
 		if ((m_hf->m_sound->m_state != HFPD_SIO_STOPPED) ||
-		    !m_hf->m_sound->EpAudioGateway(this)) {
+		    !m_hf->m_sound->EpAudioGateway(this, false)) {
 			m_sess->SndClose();
 			st = VoiceState();
 		}
@@ -469,13 +531,48 @@ Connect(DBusMessage *msgp)
 bool AudioGateway::
 Disconnect(DBusMessage *msgp)
 {
-	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID))
-		return false;
-
 	m_sess->Disconnect();
 	DoDisconnect();
+
+	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+}
+
+bool AudioGateway::
+CloseVoice(DBusMessage *msgp)
+{
+	GetDi()->LogDebug("AG %s: CloseVoice\n", GetDbusPath());
+
+	if (m_sess->SndIsAsyncStarted())
+		m_hf->m_sound->EpRelease();
+	m_sess->SndClose();
+
+	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+}
+
+bool AudioGateway::
+DoPendingCommand(DBusMessage *msgp, HfpPendingCommand *cmdp)
+{
+	AgPendingCommand *agpendp;
+
+	if (!cmdp) {
+		return SendReplyError(msgp,
+				      DBUS_ERROR_FAILED,
+				      "Command could not be queued");
+	}
+
+	agpendp = new AgPendingCommand(this, msgp, cmdp);
+	if (!agpendp) {
+		/* Try to cancel it, at least */
+		cmdp->Cancel();
+		delete cmdp;
+		return SendReplyError(msgp,
+				      DBUS_ERROR_FAILED,
+				      "Could not set up pending command");
+	}
+
 	return true;
 }
+
 
 bool AudioGateway::
 Dial(DBusMessage *msgp)
@@ -498,37 +595,19 @@ Dial(DBusMessage *msgp)
 				      "Empty phone number specified");
 	}
 
-	if (!m_sess->CmdDial(number)) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Command could not be queued");
-	}
-
-	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+	return DoPendingCommand(msgp, m_sess->CmdDial(number));
 }
 
 bool AudioGateway::
 Redial(DBusMessage *msgp)
 {
-	if (!m_sess->CmdRedial()) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Command could not be queued");
-	}
-
-	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+	return DoPendingCommand(msgp, m_sess->CmdRedial());
 }
 
 bool AudioGateway::
 HangUp(DBusMessage *msgp)
 {
-	if (!m_sess->CmdHangUp()) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Command could not be queued");
-	}
-
-	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+	return DoPendingCommand(msgp, m_sess->CmdHangUp());
 }
 
 bool AudioGateway::
@@ -543,14 +622,45 @@ SendDtmf(DBusMessage *msgp)
 	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BYTE);
 	dbus_message_iter_get_basic(&mi, &digit);
 
-	if (!m_sess->CmdSendDtmf(digit)) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Command could not be queued");
-	}
-
-	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+	return DoPendingCommand(msgp, m_sess->CmdSendDtmf(digit));
 }
+
+bool AudioGateway::
+Answer(DBusMessage *msgp)
+{
+	return DoPendingCommand(msgp, m_sess->CmdAnswer());
+}
+
+bool AudioGateway::
+CallDropHeldUdub(DBusMessage *msgp)
+{
+	return DoPendingCommand(msgp, m_sess->CmdCallDropHeldUdub());
+}
+
+bool AudioGateway::
+CallSwapDropActive(DBusMessage *msgp)
+{
+	return DoPendingCommand(msgp, m_sess->CmdCallSwapDropActive());
+}
+
+bool AudioGateway::
+CallSwapHoldActive(DBusMessage *msgp)
+{
+	return DoPendingCommand(msgp, m_sess->CmdCallSwapHoldActive());
+}
+
+bool AudioGateway::
+CallLink(DBusMessage *msgp)
+{
+	return DoPendingCommand(msgp, m_sess->CmdCallLink());
+}
+
+bool AudioGateway::
+CallTransfer(DBusMessage *msgp)
+{
+	return DoPendingCommand(msgp, m_sess->CmdCallTransfer());
+}
+
 
 bool AudioGateway::
 GetState(DBusMessage *msgp, unsigned char &val)
@@ -701,6 +811,20 @@ GetFeatures(DBusMessage *msgp, const DbusProperty *propp,
 			   m_sess->FeatureEnhancedCallStatus()) ||
 	    !AddStringBool(ami, "EnhancedCallControl",
 			   m_sess->FeatureEnhancedCallControl()) ||
+	    !AddStringBool(ami, "DropHeldUdub",
+			   m_sess->FeatureDropHeldUdub()) ||
+	    !AddStringBool(ami, "SwapDropActive",
+			   m_sess->FeatureSwapDropActive()) ||
+	    !AddStringBool(ami, "DropActive",
+			   m_sess->FeatureDropActive()) ||
+	    !AddStringBool(ami, "SwapHoldActive",
+			   m_sess->FeatureSwapHoldActive()) ||
+	    !AddStringBool(ami, "PrivateConsult",
+			   m_sess->FeaturePrivateConsult()) ||
+	    !AddStringBool(ami, "Link",
+			   m_sess->FeatureLink()) ||
+	    !AddStringBool(ami, "Transfer",
+			   m_sess->FeatureTransfer()) ||
 	    !AddStringBool(ami, "CallSetupIndicator",
 			   m_sess->FeatureIndCallSetup()) ||
 	    !AddStringBool(ami, "SignalStrengthIndicator",
@@ -921,8 +1045,10 @@ SessionFactory(BtDevice *devp)
 		goto failed;
 
 	agp = new AudioGateway(this, sessp, path);
-	if (!agp)
+	if (!agp) {
+		free(path);
 		goto failed;
+	}
 
 	if (!m_dbus->ExportObject(agp))
 		goto failed;
@@ -942,8 +1068,6 @@ SessionFactory(BtDevice *devp)
 failed:
 	if (agp)
 		delete agp;
-	if (path)
-		free(path);
 	if (sessp)
 		delete sessp;
 	return 0;
@@ -2056,7 +2180,7 @@ EpRelease(SoundIoState st)
 }
 
 bool SoundIoObj::
-EpAudioGateway(AudioGateway *agp)
+EpAudioGateway(AudioGateway *agp, bool can_connect)
 {
 	if (m_state != HFPD_SIO_STOPPED)
 		EpRelease();
@@ -2067,7 +2191,8 @@ EpAudioGateway(AudioGateway *agp)
 	m_bound_ag = agp;
 
 	if ((m_bound_ag->VoiceState() == HFPD_AG_VOICE_DISCONNECTED) &&
-	    !m_bound_ag->GetSoundIo()->SndOpen(true, true)) {
+	    (!can_connect ||
+	     !m_bound_ag->GetSoundIo()->SndOpen(true, true))) {
 		m_bound_ag = 0;
 		agp->Put();
 		return false;
@@ -2258,6 +2383,105 @@ SetDriver(DBusMessage *msgp)
 }
 
 bool SoundIoObj::
+ProbeDevices(DBusMessage *msgp)
+{
+	DBusMessageIter mi, ami, smi;
+	DBusMessage *replyp = 0;
+	SoundIoDeviceList *devlist = 0;
+	const char *driver, *name, *desc;
+	int i;
+	bool res;
+
+	/*
+	 * The main reason to disallow this is to avoid operations
+	 * with long latencies.  Even if there are such operations,
+	 * it's going to be part of an interactive process, and the
+	 * user will understand if the sound skips.
+	if (m_sound->IsStarted()) {
+		return SendReplyError(msgp,
+				      DBUS_ERROR_FAILED,
+				      "Refusing request to probe devices "
+				      "while streaming");
+	}
+	 */
+
+	res = dbus_message_iter_init(msgp, &mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_STRING);
+	dbus_message_iter_get_basic(&mi, &driver);
+
+	for (i = 0; m_sound->GetDriverInfo(i, &name, 0, 0); i++) {
+		if (!strcasecmp(name, driver))
+			break;
+		name = 0;
+	}
+
+	if (!name) {
+		return SendReplyError(msgp,
+				      DBUS_ERROR_FAILED,
+				      "Unknown driver \"%s\"", driver);
+	}
+
+	res = m_sound->GetDriverInfo(i, 0, 0, &devlist);
+	assert(res);
+	if (!devlist) {
+		return SendReplyError(msgp,
+				      DBUS_ERROR_FAILED,
+				      "Device probe failed");
+	}
+
+	replyp = NewMethodReturn(msgp);
+	if (!replyp)
+		goto failed;
+
+	dbus_message_iter_init_append(replyp, &mi);
+	if (!dbus_message_iter_open_container(&mi,
+					      DBUS_TYPE_ARRAY,
+					      DBUS_STRUCT_BEGIN_CHAR_AS_STRING
+					      DBUS_TYPE_STRING_AS_STRING
+					      DBUS_TYPE_STRING_AS_STRING
+					      DBUS_STRUCT_END_CHAR_AS_STRING,
+					      &ami))
+		goto failed;
+
+	if (devlist->First()) do {
+		name = devlist->GetName();
+		desc = devlist->GetDesc();
+
+		if (!dbus_message_iter_open_container(&ami,
+						      DBUS_TYPE_STRUCT,
+						      0,
+						      &smi) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_STRING,
+						    &name) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_STRING,
+						    &desc) ||
+		    !dbus_message_iter_close_container(&ami, &smi)) {
+			goto failed;
+		}
+
+	} while (devlist->Next());
+
+	delete devlist;
+	devlist = 0;
+
+	if (!dbus_message_iter_close_container(&mi, &ami) ||
+	    !SendMessage(replyp))
+		goto failed;
+
+	return true;
+
+failed:
+	if (replyp)
+		dbus_message_unref(replyp);
+	if (devlist)
+		delete devlist;
+	return false;
+}
+
+bool SoundIoObj::
 Stop(DBusMessage *msgp)
 {
 	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID))
@@ -2273,12 +2497,17 @@ AudioGatewayStart(DBusMessage *msgp)
 	DBusMessageIter mi;
 	char *agpath;
 	AudioGateway *agp;
+	dbus_bool_t can_connect;
 	bool res;
 
 	res = dbus_message_iter_init(msgp, &mi);
 	assert(res);
 	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_OBJECT_PATH);
 	dbus_message_iter_get_basic(&mi, &agpath);
+	res = dbus_message_iter_next(&mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BOOLEAN);
+	dbus_message_iter_get_basic(&mi, &can_connect);
 
 	agp = m_hf->FindAudioGateway(agpath);
 	if (!agp) {
@@ -2287,7 +2516,18 @@ AudioGatewayStart(DBusMessage *msgp)
 				      "Audio Gateway Path Invalid");
 	}
 
-	if (!EpAudioGateway(agp)) {
+	GetDi()->LogDebug("AudioGatewayStart: %s\n", agpath);
+
+	if (m_bound_ag == agp) {
+		/*
+		 * Ignore re-requests to bind to the same audiogateway
+		 */
+		assert((m_state == HFPD_SIO_AUDIOGATEWAY) ||
+		       (m_state == HFPD_SIO_AUDIOGATEWAY_CONNECTING));
+		return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+	}
+
+	if (!EpAudioGateway(agp, can_connect)) {
 		return SendReplyError(msgp,
 				      DBUS_ERROR_FAILED,
 				      "Could not start sound stream");
@@ -2498,15 +2738,14 @@ GetDrivers(DBusMessage *msgp, const DbusProperty *propp,
 
 	if (!dbus_message_iter_open_container(&mi,
 					      DBUS_TYPE_ARRAY,
-			      DBUS_STRUCT_BEGIN_CHAR_AS_STRING
-			      DBUS_TYPE_STRING_AS_STRING
-			      DBUS_TYPE_STRING_AS_STRING
-			      DBUS_STRUCT_END_CHAR_AS_STRING,
+					      DBUS_STRUCT_BEGIN_CHAR_AS_STRING
+					      DBUS_TYPE_STRING_AS_STRING
+					      DBUS_TYPE_STRING_AS_STRING
+					      DBUS_STRUCT_END_CHAR_AS_STRING,
 					      &ami))
 		return false;
 
-	for (i = 0; m_sound->GetDriverInfo(i, &name, &desc); i++) {
-
+	for (i = 0; m_sound->GetDriverInfo(i, &name, &desc, 0); i++) {
 		if (!dbus_message_iter_open_container(&ami,
 						      DBUS_TYPE_STRUCT,
 						      0,

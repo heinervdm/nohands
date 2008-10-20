@@ -333,7 +333,9 @@ public:
 	SoundIoBufferBase(void)
 		: m_input(), m_output(), m_hw_outq(0), m_abort(false),
 		  m_abort_to(0), m_async_state(0) {}
-	virtual ~SoundIoBufferBase() {}
+	virtual ~SoundIoBufferBase() {
+		BufCancelAbort();
+	}
 
 	/* Override these with methods that fill the FIFOs */
 	virtual void SndPushInput(bool nonblock) = 0;

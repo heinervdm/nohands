@@ -347,14 +347,17 @@ public:
 			if (sessp->HasWaitingCall()) {
 				agp->m_setup_cli =
 					sessp->WaitingCallIdentity()
-					? QString(sessp->WaitingCallIdentity())
+					? QString(sessp->
+						  WaitingCallIdentity()->
+						  number)
 					: QString("");
 				printf("WCLI: %s\n",agp->m_setup_cli.latin1());
 			}
 		}
 
 		if (ring) {
-			const char *clip = sessp->WaitingCallIdentity();
+			const char *clip = (sessp->WaitingCallIdentity() ?
+				    sessp->WaitingCallIdentity()->number : 0);
 			if (!clip)
 				clip = "Private Number";
 			printf("Ring!! %s\n", clip);
@@ -1392,13 +1395,21 @@ public:
 			SoundCardRingTone();
 	}
 
+	bool DelPend(HfpPendingCommand *pendp) {
+		if (!pendp)
+			return false;
+
+		delete pendp;
+		return true;
+	}
+
 	/*
 	 * Bluetooth Command Handling for the user interface
 	 */
 	virtual void KeypadPress(char c) {
 		if ((m_active_dev != NULL) &&
 		    m_active_dev->m_sess->HasEstablishedCall()) {
-			m_active_dev->m_sess->CmdSendDtmf(c);
+			DelPend(m_active_dev->m_sess->CmdSendDtmf(c));
 		}
 	}
 	virtual void KeypadClick(char c) {
@@ -1413,13 +1424,14 @@ public:
 		    (m_active_dev != NULL) &&
 		    m_active_dev->m_sess->GetService()) {
 			printf("Dial: %s\n", phoneNum.latin1());
-			m_active_dev->m_sess->CmdDial(phoneNum.latin1());
+			DelPend(m_active_dev->m_sess->
+				CmdDial(phoneNum.latin1()));
 		}
 	}
 	virtual void RedialClicked(void) {
 		if ((m_active_dev != NULL) &&
 		    m_active_dev->m_sess->GetService()) {
-			m_active_dev->m_sess->CmdRedial();
+			DelPend(m_active_dev->m_sess->CmdRedial());
 		}
 	}
 	virtual void HandsetClicked(void) {
@@ -1431,20 +1443,20 @@ public:
 			MaybeAttachVoice();
 	}
 	virtual void HoldClicked(AgDevice *devp) {
-		devp->m_sess->CmdCallSwapHoldActive();
+		DelPend(devp->m_sess->CmdCallSwapHoldActive());
 	}
 	virtual void HangupClicked(AgDevice *devp) {
-		devp->m_sess->CmdHangUp();
+		DelPend(devp->m_sess->CmdHangUp());
 	}
 	virtual void AcceptCallClicked(AgDevice *devp) {
 		if (devp->m_sess->HasEstablishedCall()) {
-			devp->m_sess->CmdCallSwapDropActive();
+			DelPend(devp->m_sess->CmdCallSwapDropActive());
 		} else {
-			devp->m_sess->CmdAnswer();
+			DelPend(devp->m_sess->CmdAnswer());
 		}
 	}
 	virtual void RejectCallClicked(AgDevice *devp) {
-		devp->m_sess->CmdCallDropWaiting();
+		DelPend(devp->m_sess->CmdCallDropHeldUdub());
 	}
 
 	/*

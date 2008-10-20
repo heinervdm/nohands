@@ -520,6 +520,33 @@ public:
 };
 
 
+/*
+ * SoundIoDeviceList is a utility class used to communicate a list of
+ * detected sound card names and descriptions associated with each
+ * driver.
+ */
+
+class SoundIoDeviceList {
+	struct InfoNode {
+		const char	*m_name;
+		const char	*m_desc;
+		struct InfoNode	*m_next;
+
+	}		*m_first, *m_last, *m_cursor;
+
+public:
+	SoundIoDeviceList(void) : m_first(0), m_last(0), m_cursor(0) {}
+	~SoundIoDeviceList();
+
+	bool Add(const char *name, const char *desc);
+
+	bool First(void) { m_cursor = m_first; return m_cursor != 0; }
+	bool Next(void) { m_cursor = m_cursor->m_next; return m_cursor != 0; }
+	const char *GetName(void) const { return m_cursor->m_name; }
+	const char *GetDesc(void) const { return m_cursor->m_desc; }
+};
+
+
 /* Factories for various flavors of SoundIo */
 
 /**
@@ -528,6 +555,9 @@ public:
  */
 extern SoundIo *SoundIoCreateOss(DispatchInterface *dip,
 				 const char *driveropts);
+
+extern SoundIoDeviceList *SoundIoGetDeviceListOss(void);
+
 
 /**
  * @brief Construct a SoundIo object backed by an ALSA driver
@@ -568,6 +598,9 @@ extern SoundIo *SoundIoCreateOss(DispatchInterface *dip,
  */
 extern SoundIo *SoundIoCreateAlsa(DispatchInterface *dip,
 				  const char *driveropts);
+
+extern SoundIoDeviceList *SoundIoGetDeviceListAlsa(void);
+
 
 /**
  * @brief Construct a SoundIo object backed by a fixed-size memory buffer
@@ -1376,11 +1409,21 @@ public:
 	 * driver, or NULL if the name is not desired.
 	 * @param desc Address of pointer to receive descriptive text
 	 * about the driver, or NULL if descriptive text is not desired.
+	 * @param devlist Address of pointer to receive the detected
+	 * device list associated with the driver, or NULL of the
+	 * detected device list is not desired.
+	 *
+	 * @note If @em devlist is specified, and the returned
+	 * pointer value is 0, this indicates a failed enumeration.
+	 * A successful enumeration will return an empty
+	 * SoundIoDeviceList object rather than a null pointer.
 	 *
 	 * @retval true Driver info retrieved.
 	 * @retval false Driver index is invalid.
 	 */
-	bool GetDriverInfo(int index, const char **name, const char **desc);
+	static bool GetDriverInfo(int index, const char **name,
+				  const char **desc,
+				  SoundIoDeviceList **devlist);
 
 	/**
 	 * @brief Set the audio driver parameters

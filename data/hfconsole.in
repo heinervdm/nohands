@@ -20,6 +20,101 @@ try:
 except:
 	sys.exit(1)
 
+class GtkAlerter:
+	def __getitem__(self, key):
+		return self.widgets.get_widget(key)
+	def __init__(self, gladefile, ag):
+		self.widgets = gtk.glade.XML(gladefile)
+		dic = {
+			"CallAlertAccept_clicked_cb" :
+			self.action_accept_clicked,
+			"CallAlertAcceptHold_clicked_cb" :
+			self.action_accept_hold_clicked,
+			"CallAlertAcceptDrop_clicked_cb" :
+			self.action_accept_drop_clicked,
+			"CallAlertReject_clicked_cb" :
+			self.action_reject_clicked,
+			"CallAlertBusy_clicked_cb" :
+			self.action_busy_clicked,
+			"CallAlertIgnore_clicked_cb" :
+			self.action_ignore_clicked,
+			}
+		self.widgets.signal_autoconnect(dic)
+		self.ag = ag
+		self.completed = False
+		self.removed = False
+
+		if ag.can_drop_waiting():
+			self['CallAlertReject'].show()
+		else:
+			self['CallAlertReject'].hide()
+		if ag.can_drop_held_udub():
+			self['CallAlertBusy'].show()
+		else:
+			self['CallAlertBusy'].hide()
+		self['CallAlertIgnore'].show()
+		self.update_state()
+		self['CallAlertDialog'].show_all()
+
+	def update_state(self):
+		callstate = self.ag.callstate
+		(callid, callphbook) = self.ag.waiting_caller_info()
+		if callid:
+			if callphbook:
+				self['CallAlertInfoLabel'].set_text(
+					"From: %s (%s)" % (callphbook, callid))
+			else:
+				self['CallAlertInfoLabel'].set_text(
+					"From: %s" % callid)
+		else:
+			self['CallAlertInfoLabel'].set_text('')
+		if callstate == 5:
+			self['CallAlertAccept'].hide()
+		else:
+			self['CallAlertAcceptHold'].hide()
+			self['CallAlertAcceptDrop'].hide()
+			self['CallAlertReject'].hide()
+		if callstate == 5:
+			self['CallAlertAcceptHold'].show()
+			self['CallAlertAcceptDrop'].show()
+		else:
+			self['CallAlertAccept'].show()
+			if self.ag.can_drop_waiting():
+				self['CallAlertReject'].show()
+
+	def remove(self):
+		self.complete()
+		del self.widgets
+		del self.ag
+		self.removed = True
+	def complete(self):
+		if not self.completed:
+			self.completed = True
+			self['CallAlertDialog'].hide()
+	def action_accept_clicked(self, widget):
+		if not self.removed:
+			self.complete()
+			self.ag.answer()
+	def action_accept_hold_clicked(self, widget):
+		if not self.removed:
+			self.complete()
+			self.ag.swap_hold_active()
+	def action_accept_drop_clicked(self, widget):
+		if not self.removed:
+			self.complete()
+			self.ag.swap_drop_active()
+	def action_reject_clicked(self, widget):
+		if not self.removed:
+			self.complete()
+			self.ag.hangup()
+	def action_busy_clicked(self, widget):
+		if not self.removed:
+			self.complete()
+			self.ag.drop_held_udub()
+	def action_ignore_clicked(self, widget):
+		if not self.removed:
+			self.complete()
+
 class HfConsole:
 	"""This is a user interface for the hfpd Bluetooth hands-free
 	profile server"""
@@ -51,11 +146,12 @@ class HfConsole:
 			try:
 				self.widgets = gtk.glade.XML(x + '/' +
 							     gladefile)
+				self.gladefile = x + '/' + gladefile
 				found = True
 			except:
 				continue
 			if found:
-				break;
+				break
 
 		if not found:
 			print ('Could not find required Glade XML file %s' %
@@ -70,6 +166,7 @@ class HfConsole:
 			"PhoneNumBs_clicked_cb" : self.phone_num_bs,
 			"DialPadDial_clicked_cb" : self.dial_dial_clicked,
 			"DialPadRedial_clicked_cb" : self.dial_redial_clicked,
+			"DialPadXfer_activate_cb" : self.dial_xfer_clicked,
 			"ScanButton_clicked_cb" : self.scan_open,
 			"ConfigButton_clicked_cb" : self.config_open,
 			"Mute_toggled_cb" : self.mute_toggled,
@@ -79,6 +176,8 @@ class HfConsole:
 			"on_ScanDialog_close" : gtk.main_quit,
 
 			# Callbacks for the config dialog
+			"ConfigDriver_changed_cb" :
+			self.config_driver_changed,
 			"ConfigPacketIntervalHint_toggled_cb" :
 			self.config_packet_interval_toggled,
 			"ConfigPacketInterval_value_changed_cb" :
@@ -124,6 +223,11 @@ class HfConsole:
 			}
 		self.widgets.signal_autoconnect(dic)
 
+		self['ConfigDriverDevList'].set_model(
+			gtk.ListStore(gobject.TYPE_STRING,
+				      gobject.TYPE_STRING))
+		self['ConfigDriverDevList'].set_text_column(0)
+
 		# Set a file filter for the ringer chooser
 		filt = gtk.FileFilter()
 		filt.set_name('WAV Audio Files')
@@ -151,6 +255,10 @@ class HfConsole:
 		self.ags_added = {}
 		self.soundmonitor = False
 		self.autoreconnect = True
+		self.selected_ag = None
+
+		self.alerter_factory = (lambda x:
+					GtkAlerter(self.gladefile, x))
 
 	def getprop_hfpd(self, prop):
 		return self.hfpd_props.Get('net.sf.nohands.hfpd.HandsFree',
@@ -269,6 +377,8 @@ class HfConsole:
 			self.hfc = hfc
 			self.path = agpath
 			self.hfpd = hfpd
+			self.alerter = None
+			self.caller_id = None
 
 			frame = gtk.Frame('')
 			box.pack_start(frame, expand=False)
@@ -293,6 +403,10 @@ class HfConsole:
 			hbox.pack_end(but, expand=False)
 			but.connect('toggled', self.select_toggled)
 			self.select_but = but
+			but = self.image_button(False, gtk.STOCK_ADD)
+			hbox.pack_end(but, expand=False)
+			but.connect('clicked', self.add_clicked)
+			self.add_but = but
 			self.frame = frame
 			self.state = 0
 			self.callstate = 0
@@ -323,6 +437,9 @@ class HfConsole:
 			self.sigs.append(sig)
 			sig = self.ag.connect_to_signal("IndicatorChanged",
 						self.indicator_changed)
+			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal("Ring",
+						self.ring_notify)
 			self.sigs.append(sig)
 
 			self.addr = self.getprop('Address')
@@ -373,6 +490,10 @@ class HfConsole:
 			self.statelab.set_markup(lab)
 			self.hfc.ag_state_changed(self)
 
+		def has_feature(self, feat):
+			return (hasattr(self, 'features') and
+				self.features[feat])
+
 		def can_dial(self):
 			return self.state == 4 and (self.callstate == 1 or
 						    self.callstate == 4)
@@ -380,11 +501,18 @@ class HfConsole:
 			return self.state == 4 and (self.callstate == 2 or
 						    self.callstate == 3 or
 						    self.callstate == 5)
-
+		def can_drop_waiting(self):
+			return self.has_feature('RejectCall')
+		def can_drop_held_udub(self):
+			return self.has_feature('DropHeldUdub')
 		def selectable(self):
 			return self.state == 4
 		def has_voice(self):
 			return self.voicestate == 3
+		def wants_voice(self):
+			return (self.callstate == 2 or
+				self.callstate == 3 or
+				self.callstate == 5)
 		def select(self, state):
 			if state and not self.selectable():
 				return False
@@ -397,10 +525,14 @@ class HfConsole:
 			self.frame.set_label(name)
 		def state_changed(self, state):
 			self.state = int(state)
+			if self.state == 4:
+				self.features = self.getprop('Features')
 			self.set_state_labels()
 		def call_state_changed(self, state):
 			self.callstate = int(state)
 			self.set_state_labels()
+			if (self.callstate != 4 and self.callstate != 5):
+				self.alert_close()
 		def voice_state_changed(self, state):
 			self.voicestate = int(state)
 			self.set_state_labels()
@@ -408,22 +540,72 @@ class HfConsole:
 			if name == 'service':
 				self.noservice = not val
 				self.set_state_labels()
+
+		def alert_close(self):
+			if self.alerter:
+				self.alerter.remove()
+				self.alerter = None
+			self.caller_id = None
+			self.caller_phbook = None
+		def alert_open(self):
+			if not self.alerter:
+				self.alerter = self.hfc.alerter_factory(self)
+			self.alerter.update_state()
+		def ring_notify(self, caller_id, phbook_ent):
+			self.caller_id = caller_id
+			self.caller_phbook = phbook_ent
+			self.alert_open()
+		def waiting_caller_info(self):
+			return (self.caller_id, self.caller_phbook)
+			
 		def connect_clicked(self, widget):
 			self.ag.Connect()
+		def not_mine(self):
+			self.add_but.show()
+		def add_clicked(self, widget):
+			self.hfc.ag_add_to_config(self.addr)
+			widget.hide()
 		def select_toggled(self, widget):
 			if hasattr(self, 'nested'):
 				return
 			self.hfc.ag_select(self, widget.get_active())
 
+		def command_failed(self, reason):
+			print "Command failed: %s" % reason
+		def close_voice(self):
+			self.ag.CloseVoice()
 		def dial(self, number):
-			self.ag.Dial(number)
+			self.ag.Dial(number,
+				     reply_handler=lambda : None,
+				     error_handler=self.command_failed)
 		def redial(self):
-			self.ag.Redial()
+			self.ag.Redial(reply_handler=lambda : None,
+				       error_handler=self.command_failed)
 		def hangup(self):
-			self.ag.HangUp()
+			self.ag.HangUp(reply_handler=lambda : None,
+				       error_handler=self.command_failed)
+		def answer(self):
+			self.ag.Answer(reply_handler=lambda : None,
+				       error_handler=self.command_failed)
+		def drop_held_udub(self):
+			self.ag.CallDropHeldUdub(reply_handler=lambda : None,
+				       error_handler=self.command_failed)
+		def swap_hold_active(self):
+			self.ag.CallSwapHoldActive(reply_handler=lambda : None,
+				       error_handler=self.command_failed)
+		def swap_drop_active(self):
+			self.ag.CallSwapDropActive(reply_handler=lambda : None,
+				       error_handler=self.command_failed)
+		def call_link(self):
+			self.ag.CallLink(reply_handler=lambda : None,
+					 error_handler=self.command_failed)
+		def call_transfer(self):
+			self.ag.CallTransfer(reply_handler=lambda : None,
+					     error_handler=self.command_failed)
 		def dtmf(self, char):
-			self.ag.SendDtmf(char[0])
-
+			self.ag.SendDtmf(char[0],
+					 reply_handler=lambda : None,
+					 error_handler=self.command_failed)
 		def remove_clicked(self, widget):
 			if self.hfc.configfile.remove_option('devices',
 				     self.hfc.addr_transform(self.addr)):
@@ -474,6 +656,26 @@ class HfConsole:
 			if xag.select(True):
 				self.ag_select_changed(xag)
 				return
+	def ag_stop_voice_unselected(self):
+		for xag in self.ags.values():
+			if xag != self.selected_ag and xag.has_voice():
+				xag.close_voice()
+	def ag_push_voice(self):
+		# This process is messy
+		# We let the audio gateway connect to us, then
+		# we configure the pipe.  Passing False as the
+		# second parameter to AudioGatewayStart ensures that
+		# we don't initiate audio connections.
+		if (self.selected_ag and
+		    self.selected_ag.has_voice() and
+		    self.soundstate == 2):
+			try:
+				self.soundio.AudioGatewayStart(
+					self.selected_ag.path, False)
+			except:
+				if self.selected_ag.has_voice():
+					self.selected_ag.close_voice()
+		self.ag_stop_voice_unselected()
 	def ag_state_changed(self, ag):
 		if ((not ag.selectable() and ag == self.selected_ag) or
 		    (ag.has_voice() and self.selected_ag and
@@ -499,6 +701,9 @@ class HfConsole:
 			self.ag_select_search()
 
 	def ag_select_changed(self, ag):
+		if self.selected_ag:
+			if self.selected_ag != ag:
+				self.selected_ag.select(False)
 		self.selected_ag = ag
 		if not ag:
 			self.command_mode(0)
@@ -508,13 +713,17 @@ class HfConsole:
 			self.command_mode(2)
 		else:
 			self.command_mode(0)
-		if ag and ag.has_voice() and self.soundstate == 2:
-			self.soundio.AudioGatewayStart(ag.path)
+		self.ag_push_voice()
 
 	def ag_mine(self, ag):
 		if self.ags_added.has_key(ag.addr):
-			pass
 			ag.setprop('AutoReconnect', self.autoreconnect)
+		else:
+			ag.not_mine()
+
+	def ag_add_to_config(self, addr):
+		self.configfile.set('devices', self.addr_transform(addr), True)
+		self.configfile.write(open(self.configfile_name, 'w+'))
 
 	def add_audiogateway(self, addr):
 		try:
@@ -585,6 +794,8 @@ class HfConsole:
 		if not ag or not ag.can_dial():
 			return
 		ag.redial()
+	def dial_xfer_clicked(self, widget):
+		pass
 	def hfpd_system_state(self, state):
 		if self.system_msg:
 			self['StatusBar'].remove(self.system_ctx,
@@ -631,8 +842,7 @@ class HfConsole:
 		# Create a session for the selected bdaddr
 		(store, iter) = self.scanselect.get_selected()
 		addr = store.get_value(iter, 2)
-		self.configfile.set('devices', self.addr_transform(addr), True)
-		self.configfile.write(open(self.configfile_name, 'w+'))
+		self.ag_add_to_config(addr)
 		self.add_audiogateway(addr)
 	def scan_select(self, selection):
 		if not selection.count_selected_rows():
@@ -800,6 +1010,16 @@ class HfConsole:
 				      dbus.Double(vals['dereverb']))
 		self.setprop_soundio('DereverbDecay',
 				      dbus.Double(vals['dereverbdecay']))
+	def config_driver_changed(self, widget):
+		# Ask for the device list
+		model = self['ConfigDriverDevList'].get_model()
+		model.clear()
+		drivername = self['ConfigDriver'].get_active_text()
+		if not drivername:
+			return
+		devlist = self.soundio.ProbeDevices(drivername)
+		for x in devlist:
+			model.append([x[0], x[1]])
 	def constrain(self, val, min, max):
 		if val < min:
 			val = min
@@ -1134,10 +1354,11 @@ class HfConsole:
 				self['DspTestPlayStart'].set_active(False)
 				self['DspTestMicVolume1'].set_fraction(0.0)
 				self['DspTestMicVolume2'].set_fraction(0.0)
+			self.ag_push_voice()
 		if self.soundstate == 3 or self.soundstate == 4:
 			agpath = self.getprop_soundio('AudioGateway')
 			if agpath:
-				ag = self.ags[agpath];
+				ag = self.ags[agpath]
 				if ag:
 					self.ag_select(ag, True)
 
@@ -1146,7 +1367,11 @@ class HfConsole:
 	def mute_toggled(self, but):
 		self.setprop_soundio('Mute', but.get_active())
 
+
 if __name__ == "__main__":
 	hwg = HfConsole()
+	#fakeag = FakeAg(hwg)
+	#fakeag.ring_notify('15032332118')
+	
 	hwg.Start()
 	gtk.main()

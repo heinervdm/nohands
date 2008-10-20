@@ -37,6 +37,67 @@
 
 namespace libhfp {
 
+
+SoundIoDeviceList::
+~SoundIoDeviceList()
+{
+	SoundIoDeviceList::InfoNode *nodep;
+
+	while (m_first) {
+		nodep = m_first;
+		m_first = m_first->m_next;
+		free(nodep);
+	}
+}
+
+
+bool SoundIoDeviceList::
+Add(const char *name, const char *desc)
+{
+	SoundIoDeviceList::InfoNode *nodep;
+	char *str;
+	size_t siz;
+
+	siz = sizeof(*nodep);
+	if (name)
+		siz += (strlen(name) + 1);
+	if (desc)
+		siz += (strlen(desc) + 1);
+	nodep = (SoundIoDeviceList::InfoNode *) malloc(siz);
+	if (!nodep)
+		return 0;
+
+	memset(nodep, 0, sizeof(*nodep));
+
+	str = (char *) (nodep + 1);
+	if (name) {
+		strcpy(str, name);
+		nodep->m_name = str;
+		str += (1 + strlen(str));
+	} else {
+		nodep->m_name = "";
+	}
+
+	if (desc) {
+		strcpy(str, desc);
+		nodep->m_desc = str;
+		str += (1 + strlen(str));
+	} else {
+		nodep->m_desc = "";
+	}
+
+	if (m_last) {
+		m_last->m_next = nodep;
+	} else {
+		assert(!m_first);
+		m_first = nodep;
+	}
+	m_last = nodep;
+
+	return nodep;
+}
+
+
 class SoundIoMembuf : public SoundIo {
 public:
 	SoundIoFormat		m_fmt;

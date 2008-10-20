@@ -383,7 +383,72 @@ public:
 	}
 };
 
+class GsmClipPhoneNumber {
+	void *operator new(size_t nb, size_t extra);
+	size_t		extra;
+
+	static GsmClipPhoneNumber *Create(const char *src);
+
+public:
+	const char	*number;
+	int		type;
+	const char	*subaddr;
+	int		satype;
+	const char	*alpha;
+	int		cli_validity;
+
+	void operator delete(void *mem);
+	static GsmClipPhoneNumber *Parse(const char *buffer);
+	static GsmClipPhoneNumber *ParseCcwa(const char *buffer);
+	bool Compare(const GsmClipPhoneNumber *clip) const;
+	GsmClipPhoneNumber *Duplicate(void) const;
+};
+
 class AtCommand;
+
+/**
+ * @brief Audio Gateway Pending Command Object
+ * @ingroup hfp
+ *
+ * Some HfpSession methods control the connection state to the audio
+ * gateway.  Others, such as HfpSession::CmdDial(), relay commands to
+ * the audio gateway device.  All HfpSession methods are asynchronous,
+ * and for longer-running operations, the method will return either
+ * having started the operation, or having failed to start the
+ * operation for whatever reason.
+ *
+ * HfpSession methods that relay commands to the audio gateway,
+ * including HfpSession::CmdDial(), will return an HfpPendingCommand
+ * object.  This object functions as a callback that is invoked when a
+ * reply is received from the audio gateway for the queued command.
+ *
+ * Every HfpPendingCommand object returned is guaranteed to have its
+ * registered callback invoked exactly once.
+ *
+ * The caller may also use the Cancel() method of the HfpPendingCommand
+ * object to cancel the command, although this may fail if the command
+ * has already been sent.
+ *
+ * The caller of the HfpSession method is entirely responsible for
+ * the lifecycle of the HfpPendingCommand object.  If the caller is
+ * not interested in the result of the command, it should delete the
+ * HfpPendingCommand object.  Likewise, it must also delete the
+ * HfpPendingCommand object after receiving a callback, or after a
+ * successful call to the Cancel() method.
+ */
+class HfpPendingCommand
+	: public Callback<void, HfpPendingCommand*, bool, const char *> {
+public:
+	/**
+	 * @brief Request that the command be canceled and not sent
+	 *
+	 * @retval true Command has been canceled and will not be sent.
+	 * @retval false Command has already been sent or has already
+	 * completed.
+	 */
+	virtual bool Cancel(void) = 0;
+	virtual ~HfpPendingCommand();
+};
 
 /**
  * @brief Session object for Hands-Free Profile
@@ -463,6 +528,7 @@ class AtCommand;
  */
 class HfpSession : public RfcommSession, public SoundIoBufferBase {
 	friend class HfpService;
+	friend class AtCommand;
 
 private:
 	enum {
@@ -474,7 +540,7 @@ private:
 	bool			m_conn_autoreconnect;
 	ListItem		m_autoreconnect_links;
 
-	AtCommand		*m_cmd_cur, *m_cmd_tail;
+	ListItem		m_commands;
 
 	int			m_brsf;
 
@@ -492,17 +558,28 @@ private:
 	void DeleteFirstCommand(void);
 	void AppendCommand(AtCommand *cmdp);
 	void StartCommand(void);
+	bool CancelCommand(AtCommand *cmdp);
 	void ResponseDefault(char *buf);
+	HfpPendingCommand *PendingCommand(AtCommand *cmdp);
 
 	friend class CindRCommand;	
 	friend class AtdCommand;
 	friend class AtCommandClearCallSetup;
 	void UpdateIndicator(int inum, const char *ival);
-	void UpdateCallSetup(int val, int ring = 0, const char *cli = 0,
+	void UpdateCallSetup(int val, int ring = 0,
+			     GsmClipPhoneNumber *clip = 0,
 			     int timeout_ms = 0);
 
 	friend class ChldTCommand;
+	void SetSupportedHoldRange(int start, int end);
 	void SetSupportedHoldModes(const char *hold_mode_list);
+	bool		m_chld_0: 1,
+			m_chld_1: 1,
+			m_chld_1x: 1,
+			m_chld_2: 1,
+			m_chld_2x: 1,
+			m_chld_3: 1,
+			m_chld_4: 1;
 
 	friend class BrsfCommand;
 	void SetSupportedFeatures(int ag_features) { m_brsf = ag_features; };
@@ -540,8 +617,9 @@ private:
 	int		m_state_signal;
 	int		m_state_roam;
 	int		m_state_battchg;
-	enum { PHONENUM_MAX_LEN = 31 };
-	char		m_state_incomplete_cli[PHONENUM_MAX_LEN + 1];
+
+	enum { PHONENUM_MAX_LEN = 31, };
+	GsmClipPhoneNumber	*m_state_incomplete_clip;
 
 	static bool ValidPhoneNumChar(char c);
 	static bool ValidPhoneNum(const char *ph);
@@ -885,8 +963,8 @@ public:
 	 * @return String pointer to the remote identity of the last
 	 * incomplete call, or NULL if the identity was not known.
 	 */
-	const char *WaitingCallIdentity(void) const {
-		return m_state_incomplete_cli[0] ? m_state_incomplete_cli : 0;
+	const GsmClipPhoneNumber *WaitingCallIdentity(void) const {
+		return m_state_incomplete_clip;
 	}
 
 
@@ -1056,6 +1134,15 @@ public:
 		{ return (m_brsf & 256) ? true : false; }
 	bool FeatureIndCallSetup(void) const
 		{ return (m_inum_callsetup != 0); }
+
+	bool FeatureDropHeldUdub(void) const { return m_chld_0; }
+	bool FeatureSwapDropActive(void) const { return m_chld_1; }
+	bool FeatureDropActive(void) const { return m_chld_1x; }
+	bool FeatureSwapHoldActive(void) const { return m_chld_2; }
+	bool FeaturePrivateConsult(void) const { return m_chld_2x; }
+	bool FeatureLink(void) const { return m_chld_3; }
+	bool FeatureTransfer(void) const { return m_chld_4; }
+
 	/**
 	 * @brief Query whether the attached device supports signal strength
 	 * indication
@@ -1113,39 +1200,43 @@ public:
 	 * @retval true At least one command is pending
 	 * @retval false The command queue is empty
 	 */
-	bool IsCommandPending(void) const { return m_cmd_cur != NULL; }
+	bool IsCommandPending(void) const { return !m_commands.Empty(); }
 
-	bool CmdSetVoiceRecog(bool enabled);
-	bool CmdSetEcnr(bool enabled);
+	HfpPendingCommand *CmdSetVoiceRecog(bool enabled);
+	HfpPendingCommand *CmdSetEcnr(bool enabled);
 
 	/**
 	 * @brief Request that the audio gateway answer the unanswered
 	 * incoming call
 	 *
-	 * @retval true Command was queued
-	 * @retval false Command was not queued, e,g. because the device
-	 * connection was lost.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdAnswer(void);
+	HfpPendingCommand *CmdAnswer(void);
 
 	/**
 	 * @brief Request that the audio gateway hang up the active call
 	 *
 	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
-	 * connection was lost.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdHangUp(void);
+	HfpPendingCommand *CmdHangUp(void);
 
 	/**
 	 * @brief Request that the audio gateway place a new outgoing call
 	 *
 	 * @param[in] phnum Phone number to be dialed
-	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
 	 * connection was lost or the phone number is too long
 	 */
-	bool CmdDial(const char *phnum);
+	HfpPendingCommand *CmdDial(const char *phnum);
 
 	/**
 	 * @brief Request that the audio gateway place a new outgoing call
@@ -1155,11 +1246,12 @@ public:
 	 * gateway, and may have been dialed before the audio gateway was
 	 * connected to the hands-free.
 	 *
-	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
-	 * connection was lost.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdRedial(void);
+	HfpPendingCommand *CmdRedial(void);
 
 	/**
 	 * @brief Request that the audio gateway send a DTMF tone to the
@@ -1167,54 +1259,107 @@ public:
 	 *
 	 * @param code DTMF code to be sent.  May be numeric, #, or *.
 	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
-	 * connection was lost.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdSendDtmf(char code);
+	HfpPendingCommand *CmdSendDtmf(char code);
 
 	/**
-	 * @brief Request that the audio gateway drop the held or waiting call
+	 * @brief Request that the audio gateway drop the held call, or
+	 * reject the waiting call as User Declared User Busy.
 	 *
 	 * @note This command may only be expected to succeed if the device
-	 * claims support for call rejection, i.e. FeatureRejectCall().
-	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
-	 * connection was lost.
+	 * claims support for dropping waiting calls,
+	 * i.e. FeatureDropHeldUdub() returns true.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdCallDropWaiting(void);
+	HfpPendingCommand *CmdCallDropHeldUdub(void);
 
 	/**
 	 * @brief Request that the audio gateway drop the active call
 	 * and activate the held or waiting call
 	 *
-	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
-	 * connection was lost.
+	 * @note This command may only be expected to succeed if the
+	 * device supports active call drop-swapping, i.e.
+	 * FeatureSwapDropActive() returns true.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdCallSwapDropActive(void);
+	HfpPendingCommand *CmdCallSwapDropActive(void);
+
+	/**
+	 * @brief Drop a specific active call
+	 *
+	 * @note This command may only be expected to succeed if the
+	 * device supports dropping of specific active calls, i.e.
+	 * FeatureDropActive() returns true.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
+	 */
+	HfpPendingCommand *CmdCallDropActive(unsigned int actnum);
 
 	/**
 	 * @brief Request that the audio gateway hold the active call
 	 * and activate the held or waiting call
 	 *
-	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
-	 * connection was lost.
+	 * @note This command may only be expected to succeed if the
+	 * device supports active call hold-swapping, i.e.
+	 * FeatureSwapHoldActive() returns true.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdCallSwapHoldActive(void);
+	HfpPendingCommand *CmdCallSwapHoldActive(void);
+
+	/**
+	 * @brief Request private consultation mode with a call
+	 *
+	 * @note This command may only be expected to succeed if the
+	 * device supports private consultation mode, i.e.
+	 * FeaturePrivateConsult() returns true.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
+	 */
+	HfpPendingCommand *CmdCallPrivateConsult(unsigned int callnum);
 
 	/**
 	 * @brief Request that the audio gateway create a three-way call
 	 * using the active call and the held or waiting call
 	 *
 	 * @note This command may only be expected to succeed if the
-	 * device supports three-way calling, i.e.
-	 * FeatureThreeWayCalling() returns true.
-	 * @retval true Command was queued
-	 * @retval false Command was not queued, e.g. because the device
-	 * connection was lost.
+	 * device supports call linking, i.e. FeatureLink() returns true.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
 	 */
-	bool CmdCallLink(void);
+	HfpPendingCommand *CmdCallLink(void);
+
+	/**
+	 * @brief Request that the audio gateway link the two calls
+	 * and disconnect the subscriber from both calls.
+	 *
+	 * @note This command may only be expected to succeed if the
+	 * device supports explicit call transfer,
+	 * i.e. FeatureTransfer() returns true.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
+	 */
+	HfpPendingCommand *CmdCallTransfer(void);
 
 
 	/*
