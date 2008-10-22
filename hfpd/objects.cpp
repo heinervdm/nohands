@@ -2030,7 +2030,7 @@ Init(DbusSession *dbusp)
 		goto failed;
 	}
 
-	m_config->Get("audio", "packetinterval", val, 0);
+	m_config->Get("audio", "packetinterval", val, 20);
 	m_sound->SetPacketIntervalHint(val);
 	m_config->Get("audio", "minbufferfill", val, 0);
 	m_sound->SetMinBufferFillHint(val);
