@@ -132,6 +132,13 @@ public:
 		int err;
 		if (m_play_handle || m_rec_handle) { return false; }
 
+		/*
+		 * ALSA's snd_config_update() is broken WRT
+		 * modifying /etc/asound.conf for now, so we
+		 * just invalidate everything every time.
+		 */
+		snd_config_update_free_global();
+
 		if (play) {
 			err = snd_pcm_open(&m_play_handle, m_play_devspec,
 					   SND_PCM_STREAM_PLAYBACK, 0);
