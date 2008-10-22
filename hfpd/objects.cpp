@@ -2236,7 +2236,7 @@ EpAudioGatewayComplete(AudioGateway *agp)
 	assert(res);
 	if (!m_sound->Start()) {
 		GetDi()->LogWarn("Could not start stream\n");
-		EpRelease(HFPD_SIO_AUDIOGATEWAY_CONNECTING);
+		EpRelease(HFPD_SIO_AUDIOGATEWAY);
 		return false;
 	}
 
