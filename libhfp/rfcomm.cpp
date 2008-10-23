@@ -120,6 +120,7 @@ RfcommListenNotify(SocketNotifier *notp, int fh)
 	struct sockaddr_rc raddr;
 	socklen_t al;
 	int rsock;
+	bool res;
 
 	assert(notp == m_rfcomm_listen_not);
 	assert(fh == m_rfcomm_listen);
@@ -144,10 +145,11 @@ RfcommListenNotify(SocketNotifier *notp, int fh)
 		return;
 	}
 
-	if (!sessp->RfcommAccept(rsock)) {
+	res = sessp->RfcommAccept(rsock);
+	sessp->Put();
+
+	if (!res)
 		close(rsock);
-		sessp->Put();
-	}
 }
 
 bool RfcommService::
@@ -372,7 +374,7 @@ RfcommSdpLookupChannel(void)
 	SdpTask *taskp;
 
 	assert(GetHub());
-	assert(m_rfcomm_state == RFC_SdpLookupChannel);
+	assert(m_rfcomm_state == RFC_Disconnected);
 
 	taskp = new SdpTask;
 	if (taskp == 0)
@@ -392,6 +394,7 @@ RfcommSdpLookupChannel(void)
 	}
 
 	Get();
+	m_rfcomm_state = RFC_SdpLookupChannel;
 	m_rfcomm_sdp_task = taskp;
 	return true;
 }
@@ -573,7 +576,6 @@ RfcommConnect(void)
 	if (m_rfcomm_state != RFC_Disconnected)
 		return false;
 
-	m_rfcomm_state = RFC_SdpLookupChannel;
 	return RfcommSdpLookupChannel();
 }
 
