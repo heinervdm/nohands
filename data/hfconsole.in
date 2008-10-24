@@ -8,17 +8,12 @@ import os
 import ConfigParser
 from dbus.mainloop.glib import DBusGMainLoop
 
-try:
-	import pygtk
-	pygtk.require("2.0")
-except:
-	pass
-try:
-	import gtk
-	import gtk.glade
-	import gobject
-except:
-	sys.exit(1)
+import pygtk
+pygtk.require("2.0")
+
+import gtk
+import gtk.glade
+import gobject
 
 class GtkAlerter:
 	def __getitem__(self, key):
@@ -320,6 +315,8 @@ class HfConsole:
 					    self.hfpd_ag_added)
 		self.hfpd.connect_to_signal("AudioGatewayRemoved",
 					    self.hfpd_ag_removed)
+		self.hfpd.connect_to_signal("LogMessage",
+					    self.hfpd_log_message)
 		self.soundio.connect_to_signal("StateChanged",
 					       self.soundio_state_changed)
 		self.soundio.connect_to_signal("MuteChanged",
@@ -523,7 +520,7 @@ class HfConsole:
 
 		def name_resolved(self, name):
 			self.frame.set_label(name)
-		def state_changed(self, state):
+		def state_changed(self, state, voluntary):
 			self.state = int(state)
 			if self.state == 4:
 				self.features = self.getprop('Features')
@@ -734,6 +731,9 @@ class HfConsole:
 		except:
 			del self.ags_added[addr]
 			self.error_message('Could not attach Audio Gateway')
+
+	def hfpd_log_message(self, level, msg):
+		print 'HFPD: ' + msg
 
 	def digit_button_char(self, but):
 		assert but.get_name()[:11] == 'DigitButton'

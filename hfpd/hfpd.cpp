@@ -180,6 +180,9 @@ main(int argc, char **argv)
 		return 1;
 	}
 
+	/* Send log messages to D-Bus */
+	disp.cb_LogExt.Register(&hf, &HandsFree::LogMessage);
+
 	if (!do_foreground && !Daemonize())
 		return 1;
 

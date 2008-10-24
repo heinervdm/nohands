@@ -123,13 +123,41 @@ SetSyslog(bool enable, libhfp::DispatchInterface::logtype_t elevate)
 }
 
 void SyslogDispatcher::
+LogExt(DispatchInterface::logtype_t lt, const char *fmt, va_list ap)
+{
+	char buf[4096];
+	int len;
+	len = vsnprintf(buf, sizeof(buf), fmt, ap);
+	if (len < 0) {
+		/* This is bad news */
+		return;
+	}
+
+	/* Trim trailing newlines */
+	while (len && ((buf[len - 1] == '\r') || (buf[len - 1] == '\n'))) {
+		len--;
+		buf[len] = '\0';
+	}
+
+	cb_LogExt(lt, buf);
+}
+
+
+void SyslogDispatcher::
 LogVa(libhfp::DispatchInterface::logtype_t lt, const char *fmt, va_list ap)
 {
 	libhfp::DispatchInterface::logtype_t syslog_lt;
 	int syslog_prio;
+	va_list acpy;
 
 	if (lt > m_level)
 		return;
+
+	if (cb_LogExt.Registered()) {
+		va_copy(acpy, ap);
+		LogExt(lt, fmt, acpy);
+		va_end(acpy);
+	}
 
 	if (m_syslog) {
 		syslog_lt = lt;
@@ -162,7 +190,6 @@ LogVa(libhfp::DispatchInterface::logtype_t lt, const char *fmt, va_list ap)
 		vsyslog(syslog_prio, fmt, ap);
 	}
 	if (m_stderr) {
-		va_list acpy;
 		va_copy(acpy, ap);
 		vfprintf(stderr, fmt, acpy);
 		va_end(acpy);

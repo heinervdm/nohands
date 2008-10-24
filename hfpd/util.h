@@ -28,14 +28,19 @@
 extern bool Daemonize(void);
 
 class SyslogDispatcher : public libhfp::IndepEventDispatcher {
-public:
 	DispatchInterface::logtype_t	m_level;
 	bool				m_stderr;
 	bool				m_syslog;
 	DispatchInterface::logtype_t	m_syslog_elevate;
 
+	void LogExt(DispatchInterface::logtype_t, const char *fmt, va_list ap);
+
+public:
 	SyslogDispatcher(void);
 	virtual ~SyslogDispatcher(void);
+
+	libhfp::Callback<void, DispatchInterface::logtype_t, const char *>
+		cb_LogExt;
 
 	void SetLevel(DispatchInterface::logtype_t lt) {  m_level = lt; }
 	void SetStderr(bool enable) { m_stderr = enable; }

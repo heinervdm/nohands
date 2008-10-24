@@ -120,6 +120,8 @@ public:
 	bool GetState(DBusMessage *msgp, unsigned char &val);
 	bool GetCallState(DBusMessage *msgp, unsigned char &val);
 	bool GetVoiceState(DBusMessage *msgp, unsigned char &val);
+	bool GetClaimed(DBusMessage *msgp, bool &val);
+	bool GetVoluntaryDisconnect(DBusMessage *msgp, bool &val);
 	bool GetAddress(DBusMessage *msgp, const DbusProperty *propp,
 			DBusMessageIter &mi);
 	bool GetName(DBusMessage *msgp, const char * &val);
@@ -152,9 +154,10 @@ static const DbusMethod g_AudioGateway_methods[] = {
 };
 
 static const DbusMethod g_AudioGateway_signals[] = {
-	DbusSignalEntry(StateChanged, "y"),
+	DbusSignalEntry(StateChanged, "yb"),
 	DbusSignalEntry(CallStateChanged, "y"),
 	DbusSignalEntry(VoiceStateChanged, "y"),
+	DbusSignalEntry(ClaimStateChanged, "b"),
 	DbusSignalEntry(Ring, "ss"),
 	DbusSignalEntry(IndicatorChanged, "si"),
 	DbusSignalEntry(NameResolved, "s"),
@@ -172,6 +175,10 @@ static const DbusProperty g_AudioGateway_properties[] = {
 				      GetCallState),
 	DbusPropertyMarshallImmutable(unsigned char, VoiceState, AudioGateway,
 				      GetVoiceState),
+	DbusPropertyMarshallImmutable(bool, Claimed, AudioGateway,
+				      GetClaimed),
+	DbusPropertyMarshallImmutable(bool, VoluntaryDisconnect, AudioGateway,
+				      GetVoluntaryDisconnect),
 	DbusPropertyRawImmutable("s", Address, AudioGateway, GetAddress),
 	DbusPropertyMarshallImmutable(const char *, Name, AudioGateway,
 				      GetName),
@@ -226,6 +233,9 @@ public:
 	void Cleanup(void);
 	bool SaveConfig(bool force = false);
 	void LoadDeviceConfig(void);
+
+	void LogMessage(libhfp::DispatchInterface::logtype_t lt,
+			const char *msg);
 
 	AudioGateway *GetAudioGateway(libhfp::HfpSession *sessp) {
 		return !sessp ? 0 :
@@ -309,6 +319,7 @@ static const DbusMethod g_HandsFree_signals[] = {
 	DbusSignalEntry(InquiryResult, "su"),
 	DbusSignalEntry(AudioGatewayAdded, "s"),
 	DbusSignalEntry(AudioGatewayRemoved, "s"),
+	DbusSignalEntry(LogMessage, "us"),
 	{ 0, }
 };
 

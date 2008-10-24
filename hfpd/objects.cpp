@@ -220,11 +220,19 @@ AudioGateway::
 void AudioGateway::
 OwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp)
 {
+	dbus_bool_t claim;
 	char buf[32];
 
 	assert(notp == m_owner);
 	m_sess->GetDevice()->GetAddr(buf);
 	GetDi()->LogInfo("AG %s: D-Bus owner disconnected\n", buf);
+
+	claim = false;
+	(void) SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
+			      "ClaimStateChanged",
+			      DBUS_TYPE_BOOLEAN, &claim,
+			      DBUS_TYPE_INVALID);
+
 	delete notp;
 	m_owner = 0;
 	if (!m_known)
@@ -291,10 +299,16 @@ bool AudioGateway::
 UpdateState(AudioGatewayState st)
 {
 	const unsigned char state = (char) st;
+	dbus_bool_t dc;
+
+	dc = ((st == HFPD_AG_DISCONNECTED) &&
+	      m_sess->IsPriorDisconnectVoluntary());
+
 	if ((st != m_state) &&
 	    !SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
 			    "StateChanged",
 			    DBUS_TYPE_BYTE, &state,
+			    DBUS_TYPE_BOOLEAN, &dc,
 			    DBUS_TYPE_INVALID))
 		return false;
 
@@ -363,6 +377,8 @@ void AudioGateway::
 NotifyConnection(libhfp::HfpSession *sessp)
 {
 	AudioGatewayState st;
+	char addr[32];
+
 	st = State();
 
 	if (!m_hf->m_accept_unknown &&
@@ -377,8 +393,24 @@ NotifyConnection(libhfp::HfpSession *sessp)
 		st = State();
 	}
 
-	if (st == HFPD_AG_DISCONNECTED)
+	if (st == HFPD_AG_DISCONNECTED) {
+		/*
+		 * If the user pushed the "disconnect bluetooth" button
+		 * on the device, don't keep trying to reconnect.
+		 * Instead, disable auto-reconnect.
+		 */
+		if (m_sess->IsPriorDisconnectVoluntary() &&
+		    m_sess->IsAutoReconnect()) {
+			m_sess->GetDevice()->GetAddr(addr);
+			if (!m_hf->m_config->Set("devices", addr, false) ||
+			    !m_hf->SaveConfig()) {
+				/* Nothing much we can do. */
+			}
+			m_sess->SetAutoReconnect(false);
+		}
+
 		DoDisconnect();
+	}
 
 	else if (st == HFPD_AG_CONNECTING) {
 		/*
@@ -680,6 +712,20 @@ bool AudioGateway::
 GetVoiceState(DBusMessage *msgp, unsigned char &val)
 {
 	val = VoiceState();
+	return true;
+}
+
+bool AudioGateway::
+GetClaimed(DBusMessage *msgp, bool &val)
+{
+	val = (m_owner != 0);
+	return true;
+}
+
+bool AudioGateway::
+GetVoluntaryDisconnect(DBusMessage *msgp, bool &val)
+{
+	val = m_sess->IsPriorDisconnectVoluntary();
 	return true;
 }
 
@@ -994,6 +1040,19 @@ LoadDeviceConfig(void)
 		} while (m_config->Next(it) &&
 			 !strcmp(it.GetSection(), "devices"));
 	}
+}
+
+void HandsFree::
+LogMessage(libhfp::DispatchInterface::logtype_t lt, const char *msg)
+{
+	dbus_uint32_t ltu;
+
+	ltu = (dbus_uint32_t) lt;
+	(void) SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
+			      "LogMessage",
+			      DBUS_TYPE_UINT32, &ltu,
+			      DBUS_TYPE_STRING, &msg,
+			      DBUS_TYPE_INVALID);
 }
 
 AudioGateway *HandsFree::
@@ -1422,7 +1481,7 @@ AddDevice(DBusMessage *msgp)
 	DbusPeer *peerp = 0;
 	const char *addr, *path;
 	bool remove_dn = false, unsetknown = false, res;
-	dbus_bool_t setknown;
+	dbus_bool_t setknown, claim;
 
 	res = dbus_message_iter_init(msgp, &mi);
 	assert(res);
@@ -1469,6 +1528,12 @@ AddDevice(DBusMessage *msgp)
 
 		GetDi()->LogInfo("AG %s: claimed by D-Bus peer %s\n",
 				 addr, peerp->GetName());
+
+		claim = true;
+		(void) agp->SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
+					   "ClaimStateChanged",
+					   DBUS_TYPE_BOOLEAN, &claim,
+					   DBUS_TYPE_INVALID);
 	}
 
 	if (setknown && !agp->m_known) {
@@ -1519,6 +1584,7 @@ RemoveDevice(DBusMessage *msgp)
 	DBusMessageIter mi;
 	DbusPeer *peerp = 0;
 	const char *addr;
+	dbus_bool_t claim;
 	bool res;
 
 	res = dbus_message_iter_init(msgp, &mi);
@@ -1569,6 +1635,13 @@ RemoveDevice(DBusMessage *msgp)
 	if (agp->m_owner) {
 		GetDi()->LogInfo("AG %s: disowned by D-Bus peer %s\n",
 				 addr, agp->m_owner->GetPeer()->GetName());
+
+		claim = false;
+		(void) agp->SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
+					   "ClaimStateChanged",
+					   DBUS_TYPE_BOOLEAN, &claim,
+					   DBUS_TYPE_INVALID);
+
 		delete agp->m_owner;
 		agp->m_owner = 0;
 		sessp->Put();
