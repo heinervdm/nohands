@@ -390,8 +390,10 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 	ListItem tasks_done, *listp;
 	HciTask *taskp;
 	inquiry_info *infop = 0;
+	inquiry_info_with_rssi *rssip = 0;
 	uint8_t count = 0;
 	ssize_t ret;
+	bool inq_result_rssi = false;
 
 	assert(fh == m_hci_fh);
 	assert(notp == m_hci_not);
@@ -507,6 +509,8 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		if (hdr->plen != ret)
 			goto invalid_struct;
 
+		inq_result_rssi = false;
+
 	do_next_inq:
 		if (!count)
 			break;
@@ -527,6 +531,45 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 					(infop->dev_class[2] << 16) |
 					(infop->dev_class[1] << 8) |
 					infop->dev_class[0];
+				taskp->m_hcit_links.UnlinkOnly();
+				tasks_done.AppendItem(taskp->m_hcit_links);
+			}
+		}
+		break;
+	}
+	case EVT_INQUIRY_RESULT_WITH_RSSI: {
+		uint8_t *countp;
+		countp = (uint8_t *) (hdr + 1);
+		rssip = (inquiry_info_with_rssi *) (countp + 1);
+		ret = 1;
+		if (hdr->plen < ret)
+			goto invalid_struct;
+		count = *countp;
+		ret = 1 + (count * sizeof(*rssip));
+		if (hdr->plen != ret)
+			goto invalid_struct;
+
+		inq_result_rssi = true;
+
+	do_next_inq_rssi:
+		if (!count)
+			break;
+		listp = m_hci_tasks.next;
+		while (listp != &m_hci_tasks) {
+			taskp = GetContainer(listp, HciTask, m_hcit_links);
+			listp = listp->next;
+
+			if (taskp->m_tasktype == HciTask::HT_INQUIRY) {
+				taskp->m_complete = false;
+				taskp->m_errno = EAGAIN;
+				taskp->m_hci_status = 0;
+				bacpy(&taskp->m_bdaddr, &rssip->bdaddr);
+				taskp->m_pscan_rep = rssip->pscan_rep_mode;
+				taskp->m_clkoff = rssip->clock_offset;
+				taskp->m_devclass =
+					(rssip->dev_class[2] << 16) |
+					(rssip->dev_class[1] << 8) |
+					rssip->dev_class[0];
 				taskp->m_hcit_links.UnlinkOnly();
 				tasks_done.AppendItem(taskp->m_hcit_links);
 			}
@@ -602,8 +645,14 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		taskp->cb_Result(taskp);
 	}
 
-	if (count--)
+	if (count--) {
+		if (inq_result_rssi) {
+			rssip++;
+			goto do_next_inq_rssi;
+		}
+		infop++;
 		goto do_next_inq;
+	}
 
 	return;
 
@@ -777,6 +826,7 @@ HciInit(void)
 	hci_filter_set_ptype(HCI_EVENT_PKT, &flt);
 	hci_filter_set_event(EVT_CMD_STATUS, &flt);
 	hci_filter_set_event(EVT_INQUIRY_RESULT, &flt);
+	hci_filter_set_event(EVT_INQUIRY_RESULT_WITH_RSSI, &flt);
 	hci_filter_set_event(EVT_INQUIRY_COMPLETE, &flt);
 	hci_filter_set_event(EVT_REMOTE_NAME_REQ_COMPLETE, &flt);
 
