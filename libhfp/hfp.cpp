@@ -133,7 +133,8 @@ ScoListen(void)
 
 	sock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_SCO);
 	if (sock < 0) {
-		GetDi()->LogWarn("Create SCO socket: %d\n", errno);
+		GetDi()->LogWarn("Create SCO socket: %s\n",
+				 strerror(errno));
 		return false;
 	}
 
@@ -142,17 +143,20 @@ ScoListen(void)
 	bacpy(&saddr.sco_bdaddr, BDADDR_ANY);
 
 	if (bind(sock, (struct sockaddr*)&saddr, sizeof(saddr)) < 0) {
-		GetDi()->LogWarn("Bind SCO socket: %d\n", errno);
+		GetDi()->LogWarn("Bind SCO socket: %s\n",
+				 strerror(errno));
 		goto failed;
 	}
 
 	if (listen(sock, 1) < 0) {
-		GetDi()->LogWarn("Set SCO socket to listen: %d\n", errno);
+		GetDi()->LogWarn("Set SCO socket to listen: %s\n",
+				 strerror(errno));
 		goto failed;
 	}
 
 	if (!SetNonBlock(sock, true)) {
-		GetDi()->LogWarn("Set SCO listener nonblocking: %d\n", errno);
+		GetDi()->LogWarn("Set SCO listener nonblocking: %s\n",
+				 strerror(errno));
 		goto failed;
 	}
 
@@ -656,13 +660,15 @@ ScoGetParams(int ssock)
 
 	size = sizeof(sci);
 	if (getsockopt(ssock, SOL_SCO, SCO_CONNINFO, &sci, &size) < 0) {
-		GetDi()->LogWarn("Query SCO_CONNINFO: %d\n", errno);
+		GetDi()->LogWarn("Query SCO_CONNINFO: %s\n",
+				 strerror(errno));
 		return false;
 	}
 
 	size = sizeof(sopts);
 	if (getsockopt(ssock, SOL_SCO, SCO_OPTIONS, &sopts, &size) < 0) {
-		GetDi()->LogWarn("Query SCO_OPTIONS: %d\n", errno);
+		GetDi()->LogWarn("Query SCO_OPTIONS: %s\n",
+				 strerror(errno));
 		return false;
 	}
 
@@ -686,7 +692,7 @@ bool HfpSession::
 ScoConnect(void)
 {
 	struct sockaddr_sco src, dest;
-	int ssock;
+	int ssock, err;
 
 	if (!IsConnected()) {
 		return false;
@@ -708,26 +714,31 @@ ScoConnect(void)
 
 	ssock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_SCO);
 	if (ssock < 0) {
-		GetDi()->LogWarn("Create SCO socket: %d\n", errno);
+		GetDi()->LogWarn("Create SCO socket: %s\n",
+				 strerror(errno));
 		return false;
 	}
 
 	if (bind(ssock, (struct sockaddr*)&src, sizeof(src)) < 0) {
 		close(ssock);
-		GetDi()->LogWarn("Bind SCO socket: %d\n", errno);
+		GetDi()->LogWarn("Bind SCO socket: %s\n",
+				 strerror(errno));
 		return false;
 	}
 
 	if (!SetNonBlock(ssock, true)) {
 		close(ssock);
-		GetDi()->LogWarn("Set SCO socket nonblocking: %d\n", errno);
+		GetDi()->LogWarn("Set SCO socket nonblocking: %s\n",
+				 strerror(errno));
 		return false;
 	}
 
 	if (connect(ssock, (struct sockaddr*)&dest, sizeof(dest)) < 0) {
 		if ((errno != EINPROGRESS) && (errno != EAGAIN)) {
+			err = errno;
 			close(ssock);
-			GetDi()->LogWarn("Connect SCO socket: %d\n", errno);
+			GetDi()->LogWarn("Connect SCO socket: %s\n",
+					 strerror(err));
 			return false;
 		}
 	}
@@ -800,7 +811,8 @@ ScoDataNotify(SocketNotifier *notp, int fh)
 		if (!ioctl(m_sco_sock, TIOCOUTQ, &outq) < 0) {
 			outq /= 2;
 		} else {
-			GetDi()->LogWarn("SCO TIOCOUTQ: %d\n", errno);
+			GetDi()->LogWarn("SCO TIOCOUTQ: %s\n",
+					 strerror(errno));
 			outq = m_hw_outq;
 		}
 	} else {
@@ -959,6 +971,7 @@ SndPushInput(bool nonblock)
 	unsigned int nsamples;
 	uint8_t *buf;
 	ssize_t res;
+	int err;
 
 	if (!IsConnectedVoice()) { return; }
 
@@ -978,11 +991,13 @@ SndPushInput(bool nonblock)
 		}
 		res = read(m_sco_sock, buf, nsamples * 2);
 		if (res < 0) {
-			if ((errno != EAGAIN) &&
-			    (errno != ECONNRESET)) {
-				GetDi()->LogWarn("Read SCO data: %d\n", errno);
+			err = errno;
+			if ((err != EAGAIN) &&
+			    (err != ECONNRESET)) {
+				GetDi()->LogWarn("Read SCO data: %s\n",
+						 strerror(err));
 			}
-			if (ReadErrorFatal(errno)) {
+			if (ReadErrorFatal(err)) {
 				/* Connection is lost */
 				res = 0;
 			} else {
@@ -1025,6 +1040,7 @@ SndPushOutput(bool nonblock)
 	unsigned int nsamples;
 	uint8_t *buf;
 	ssize_t res;
+	int err;
 
 	if (!IsConnectedVoice()) { return; }
 
@@ -1043,11 +1059,12 @@ SndPushOutput(bool nonblock)
 		res = send(m_sco_sock, buf, nsamples * 2, MSG_NOSIGNAL);
 
 		if (res < 0) {
-			if (errno != EAGAIN) {
-				GetDi()->LogWarn("Write SCO data: %d\n",
-						 errno);
+			err = errno;
+			if (err != EAGAIN) {
+				GetDi()->LogWarn("Write SCO data: %s\n",
+						 strerror(err));
 			}
-			if (WriteErrorFatal(errno)) {
+			if (WriteErrorFatal(err)) {
 				/* Connection lost: both cbs asynchronous */
 				__DisconnectSco(true, true, true);
 			}
@@ -1205,6 +1222,7 @@ HfpDataReady(SocketNotifier *notp, int fh)
 {
 	size_t cons;
 	ssize_t ret;
+	int err;
 
 	assert(fh == m_rfcomm_sock);
 	assert(notp == m_rfcomm_not);
@@ -1221,14 +1239,16 @@ HfpDataReady(SocketNotifier *notp, int fh)
 		   sizeof(m_rsp_buf) - (m_rsp_start + m_rsp_len));
 
 	if (ret < 0) {
-		GetDi()->LogWarn("Read from RFCOMM socket: %d\n", errno);
+		err = errno;
+		GetDi()->LogWarn("Read from RFCOMM socket: %s\n",
+				 strerror(err));
 
 		/*
 		 * Some errors do not indicate loss of connection
 		 * Others do not indicate voluntary loss of connection
 		 */
-		if (ReadErrorFatal(errno)) {
-			__Disconnect(true, ReadErrorVoluntary(errno));
+		if (ReadErrorFatal(err)) {
+			__Disconnect(true, ReadErrorVoluntary(err));
 		}
 		return;
 	}
@@ -1684,6 +1704,7 @@ StartCommand(void)
 {
 	AtCommand *cmdp;
 	int cl, rl;
+	int err;
 
 	if (!IsRfcommConnected() || m_commands.Empty())
 		return;
@@ -1696,9 +1717,11 @@ StartCommand(void)
 	rl = send(m_rfcomm_sock, cmdp->m_command_text, cl, MSG_NOSIGNAL);
 
 	if (rl < 0) {
+		err = errno;
 		/* Problems!! */
-		GetDi()->LogDebug("Write to RFCOMM socket: %d\n", errno);
-		__Disconnect(true, ReadErrorVoluntary(errno));
+		GetDi()->LogDebug("Write to RFCOMM socket: %s\n",
+				  strerror(err));
+		__Disconnect(true, ReadErrorVoluntary(err));
 	}
 
 	else if (rl != cl) {

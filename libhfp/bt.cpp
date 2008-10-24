@@ -359,11 +359,12 @@ SdpShutdown(void)
 		int err, status;
 		err = kill(m_pid, SIGKILL);
 		if (err)
-			m_ei->LogWarn("Send sig to SDP helper process: %d\n",
-				      errno);
+			m_ei->LogWarn("Send sig to SDP helper process: %s\n",
+				      strerror(errno));
 		err = waitpid(m_pid, &status, 0);
 		if (err < 0)
-			m_ei->LogWarn("Reap SDP helper process: %d\n", errno);
+			m_ei->LogWarn("Reap SDP helper process: %s\n",
+				      strerror(errno));
 		m_pid = -1;
 	}
 
@@ -403,7 +404,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		    (errno == ENOBUFS))
 			return;
 
-		m_ei->LogWarn("HCI socket read error: %d\n", errno);
+		m_ei->LogWarn("HCI socket read error: %s\n", strerror(errno));
 		m_hub->InvoluntaryStop();
 		return;
 	}
@@ -650,7 +651,7 @@ HciSend(int fh, HciTask *taskp, void *data, size_t len)
 	free(buf);
 
 	if (ret < 0) {
-		m_ei->LogError("HCI write failed: %d\n", errno);
+		m_ei->LogError("HCI write failed: %s\n", strerror(errno));
 		return -errno;
 	}
 
@@ -768,7 +769,7 @@ HciInit(void)
 	fh = hci_open_dev(did);
 	if (fh < 0) {
 		did = -errno;
-		m_ei->LogWarn("Could not open HCI: %d\n", errno);
+		m_ei->LogWarn("Could not open HCI: %s\n", strerror(errno));
 		return did;
 	}
 
@@ -781,7 +782,8 @@ HciInit(void)
 
 	if (setsockopt(fh, SOL_HCI, HCI_FILTER, &flt, sizeof(flt)) < 0) {
 		did = -errno;
-		m_ei->LogWarn("Could not set filter on HCI: %d\n", errno);
+		m_ei->LogWarn("Could not set filter on HCI: %s\n",
+			      strerror(errno));
 		close(fh);
 		return did;
 	}
@@ -935,14 +937,15 @@ Start(void)
 
 	res = m_sdp_handler.SdpCreateThread();
 	if (res) {
-		m_ei->LogWarn("Could not create SDP task thread: %d\n",
-			      -res);
+		m_ei->LogWarn("Could not create SDP task thread: %s\n",
+			      strerror(-res));
 		goto failed;
 	}
 
 	res = m_hci_handler.HciInit();
 	if (res) {
-		m_ei->LogWarn("Could not create HCI raw socket: %d\n", -res);
+		m_ei->LogWarn("Could not create HCI raw socket: %s\n",
+			      strerror(-res));
 		goto failed;
 	}
 
@@ -1120,12 +1123,12 @@ HciInquiryResult(HciTask *taskp)
 	if (taskp->m_complete) {
 		if (taskp->m_errno) {
 			if (taskp->m_errno == EIO)
-				m_ei->LogWarn("Inquiry failed: %d/%d\n",
-					      taskp->m_errno,
+				m_ei->LogWarn("Inquiry failed: %s (%d)\n",
+					      strerror(taskp->m_errno),
 					      taskp->m_hci_status);
 			else
-				m_ei->LogWarn("Inquiry failed: %d\n",
-					      taskp->m_errno);
+				m_ei->LogWarn("Inquiry failed: %s\n",
+					      strerror(taskp->m_errno));
 		}
 		delete taskp;
 		m_inquiry_task = 0;

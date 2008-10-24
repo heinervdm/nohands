@@ -181,8 +181,8 @@ RfcommListen(uint8_t channel)
 						  "Channel %d is in use\n",
 						  channel);
 			} else {
-				GetDi()->LogWarn("Bind RFCOMM socket: %d\n",
-						 errno);
+				GetDi()->LogWarn("Bind RFCOMM socket: %s\n",
+						 strerror(errno));
 			}
 			goto failed;
 		}
@@ -193,8 +193,8 @@ RfcommListen(uint8_t channel)
 
 		if (bind(rsock, (struct sockaddr*)&raddr, sizeof(raddr)) < 0) {
 			if (errno != EADDRINUSE) {
-				GetDi()->LogWarn("Bind RFCOMM socket: %d\n",
-						 errno);
+				GetDi()->LogWarn("Bind RFCOMM socket: %s\n",
+						 strerror(errno));
 				goto failed;
 			}
 			continue;
@@ -204,20 +204,21 @@ RfcommListen(uint8_t channel)
 
 	if (!SetLinkModeOptions(rsock, m_bt_master, m_secmode)) {
 		GetDi()->LogWarn("Error setting RFCOMM link mode "
-				 "options: %d\n", errno);
+				 "options: %s\n", strerror(errno));
 		goto failed;
 	}
 	
 	if (listen(rsock, 1) < 0) {
-		GetDi()->LogWarn("Set RFCOMM socket to listen: %d\n", errno);
+		GetDi()->LogWarn("Set RFCOMM socket to listen: %s\n",
+				 strerror(errno));
 		goto failed;
 	}
 
 	/* Query the assigned channel of the RFCOMM */
 	al = sizeof(raddr);
 	if (getsockname(rsock, (struct sockaddr*)&raddr, &al) < 0) {
-		GetDi()->LogWarn("Query RFCOMM listener local address: %d\n",
-				 errno);
+		GetDi()->LogWarn("Query RFCOMM listener local address: %s\n",
+				 strerror(errno));
 		goto failed;
 	}
 
@@ -410,8 +411,8 @@ RfcommSdpLookupChannelComplete(SdpTask *taskp)
 	m_rfcomm_inbound = false;
 
 	if (taskp->m_params.m_errno) {
-		GetDi()->LogDebug("SDP lookup failure: %d\n",
-				  taskp->m_params.m_errno);
+		GetDi()->LogDebug("SDP lookup failure: %s\n",
+				  strerror(taskp->m_params.m_errno));
 		delete taskp;
 		m_rfcomm_sdp_task = 0;
 		__Disconnect(true, false);
@@ -460,20 +461,23 @@ RfcommConnect(uint8_t channel)
 
 	rsock = socket(PF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
 	if (rsock < 0) {
-		GetDi()->LogWarn("Create RFCOMM socket: %d\n", errno);
+		GetDi()->LogWarn("Create RFCOMM socket: %s\n",
+				 strerror(errno));
 		goto failure;
 	}
 
 	memset(&raddr, 0, sizeof(raddr));
 	raddr.rc_family = AF_BLUETOOTH;
 	if (hci_devba(hciid, &raddr.rc_bdaddr) < 0) {
-		GetDi()->LogWarn("Get HCI adapter address: %d\n", errno);
+		GetDi()->LogWarn("Get HCI adapter address: %s\n",
+				 strerror(errno));
 		goto failure;
 	}
 	raddr.rc_channel = 0;
 
 	if (bind(rsock, (struct sockaddr*)&raddr, sizeof(raddr)) < 0) {
-		GetDi()->LogWarn("Bind RFCOMM socket: %d\n", errno);
+		GetDi()->LogWarn("Bind RFCOMM socket: %s\n",
+				 strerror(errno));
 		goto failure;
 	}
 
@@ -487,7 +491,8 @@ RfcommConnect(uint8_t channel)
 	m_rfcomm_secmode = GetService()->m_secmode;
 
 	if (!SetNonBlock(rsock, true)) {
-		GetDi()->LogWarn("Set socket nonblocking: %d\n", errno);
+		GetDi()->LogWarn("Set socket nonblocking: %s\n",
+				 strerror(errno));
 		goto failure;
 	}
 
@@ -497,7 +502,8 @@ RfcommConnect(uint8_t channel)
 
 	if (connect(rsock, (struct sockaddr*)&raddr, sizeof(raddr)) < 0) {
 		if ((errno != EINPROGRESS) && (errno != EAGAIN)) {
-			GetDi()->LogWarn("Connect RFCOMM socket: %d\n", errno);
+			GetDi()->LogWarn("Connect RFCOMM socket: %s\n",
+					 strerror(errno));
 			goto failure;
 		}
 
