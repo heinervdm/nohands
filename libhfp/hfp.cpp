@@ -1235,7 +1235,7 @@ HfpDataReady(SocketNotifier *notp, int fh)
 	assert(m_rsp_start + m_rsp_len < sizeof(m_rsp_buf));
 
 	/* Fill m_rsp_buf, try to parse things */
-	ret = read(m_rfcomm_sock, &m_rsp_buf[m_rsp_start],
+	ret = read(m_rfcomm_sock, &m_rsp_buf[m_rsp_start + m_rsp_len],
 		   sizeof(m_rsp_buf) - (m_rsp_start + m_rsp_len));
 
 	if (ret < 0) {
@@ -1266,6 +1266,10 @@ HfpDataReady(SocketNotifier *notp, int fh)
 	/* Try to consume the buffer */
 	do {
 		cons = HfpConsume(&m_rsp_buf[m_rsp_start], m_rsp_len);
+
+		if (!IsRfcommConnected())
+			break;
+
 		if (!cons) {
 			/* Don't tolerate lines that are too long */
 			if ((m_rsp_start + m_rsp_len) == sizeof(m_rsp_buf)) {
@@ -1283,9 +1287,6 @@ HfpDataReady(SocketNotifier *notp, int fh)
 
 			return;
 		}
-
-		if (!IsRfcommConnected())
-			break;
 
 		assert(cons <= m_rsp_len);
 
@@ -1344,6 +1345,10 @@ HfpConsume(char *buf, size_t len)
 			    !IsCommandPending()) {
 				/* Handshaking is done */
 				HfpHandshakeDone();
+			}
+
+			if (pos < (len - 1)) {
+				assert(buf[len - 1]);
 			}
 
 			return pos + 1;
