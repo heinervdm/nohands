@@ -1805,4 +1805,4 @@ main(int argc, char **argv)
 	return app.exec();
 }
 
-#include "standalone.moc.cpp"
+#include "hfstandalone.moc.cpp"

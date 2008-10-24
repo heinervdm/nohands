@@ -13,7 +13,7 @@ package inclues three main pieces:
 
 Plus, a set of secondary programs as examples:
 
-- standalone, a libhfp Qt application that does not use hfpd
+- hfstandalone, a libhfp Qt application that does not use hfpd
 - hfpdtext, a variant of hfpd with a text protocol instead of D-Bus
 - nhandsfree, an hfpdtext client plugin for nGhost
 
@@ -33,8 +33,8 @@ Features
 - libhfp is adaptable and can be plugged in to different environments easily
 - libhfp includes detailed Doxygen documentation
 - hfpd is a D-Bus service compatible with any environmental D-Bus bindings
-- hfpd and standalone support multiple concurrently connected devices
-- hfpd and standalone support ring tones in WAV format
+- hfpd and hfstandalone support multiple concurrently connected devices
+- hfpd and hfstandalone support ring tones in WAV format
 
 
 Requirements
@@ -44,7 +44,7 @@ Requirements
 - (optional) libaudiofile
 - (optional) libasound, for the ALSA backend
 - (optional) D-Bus for hfpd and the D-Bus clients
-- (optional) Qt >= 3.3, for the standalone program
+- (optional) Qt >= 3.3, for the hfstandalone program
 - (optional) nghost, for the nhandsfree plugin
 
 You will need a full duplex sound card.  Just about any integrated motherboard

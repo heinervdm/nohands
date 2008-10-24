@@ -2,7 +2,7 @@
 
 INCLUDES = -I$(top_srcdir)/include -include config.h $(QT_INCLUDES)
 
-bin_PROGRAMS = standalone
+bin_PROGRAMS = hfstandalone
 
 uic_files = nohands.ui prefs.ui scandialog.ui
 uic_built_hdrs = $(uic_files:.ui=.h)
@@ -12,12 +12,12 @@ moc_built_srcs = $(moc_inputs:.h=.moc.cpp)
 commonbuiltsrc = $(uic_built_hdrs) $(uic_built_srcs) $(moc_built_srcs)
 commonsrc = events-qt.h nohands.ui.h prefs.ui.h scandialog.ui.h 
 
-nodist_standalone_SOURCES = $(commonbuiltsrc)
-standalone_SOURCES = $(commonsrc) standalone.cpp
-standalone_LDADD = $(QT_LDFLAGS) $(QT_LIBS) -L../libhfp -lhfp $(libhfp_LIBS)
-standalone_DEPENDENCIES = ../libhfp/libhfp.a
+nodist_hfstandalone_SOURCES = $(commonbuiltsrc)
+hfstandalone_SOURCES = $(commonsrc) hfstandalone.cpp
+hfstandalone_LDADD = $(QT_LDFLAGS) $(QT_LIBS) -L../libhfp -lhfp $(libhfp_LIBS)
+hfstandalone_DEPENDENCIES = ../libhfp/libhfp.a
 
-CLEANFILES = $(commonbuiltsrc) standalone.moc.cpp
+CLEANFILES = $(commonbuiltsrc) hfstandalone.moc.cpp
 
 .ui.h: $(@:.h=.ui)
 	$(UIC) $^ -o $@
@@ -28,7 +28,7 @@ CLEANFILES = $(commonbuiltsrc) standalone.moc.cpp
 $(moc_built_srcs): $(@:.moc.cpp=.h)
 	$(MOC) $(@:.moc.cpp=.h) -o $@
 
-standalone.moc.cpp: standalone.cpp
+hfstandalone.moc.cpp: hfstandalone.cpp
 	$(MOC) $< -o $@
 
-standalone.o: nohands.h scandialog.h prefs.h standalone.moc.cpp
+hfstandalone.o: nohands.h scandialog.h prefs.h hfstandalone.moc.cpp

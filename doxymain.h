@@ -17,8 +17,8 @@
  * - @b hfconsole, a PyGTK console application for controlling the
  * D-Bus service daemon.
  *
- * The package also includes @b standalone, a demonstration
- * monolithic speakerphone program built with Trolltech Qt.  Standalone
+ * The package also includes @b hfstandalone, a demonstration
+ * monolithic speakerphone program built with Trolltech Qt.  hfstandalone
  * uses its own instance of libhfp and operates independently of hfpd.
  *
  * The developer of HFP for Linux believes that HFP is most useful in 
