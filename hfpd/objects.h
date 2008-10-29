@@ -224,6 +224,9 @@ public:
 
 	ConfigHandler			*m_config;
 
+	class StringBuffer		*m_error_alt;
+	bool				m_error_fatal;
+
 	HandsFree(libhfp::DispatchInterface *dip, DbusSession *dbusp);
 	~HandsFree();
 
@@ -267,6 +270,7 @@ public:
 	bool RemoveDevice(DBusMessage *msgp);
 
 	/* Property related methods */
+	bool GetVersion(DBusMessage *msgp, dbus_uint32_t &val);
 	bool GetAutoSave(DBusMessage *msgp, bool &val);
 	bool SetAutoSave(DBusMessage *msgp, const bool &val, bool &doreply);
 	bool GetSaveFile(DBusMessage *msgp, const char * &val);
@@ -324,6 +328,8 @@ static const DbusMethod g_HandsFree_signals[] = {
 };
 
 static const DbusProperty g_HandsFree_properties[] = {
+	DbusPropertyMarshallImmutable(dbus_uint32_t, Version, HandsFree,
+				      GetVersion),
 	DbusPropertyMarshall(bool, AutoSave, HandsFree,
 			     GetAutoSave, SetAutoSave),
 	DbusPropertyMarshall(const char *, SaveFile, HandsFree,

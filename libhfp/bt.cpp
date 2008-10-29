@@ -801,12 +801,46 @@ HciCancel(HciTask *taskp)
 	}
 }
 
+int HciAsyncTaskHandler::
+HciGetScoMtu(uint16_t &mtu, uint16_t &pkts)
+{
+	hci_dev_info di;
+
+	if (m_hci_fh < 0)
+		return -ESHUTDOWN;
+
+	di.dev_id = m_hci_id;
+	if (ioctl(m_hci_fh, HCIGETDEVINFO, (void *) &di) < 0)
+		return -errno;
+
+	mtu = di.sco_mtu;
+	pkts = di.sco_pkts;
+	return 0;
+}
+
+/* This only works as superuser */
+int HciAsyncTaskHandler::
+HciSetScoMtu(uint16_t mtu, uint16_t pkts)
+{
+	hci_dev_req dr;
+
+	if (m_hci_fh < 0)
+		return -ESHUTDOWN;
+
+	dr.dev_id = m_hci_id;
+	((uint16_t *) &dr.dev_opt)[0] = htobs(mtu);
+	((uint16_t *) &dr.dev_opt)[1] = htobs(pkts);
+	if (ioctl(m_hci_fh, HCISETSCOMTU, (void *) &dr) < 0)
+		return -errno;
+
+	return 0;
+}
 
 int HciAsyncTaskHandler::
 HciInit(void)
 {
 	struct hci_filter flt;
-	int did, fh;
+	int did, fh, err;
 
 	assert(m_hci_fh == -1);
 	assert(!m_hci_not);
@@ -817,9 +851,9 @@ HciInit(void)
 		return -ENODEV;
 	fh = hci_open_dev(did);
 	if (fh < 0) {
-		did = -errno;
+		err = -errno;
 		m_ei->LogWarn("Could not open HCI: %s\n", strerror(errno));
-		return did;
+		return err;
 	}
 
 	hci_filter_clear(&flt);
@@ -831,11 +865,11 @@ HciInit(void)
 	hci_filter_set_event(EVT_REMOTE_NAME_REQ_COMPLETE, &flt);
 
 	if (setsockopt(fh, SOL_HCI, HCI_FILTER, &flt, sizeof(flt)) < 0) {
-		did = -errno;
+		err = -errno;
 		m_ei->LogWarn("Could not set filter on HCI: %s\n",
 			      strerror(errno));
 		close(fh);
-		return did;
+		return err;
 	}
 
 	m_hci_not = m_ei->NewSocket(fh, false);
@@ -855,6 +889,7 @@ HciInit(void)
 	m_resubmit->Register(this, &HciAsyncTaskHandler::HciResubmit);
 	m_hci_not->Register(this, &HciAsyncTaskHandler::HciDataReadyNot);
 
+	m_hci_id = did;
 	m_hci_fh = fh;
 	return 0;
 }

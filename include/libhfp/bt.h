@@ -277,6 +277,7 @@ private:
 	class BtHub			*m_hub;
 	DispatchInterface		*m_ei;
 	int				m_hci_fh;
+	int				m_hci_id;
 	SocketNotifier			*m_hci_not;
 	TimerNotifier			*m_resubmit;
 	ListItem			m_hci_tasks;
@@ -295,9 +296,12 @@ public:
 	int HciQueue(HciTask *in_task);
 	void HciCancel(HciTask *taskp);
 
+	int HciGetScoMtu(uint16_t &mtu, uint16_t &pkts);
+	int HciSetScoMtu(uint16_t mtu, uint16_t pkts);
+
 	HciAsyncTaskHandler(BtHub *hubp, DispatchInterface *eip)
-		: m_hub(hubp), m_ei(eip), m_hci_fh(-1), m_hci_not(0),
-		  m_resubmit(0), m_resubmit_set(false) {}
+		: m_hub(hubp), m_ei(eip), m_hci_fh(-1), m_hci_id(-1),
+		  m_hci_not(0), m_resubmit(0), m_resubmit_set(false) {}
 
 	~HciAsyncTaskHandler() { HciShutdown(); }
 };
@@ -395,6 +399,11 @@ public:
 
 	bool SdpRecordRegister(sdp_record_t *recp);
 	void SdpRecordUnregister(sdp_record_t *recp);
+
+	int HciGetScoMtu(uint16_t &mtu, uint16_t &pkts)
+		{ return m_hci_handler.HciGetScoMtu(mtu, pkts); }
+	int HciSetScoMtu(uint16_t mtu, uint16_t pkts)
+		{ return m_hci_handler.HciSetScoMtu(mtu, pkts); }
 
 	/**
 	 * @brief Notification that the Bluetooth system has stopped

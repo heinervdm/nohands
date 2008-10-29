@@ -293,6 +293,13 @@ class HfConsole:
 		except:
 			self.fatal('Could not connect to hfpd')
 
+		try:
+			v = self.getprop_hfpd('Version')
+			if v != 1:
+				raise DBusException
+		except:
+			self.fatal('Version mismatch with hfpd')
+
 		self.configfile_name = os.path.expanduser('~/.hfconsolerc')
 		self.configfile = ConfigParser.ConfigParser()
 		self.configfile.read([self.configfile_name])
@@ -328,8 +335,18 @@ class HfConsole:
 		self.system_ctx = self['StatusBar'].get_context_id(
 			'SystemState')
 		self.system_msg = None
-		self.hfpd_system_state(self.getprop_hfpd('SystemState'))
-
+		st = self.getprop_hfpd('SystemState')
+		self.hfpd_system_state(st)
+		if not st:
+			try:
+				self.hfpd.Start()
+			except dbus.exceptions.DBusException, (ex):
+				if (ex.get_dbus_name() ==
+				    'net.sf.nohands.hfpd.FatalStartError'):
+					text = str(ex)
+					text = text[37:]
+					self.fatal(text)
+			self.setprop_hfpd('AutoRestart', True)
 		ags = self.getprop_hfpd('AudioGateways')
 		for x in ags:
 			self.hfpd_ag_added(str(x))
@@ -1370,8 +1387,6 @@ class HfConsole:
 
 if __name__ == "__main__":
 	hwg = HfConsole()
-	#fakeag = FakeAg(hwg)
-	#fakeag.ring_notify('15032332118')
 	
 	hwg.Start()
 	gtk.main()

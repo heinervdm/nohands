@@ -305,7 +305,7 @@ DataReady(SocketNotifier *notp, int fh)
 	ret = 0;
 	if (m_req_start || (m_req_len != sizeof(m_req_buf))) {
 		/* Fill m_req_buf, try to parse things */
-		ret = read(m_sock, &m_req_buf[m_req_start],
+		ret = read(m_sock, &m_req_buf[m_req_start + m_req_len],
 			   sizeof(m_req_buf) - (m_req_start + m_req_len));
 
 		if ((ret < 0) && (errno == EAGAIN)) {

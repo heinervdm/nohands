@@ -28,6 +28,7 @@
 #define HFPD_AUDIOGATEWAY_DEFINE_INTERFACES
 #include "objects.h"
 
+#include "util.h"
 
 using namespace libhfp;
 
@@ -901,7 +902,7 @@ HandsFree(DispatchInterface *dip, DbusSession *dbusp)
 	  m_di(dip), m_dbus(dbusp), m_hub(0), m_hfp(0),
 	  m_sound(0),
 	  m_accept_unknown(false), m_voice_persist(false),
-	  m_voice_autoconnect(false)
+	  m_voice_autoconnect(false), m_config(0), m_error_alt(0)
 {
 }
 
@@ -1053,6 +1054,16 @@ LogMessage(libhfp::DispatchInterface::logtype_t lt, const char *msg)
 			      DBUS_TYPE_UINT32, &ltu,
 			      DBUS_TYPE_STRING, &msg,
 			      DBUS_TYPE_INVALID);
+
+	if (m_error_alt) {
+		if (lt < libhfp::DispatchInterface::EVLOG_WARNING)
+			m_error_fatal = true;
+		if (m_error_alt->Contents() &&
+		    m_error_alt->Contents()[0])
+			m_error_alt->AppendFmt("\n%s", msg);
+		else
+			m_error_alt->AppendFmt("%s", msg);
+	}
 }
 
 AudioGateway *HandsFree::
@@ -1326,13 +1337,26 @@ Start(DBusMessage *msgp)
 {
 	bool oldstate;
 	dbus_bool_t res;
+	StringBuffer sb;
+
+	m_error_alt = &sb;
+	m_error_fatal = false;
 
 	oldstate = m_hub->IsStarted();
 	res = m_hub->Start();
 
+	m_error_alt = 0;
+
 	if (!res) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
+		const char *error = DBUS_ERROR_FAILED;
+		if (m_error_fatal)
+			error = "net.sf.nohands.hfpd.FatalStartError";
+
+		if (sb.Contents())
+			return SendReplyError(msgp, error,
+					      sb.Contents());
+
+		return SendReplyError(msgp, error,
 				      "Could not start Bluetooth system");
 	}
 
@@ -1654,6 +1678,13 @@ done:
 	if (sessp)
 		sessp->Put();
 	return res;
+}
+
+bool HandsFree::
+GetVersion(DBusMessage *msgp, dbus_uint32_t &val)
+{
+	val = 1;
+	return true;
 }
 
 bool HandsFree::

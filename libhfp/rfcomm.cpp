@@ -164,7 +164,14 @@ RfcommListen(uint8_t channel)
 
 	rsock = socket(PF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
 	if (rsock < 0) {
-		GetDi()->LogWarn("Create RFCOMM socket");
+		rsock = errno;
+		if (rsock == EPROTONOSUPPORT) {
+			GetDi()->LogError("Your kernel is not configured with "
+					  "support for RFCOMM sockets.\n");
+			GetHub()->SetAutoRestart(false);
+			return false;
+		}
+		GetDi()->LogWarn("Create RFCOMM socket: %s", strerror(errno));
 		return false;
 	}
 

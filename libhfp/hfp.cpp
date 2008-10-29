@@ -127,16 +127,58 @@ bool HfpService::
 ScoListen(void)
 {
 	struct sockaddr_sco saddr;
-	int sock = -1;
+	int sock = -1, res;
+	uint16_t mtu, pkts;
 
 	assert(m_sco_listen == -1);
 
+	/*
+	 * I'm not sure what the whole story is with this, but some
+	 * Broadcom dongles cause the kernel to set its SCO MTU
+	 * values to 16:0.  This is unsuitable for us, we need bigger
+	 * packets and more buffering, and we will refuse to listen
+	 * if it is not available.
+	 */
+	res = GetHub()->HciGetScoMtu(mtu, pkts);
+	if (res) {
+		GetDi()->LogWarn("Get SCO MTU: %s\n",
+				 strerror(-res));
+		return false;
+	}
+
+	if ((mtu < 48) || (pkts < 8)) {
+		if (GetHub()->HciSetScoMtu(64, 8) < 0) {
+			GetDi()->LogError("Unsuitable SCO MTU values %u:%u "
+					  "detected\n", mtu, pkts);
+			GetDi()->LogError("To fix this, run, as superuser, "
+					  "\"hciconfig hci0 scomtu 64:8\"\n");
+			GetHub()->SetAutoRestart(false);
+			return false;
+		}
+
+		mtu = 64;
+		pkts = 8;
+	}
+
+	/*
+	 * Somebody may have also forgotten to enable SCO support
+	 * in the kernel, or the sco.ko module got lost.
+	 */
 	sock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_SCO);
 	if (sock < 0) {
+		sock = errno;
+		if (sock == EPROTONOSUPPORT) {
+			GetDi()->LogError("Your kernel is not configured with "
+					  "support for SCO sockets.\n");
+			GetHub()->SetAutoRestart(false);
+			return false;
+		}
 		GetDi()->LogWarn("Create SCO socket: %s\n",
 				 strerror(errno));
 		return false;
 	}
+
+	GetDi()->LogDebug("SCO MTU: %u:%u\n", mtu, pkts);
 
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sco_family = AF_BLUETOOTH;
