@@ -5,6 +5,7 @@ import sys
 import math
 import dbus
 import os
+import subprocess
 import ConfigParser
 from dbus.mainloop.glib import DBusGMainLoop
 
@@ -242,6 +243,18 @@ class HfConsole:
 		self.scanselect = self['ScanResults'].get_selection()
 		self.scanselect.connect('changed', self.scan_select)
 
+		self.historyresults = gtk.ListStore(gobject.TYPE_STRING,
+						    gobject.TYPE_UINT,
+						    gobject.TYPE_STRING)
+		self['HistoryResults'].set_model(self.historyresults)
+		tvcolumn = gtk.TreeViewColumn('Device')
+		self['HistoryResults'].append_column(tvcolumn)
+		cell = gtk.CellRendererText()
+		tvcolumn.pack_start(cell, True)
+		tvcolumn.add_attribute(cell, 'text', 0)
+		self.historyselect = self['HistoryResults'].get_selection()
+		self.historyselect.connect('changed', self.history_select)
+
 		# Configure D-Bus
 		loop = DBusGMainLoop()
 		self.dbus = dbus.SessionBus(mainloop=loop)
@@ -251,9 +264,21 @@ class HfConsole:
 		self.soundmonitor = False
 		self.autoreconnect = True
 		self.selected_ag = None
+		self.command_voice_attach_state = False
 
 		self.alerter_factory = (lambda x:
 					GtkAlerter(self.gladefile, x))
+
+	def command_voice_attach(self, state):
+		if state == self.command_voice_attach_state:
+			return
+		self.command_voice_attach_state = state
+		if state:
+			exc = self.command_voice_attach_acmd
+		else:
+			exc = self.command_voice_attach_dcmd
+
+		p = subprocess.Popen(exc, shell=True)
 
 	def getprop_hfpd(self, prop):
 		return self.hfpd_props.Get('net.sf.nohands.hfpd.HandsFree',
@@ -303,8 +328,20 @@ class HfConsole:
 		self.configfile_name = os.path.expanduser('~/.hfconsolerc')
 		self.configfile = ConfigParser.ConfigParser()
 		self.configfile.read([self.configfile_name])
+		if not self.configfile.has_section('options'):
+			self.configfile.add_section('options')
 		if not self.configfile.has_section('devices'):
 			self.configfile.add_section('devices')
+		if not self.configfile.has_section('history'):
+			self.configfile.add_section('history')
+		cmd = None
+		if self.configfile.has_option('options', 'attach_command'):
+			cmd = self.configfile.get('options', 'attach_command')
+		self.command_voice_attach_acmd = cmd
+		cmd = None
+		if self.configfile.has_option('options', 'attach_command'):
+			cmd = self.configfile.get('options', 'detach_command')
+		self.command_voice_attach_dcmd = cmd
 		loadags = self.configfile.items('devices')
 		for x in loadags:
 			x = self.addr_untransform(x[0])
@@ -464,6 +501,7 @@ class HfConsole:
 			self.voicestate = self.getprop('VoiceState')
 			self.set_state_labels()
 			self.frame.show_all()
+			self.hfc.ag_update_history(self.addr, None)
 
 		def set_state_labels(self):
 			state = self.state
@@ -537,6 +575,7 @@ class HfConsole:
 
 		def name_resolved(self, name):
 			self.frame.set_label(name)
+			self.hfc.ag_update_history(self.addr, name)
 		def state_changed(self, state, voluntary):
 			self.state = int(state)
 			if self.state == 4:
@@ -686,6 +725,7 @@ class HfConsole:
 			try:
 				self.soundio.AudioGatewayStart(
 					self.selected_ag.path, False)
+				self.command_voice_attach(True)
 			except:
 				if self.selected_ag.has_voice():
 					self.selected_ag.close_voice()
@@ -737,6 +777,19 @@ class HfConsole:
 
 	def ag_add_to_config(self, addr):
 		self.configfile.set('devices', self.addr_transform(addr), True)
+		self.configfile.write(open(self.configfile_name, 'w+'))
+
+	def ag_update_history(self, addr, name):
+		print "Update hist: %s/%s" % (addr, name)
+		addrx = self.addr_transform(addr)
+		has = self.configfile.has_option('history', addrx)
+		if not name and has:
+			return
+		if has and name == self.configfile.get('history', addrx):
+			return
+		if not name:
+			name = addr
+		self.configfile.set('history', addrx, name)
 		self.configfile.write(open(self.configfile_name, 'w+'))
 
 	def add_audiogateway(self, addr):
@@ -825,27 +878,44 @@ class HfConsole:
 						   '')
 		self.system_msg = x
 
+	def scan_restart(self):
+		self.scanresults.clear()
+		self['ScanOK'].set_sensitive(False)
+		try:
+			self.hfpd.StartInquiry()
+			self.inquiry = True
+			self['ScanRestart'].set_sensitive(False)
+			return True
+		except:
+			return False
+
 	def scan_open(self, but):
 		dlg = self['ScanDialog']
-		first = True
 		result = 2
+
+		if not self.scan_restart():
+			self.error_message('Could not start inquiry')
+			return
+
 		while True:
-			self.scanresults.clear()
-			self['ScanOK'].set_sensitive(False)
-			try:
-				self.hfpd.StartInquiry()
-				self.inquiry = True
-				self['ScanRestart'].set_sensitive(False)
-			except:
-				self.error_message('Could not start inquiry')
-				if first:
-					return
-				
 			dlg.show()
 			result = dlg.run()
-			if result != -1:
-				break
-			first = False
+			if result == -1:
+				if not self.scan_restart():
+					self.error_message(
+						'Could not start inquiry')
+				continue
+			elif result == -2:
+				result = self.history_open()
+				if not result:
+					continue
+				(store, iter) = result
+				result = 0
+			elif result == 0:
+				assert (self.scanselect.count_selected_rows()
+					<= 1)
+				(store, iter) = self.scanselect.get_selected()
+			break
 		dlg.hide()
 		if self.inquiry:
 			try:
@@ -855,9 +925,8 @@ class HfConsole:
 		self.inquiry = False
 		if result != 0:
 			return
-		assert self.scanselect.count_selected_rows() <= 1
 		# Create a session for the selected bdaddr
-		(store, iter) = self.scanselect.get_selected()
+		assert store and iter
 		addr = store.get_value(iter, 2)
 		self.ag_add_to_config(addr)
 		self.add_audiogateway(addr)
@@ -867,15 +936,18 @@ class HfConsole:
 		else:
 			self['ScanOK'].set_sensitive(True)	
 	class NameResolveReq:
-		def __init__(self, addr, store):
+		def __init__(self, hfc, addr, store):
 			self.addr = addr
 			self.store = store
+			self.hfc = hfc
 		def complete(self, name):
 			ix = self.store.get_iter_first()
 			while ix:
 				if self.store.get_value(ix, 2) == self.addr:
 					self.store.set_value(ix, 0, name)
 				ix = self.store.iter_next(ix)
+			self.hfc.ag_update_history(self.addr, name)
+			self.hfc = None
 		def failed(self, name):
 			ix = self.store.get_iter_first()
 			while ix:
@@ -884,9 +956,11 @@ class HfConsole:
 					name += ' (unknown name)'
 					self.store.set_value(ix, 0, name)
 				ix = self.store.iter_next(ix)
+			self.hfc = None
 	def hfpd_inquiry_result(self, addr, devclass):
 		if self.inquiry:
 			self.scanresults.append(row=[addr, devclass, addr])
+		self.ag_update_history(addr, None)
 	def hfpd_inquiry_complete(self, sval):
 		if sval:
 			return
@@ -897,11 +971,38 @@ class HfConsole:
 		ix = self.scanresults.get_iter_first()
 		while ix:
 			addr = self.scanresults.get_value(ix, 2)
-			req = self.NameResolveReq(addr, self.scanresults)
+			req = self.NameResolveReq(self, addr, self.scanresults)
 			self.hfpd.GetName(addr,
 					  reply_handler=req.complete,
 					  error_handler=req.failed)
 			ix = self.scanresults.iter_next(ix)
+
+	# History box
+	def history_open(self):
+		dlg = self['HistoryDialog']
+		self.historyresults.clear()
+		self['HistoryOK'].set_sensitive(False)
+
+		# Populate the device history results from the config file
+		ags = self.configfile.items('history')
+		for x in ags:
+			addr = self.addr_untransform(x[0])
+			name = x[1]
+			self.historyresults.append(row=[name, 0, addr])
+
+		dlg.show()
+		res = dlg.run()
+		dlg.hide()
+		if res == 1:
+			return None
+		assert self.historyselect.count_selected_rows() <= 1
+		return self.historyselect.get_selected()
+
+	def history_select(self, selection):
+		if not selection.count_selected_rows():
+			self['HistoryOK'].set_sensitive(False)
+		else:
+			self['HistoryOK'].set_sensitive(True)	
 
 	# Configuration dialog related methods
 	def config_open(self, widget):
@@ -953,6 +1054,13 @@ class HfConsole:
 			self['ConfigDereverbDecay'].set_sensitive(True)
 			self['ConfigDereverbDecay'].set_value(
 				self.config['dereverbdecay'])
+		cmd = self.command_voice_attach_acmd
+		if cmd:
+			self['ConfigVoiceAttachCommand'].set_text(cmd)
+		cmd = self.command_voice_attach_dcmd
+		if cmd:
+			self['ConfigVoiceDetachCommand'].set_text(cmd)
+
 		dlg.show()
 		result = dlg.run()
 		dlg.hide()
@@ -1010,6 +1118,13 @@ class HfConsole:
 				       self['ConfigDriverOpts'].get_text())
 		self.hfpd.SaveSettings()
 		self.autoreconnect = self['ConfigAutoReconnect'].get_active()
+		cmd = self['ConfigVoiceAttachCommand'].get_text()
+		self.command_voice_attach_acmd = cmd
+		self.configfile.set('options', 'attach_command', cmd)
+		cmd = self['ConfigVoiceDetachCommand'].get_text()
+		self.command_voice_attach_dcmd = cmd
+		self.configfile.set('options', 'detach_command', cmd)
+		self.configfile.write(open(self.configfile_name, 'w+'))
 	def config_restore_vals(self, vals):
 		self.soundio.SetDriver(self.config['drivers'][
 			self.config['driver']],
@@ -1358,6 +1473,7 @@ class HfConsole:
 		agpath = self.getprop_soundio('AudioGateway')
 		self.soundstate = int(state)
 		if self.soundstate == 2:
+			self.command_voice_attach(False)
 			if (hasattr(self, 'loopback_active') and
 			    self.loopback_active):
 				self.loopback_active = False
