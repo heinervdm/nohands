@@ -988,6 +988,10 @@ class HfConsole:
 		for x in ags:
 			addr = self.addr_untransform(x[0])
 			name = x[1]
+			if not name:
+				name = addr
+			else:
+				name = "%s (%s)" % (name, addr)
 			self.historyresults.append(row=[name, 0, addr])
 
 		dlg.show()
