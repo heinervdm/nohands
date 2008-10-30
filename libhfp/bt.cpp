@@ -1013,6 +1013,16 @@ Start(void)
 	if (IsStarted())
 		return true;
 
+	/*
+	 * Simple test for Bluetooth protocol support
+	 */
+	if ((hci_get_route(NULL) < 0) && (errno == EAFNOSUPPORT)) {
+		m_ei->LogError("Your kernel is not configured with support "
+			       "for Bluetooth.\n");
+		SetAutoRestart(false);
+		return false;
+	}
+
 	m_sdp = sdp_connect(BDADDR_ANY, BDADDR_LOCAL, SDP_RETRY_IF_BUSY);
 	if (m_sdp == NULL) {
 		/* Common enough to put in the debug pile */
@@ -1029,7 +1039,7 @@ Start(void)
 
 	res = m_hci_handler.HciInit();
 	if (res) {
-		m_ei->LogWarn("Could not create HCI raw socket: %s\n",
+		m_ei->LogWarn("Could not create HCI task handler: %s\n",
 			      strerror(-res));
 		goto failed;
 	}

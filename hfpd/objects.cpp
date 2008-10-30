@@ -1056,8 +1056,11 @@ LogMessage(libhfp::DispatchInterface::logtype_t lt, const char *msg)
 			      DBUS_TYPE_INVALID);
 
 	if (m_error_alt) {
-		if (lt < libhfp::DispatchInterface::EVLOG_WARNING)
+		if (!m_error_fatal &&
+		    (lt < libhfp::DispatchInterface::EVLOG_WARNING)) {
 			m_error_fatal = true;
+			m_error_alt->Clear();
+		}
 		if (m_error_alt->Contents() &&
 		    m_error_alt->Contents()[0])
 			m_error_alt->AppendFmt("\n%s", msg);

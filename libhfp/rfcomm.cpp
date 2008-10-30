@@ -171,7 +171,7 @@ RfcommListen(uint8_t channel)
 			GetHub()->SetAutoRestart(false);
 			return false;
 		}
-		GetDi()->LogWarn("Create RFCOMM socket: %s", strerror(errno));
+		GetDi()->LogWarn("Create RFCOMM socket: %s", strerror(rsock));
 		return false;
 	}
 
