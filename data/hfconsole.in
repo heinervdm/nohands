@@ -278,7 +278,8 @@ class HfConsole:
 		else:
 			exc = self.command_voice_attach_dcmd
 
-		p = subprocess.Popen(exc, shell=True)
+		if exc:
+			p = subprocess.Popen(exc, shell=True)
 
 	def getprop_hfpd(self, prop):
 		return self.hfpd_props.Get('net.sf.nohands.hfpd.HandsFree',
@@ -780,7 +781,6 @@ class HfConsole:
 		self.configfile.write(open(self.configfile_name, 'w+'))
 
 	def ag_update_history(self, addr, name):
-		print "Update hist: %s/%s" % (addr, name)
 		addrx = self.addr_transform(addr)
 		has = self.configfile.has_option('history', addrx)
 		if not name and has:
