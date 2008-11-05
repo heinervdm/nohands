@@ -287,7 +287,7 @@ SoundIoManager(DispatchInterface *di)
 	: m_pump(di, 0), m_config_packet_ms(0), m_primary(0),
 	  m_mute_swap(false), m_mute_soft_up(false), m_mute_soft_dn(false),
 	  m_mute_soft(0), m_top_loop(false), m_primary_open(false),
-	  m_dsp(0), m_dsp_installed(false),
+	  m_dsp(0), m_dsp_enabled(true), m_dsp_installed(false),
 	  m_driver_name(0), m_driver_opts(0)
 {
 	m_pump.cb_NotifyAsyncState.Register(this,
@@ -651,20 +651,51 @@ SetDsp(SoundIoFilter *dspp)
 	SoundIoFilter *fltp;
 	if (m_dsp) {
 		if (m_dsp_installed) {
+			assert(m_dsp_enabled);
 			do_install = true;
 			fltp = m_pump.RemoveBottom();
 			assert(fltp == m_dsp);
 			m_dsp_installed = false;
 		}
 		m_dsp = 0;
+	} else {
+		do_install = IsStarted() && !m_top_loop && !m_mute_swap;
 	}
 
-	if (do_install) {
+	if (do_install && m_dsp_enabled) {
 		if (!m_pump.AddBottom(dspp))
 			return false;
 		m_dsp_installed = true;
 	}
 	m_dsp = dspp;
+	return true;
+}
+
+bool SoundIoManager::
+SetDspEnabled(bool enabled)
+{
+	SoundIoFilter *fltp;
+
+	if (m_dsp_enabled == enabled)
+		return true;
+
+	if (!enabled) {
+		if (m_dsp_installed) {
+			fltp = m_pump.RemoveBottom();
+			assert(fltp == m_dsp);
+			m_dsp_installed = false;
+		}
+		m_dsp_enabled = false;
+		return true;
+	}
+
+	if (m_dsp && IsStarted() && !m_top_loop && !m_mute_swap) {
+		if (!m_pump.AddBottom(m_dsp))
+			return false;
+		m_dsp_installed = true;
+	}
+
+	m_dsp_enabled = true;
 	return true;
 }
 
@@ -689,6 +720,7 @@ ClosePrimary(void)
 
 	if (m_dsp_installed) {
 		SoundIoFilter *fltp;
+		assert(m_dsp_enabled);
 		fltp = m_pump.RemoveBottom();
 		assert(fltp == m_dsp);
 		m_dsp_installed = false;
@@ -744,13 +776,15 @@ Start(bool up, bool down)
 	}
 
 	if (m_dsp) {
-		if (!m_top_loop && !m_mute_swap && !m_dsp_installed) {
+		if (!m_top_loop && !m_mute_swap &&
+		    m_dsp_enabled && !m_dsp_installed) {
 			res = m_pump.AddBottom(m_dsp);
 			assert(res);
 			m_dsp_installed = true;
 		}
 		else if ((m_top_loop || m_mute_swap) && m_dsp_installed) {
 			SoundIoFilter *fltp;
+			assert(m_dsp_enabled);
 			fltp = m_pump.RemoveBottom();
 			assert(fltp == m_dsp);
 			m_dsp_installed = false;

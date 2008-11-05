@@ -1363,6 +1363,7 @@ private:
 	bool			m_top_loop;
 	bool			m_primary_open;
 	SoundIoFilter		*m_dsp;
+	bool			m_dsp_enabled;
 	bool			m_dsp_installed;
 
 	char			*m_driver_name;
@@ -1526,9 +1527,19 @@ public:
 	bool SetMute(bool up, bool dn = false);
 
 	/**
-	 * @brief Configure signal processing
+	 * @brief Set the signal processing filter object
 	 */
-	bool SetDsp(SoundIoFilter *dspp) ;
+	bool SetDsp(SoundIoFilter *dspp);
+
+	/**
+	 * @brief Enable/disable the DSP filter
+	 */
+	bool SetDspEnabled(bool enabled = true);
+
+	/**
+	 * @brief Query whether the DSP filter is enabled
+	 */
+	bool IsDspEnabled(void) { return m_dsp_enabled; }
 
 	/**
 	 * @brief Request stream to start
