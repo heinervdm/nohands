@@ -412,7 +412,7 @@ class HfConsole:
 		os._exit(1)
 
 	class AudioGateway:
-		def image_button(self, toggle, stock):
+		def image_button(self, toggle, stock, tip):
 			if toggle:
 				but = gtk.ToggleButton()
 			else:
@@ -423,6 +423,7 @@ class HfConsole:
 			but.add(img)
 			img.show()
 			but.set_no_show_all(True)
+			but.set_tooltip_text(tip)
 			return but
 			
 		def __init__(self, hfc, sbus, hfpd, agpath, box):
@@ -443,19 +444,23 @@ class HfConsole:
 			lab.set_alignment(0.0, 0.5)
 			hbox.pack_start(lab, expand=True)
 			self.statelab = lab
-			but = self.image_button(False, gtk.STOCK_DELETE)
+			but = self.image_button(False, gtk.STOCK_DELETE,
+						'Remove Device')
 			hbox.pack_end(but, expand=False)
 			but.connect('clicked', self.remove_clicked)
 			self.remove_but = but
-			but = self.image_button(False, gtk.STOCK_CONNECT)
+			but = self.image_button(False, gtk.STOCK_CONNECT,
+						'Connect Now')
 			hbox.pack_end(but, expand=False)
 			but.connect('clicked', self.connect_clicked)
 			self.connect_but = but
-			but = self.image_button(True, gtk.STOCK_APPLY)
+			but = self.image_button(True, gtk.STOCK_APPLY,
+						'Set Device as Primary')
 			hbox.pack_end(but, expand=False)
 			but.connect('toggled', self.select_toggled)
 			self.select_but = but
-			but = self.image_button(False, gtk.STOCK_ADD)
+			but = self.image_button(False, gtk.STOCK_ADD,
+						'Remember This Device')
 			hbox.pack_end(but, expand=False)
 			but.connect('clicked', self.add_clicked)
 			self.add_but = but
