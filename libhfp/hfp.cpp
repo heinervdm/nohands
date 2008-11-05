@@ -849,6 +849,9 @@ ScoDataNotify(SocketNotifier *notp, int fh)
 
 	SndPushInput(true);
 
+	if (!IsConnectedVoice())
+		return;
+
 	if (m_sco_use_tiocoutq) {
 		if (!ioctl(m_sco_sock, TIOCOUTQ, &outq) < 0) {
 			outq /= 2;
@@ -861,8 +864,7 @@ ScoDataNotify(SocketNotifier *notp, int fh)
 		outq = m_hw_outq;
 	}
 
-	if (IsConnectedVoice())
-		BufProcess(outq, false, false);
+	BufProcess(outq, false, false);
 }
 
 

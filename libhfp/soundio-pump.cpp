@@ -974,21 +974,21 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 		cfg.pump_up = (top_props.does_sink &&
 			       bottom_props.does_source);
 		if (!cfg.pump_down && !cfg.pump_up) {
-			GetDi()->LogDebug("Config fail: "
-					  "Can't pump up or down\n");
+			GetDi()->LogWarn("Config fail: "
+					 "Can't pump up or down\n");
 			return false;
 		}
 	}
 	else if (cfg.pump_down && (!bottom_props.does_sink ||
 				   !top_props.does_source)) {
-		GetDi()->LogDebug("Config fail: One or both endpoints does "
-				  "not support downward streaming\n");
+		GetDi()->LogWarn("Config fail: One or both endpoints does "
+				 "not support downward streaming\n");
 		return false;
 	}
 	else if (cfg.pump_up && (!bottom_props.does_source ||
 				 !top_props.does_sink)) {
-		GetDi()->LogDebug("Config fail: One or both endpoints does "
-				  "not support upward streaming\n");
+		GetDi()->LogWarn("Config fail: One or both endpoints does "
+				 "not support upward streaming\n");
 		return false;
 	}
 
@@ -1012,13 +1012,13 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 
 	if (!cfg.bottom_async && !cfg.top_async) {
 		/* Offline processing mode isn't supported yet */
-		GetDi()->LogDebug("Config fail: Offline mode not supported\n");
+		GetDi()->LogWarn("Config fail: Offline mode not supported\n");
 		return false;
 	}
 
 	if (cfg.bottom_loop && cfg.top_loop) {
-		GetDi()->LogDebug("Config fail: Both bottom and top "
-				  "are loops\n");
+		GetDi()->LogWarn("Config fail: Both bottom and top "
+				 "are loops\n");
 		return false;
 	}
 

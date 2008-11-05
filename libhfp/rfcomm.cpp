@@ -568,6 +568,9 @@ RfcommAccept(int sock)
 void RfcommSession::
 RfcommConnectNotify(SocketNotifier *notp, int fh)
 {
+	int sockerr;
+	socklen_t sl;
+
 	assert(m_rfcomm_state == RFC_Connecting);
 
 	if (notp) {
@@ -580,6 +583,23 @@ RfcommConnectNotify(SocketNotifier *notp, int fh)
 	(void) SetNonBlock(m_rfcomm_sock, false);
 
 	m_rfcomm_state = RFC_Connected;
+
+	/* Check for a connect error */
+	sl = sizeof(sockerr);
+	if (getsockopt(m_rfcomm_sock, SOL_SOCKET, SO_ERROR,
+		       &sockerr, &sl) < 0) {
+		GetDi()->LogWarn("Retrieve status of RFCOMM connect: %s\n",
+				 strerror(errno));
+		__Disconnect(true, false);
+		return;
+	}
+
+	if (sockerr) {
+		GetDi()->LogWarn("RFCOMM connect: %s\n", strerror(sockerr));
+		__Disconnect(true, false);
+		return;
+	}
+
 	NotifyConnectionState(true);
 }
 
