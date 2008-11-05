@@ -815,6 +815,9 @@ ScoAccept(int ssock)
 void HfpSession::
 ScoConnectNotify(SocketNotifier *notp, int fh)
 {
+	int sockerr;
+	socklen_t sl;
+
 	assert(m_sco_state == BVS_SocketConnecting);
 
 	if (notp) {
@@ -823,14 +826,31 @@ ScoConnectNotify(SocketNotifier *notp, int fh)
 		m_sco_not = 0;
 	}
 
+	m_sco_state = BVS_Connected;
+	assert(m_sco_not == 0);
+
+	/* Check for a connect error */
+	sl = sizeof(sockerr);
+	if (getsockopt(m_sco_sock, SOL_SOCKET, SO_ERROR,
+		       &sockerr, &sl) < 0) {
+		GetDi()->LogWarn("Retrieve status of SCO connect: %s\n",
+				 strerror(errno));
+		__DisconnectSco(true, true, false);
+		return;
+	}
+
+	if (sockerr) {
+		GetDi()->LogWarn("SCO connect: %s\n", strerror(sockerr));
+		__DisconnectSco(true, true, false);
+		return;
+	}
+
+	/* Retrieve the connection parameters */
 	if (!ScoGetParams(m_sco_sock)) {
 		/* Both callbacks synchronous */
 		__DisconnectSco(true, true, false);
 		return;
 	}
-
-	m_sco_state = BVS_Connected;
-	assert(m_sco_not == 0);
 
 	BufOpen(m_sco_packet_samps, 2);
 
@@ -853,12 +873,12 @@ ScoDataNotify(SocketNotifier *notp, int fh)
 		return;
 
 	if (m_sco_use_tiocoutq) {
-		if (!ioctl(m_sco_sock, TIOCOUTQ, &outq) < 0) {
-			outq /= 2;
-		} else {
+		if (ioctl(m_sco_sock, TIOCOUTQ, &outq)) {
 			GetDi()->LogWarn("SCO TIOCOUTQ: %s\n",
 					 strerror(errno));
 			outq = m_hw_outq;
+		} else {
+			outq /= 2;
 		}
 	} else {
 		outq = m_hw_outq;
