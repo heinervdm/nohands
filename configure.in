@@ -231,7 +231,7 @@ if test $want_qt != no; then
 	QT_CHECK_COMPILERS
 	QT_PATH
 	if test $have_qt = "no" -a $want_qt = "maybe"; then
-		$want_qt=no
+		want_qt=no
 	fi
 fi
 
