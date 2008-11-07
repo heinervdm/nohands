@@ -700,6 +700,7 @@ ScoGetParams(int ssock)
 	socklen_t size;
 	int outq;
 
+	outq = 0;
 	size = sizeof(sci);
 	if (getsockopt(ssock, SOL_SCO, SCO_CONNINFO, &sci, &size) < 0) {
 		GetDi()->LogWarn("Query SCO_CONNINFO: %s\n",
@@ -714,15 +715,15 @@ ScoGetParams(int ssock)
 		return false;
 	}
 
+	m_sco_use_tiocoutq = false;
+#if 0
 	/* Test support for TIOCOUTQ */
 	if (!ioctl(m_sco_sock, TIOCOUTQ, &outq)) {
 		m_sco_use_tiocoutq = true;
-	} else {
-		if (errno != EOPNOTSUPP)
-			GetDi()->LogWarn("SCO TIOCOUTQ: unexpected errno %d\n",
-					 errno);
-		m_sco_use_tiocoutq = false;
+	} else if (errno != EOPNOTSUPP) {
+		GetDi()->LogWarn("SCO TIOCOUTQ: unexpected errno %d\n", errno);
 	}
+#endif
 
 	m_sco_handle = sci.hci_handle;
 	m_sco_mtu = sopts.mtu;
