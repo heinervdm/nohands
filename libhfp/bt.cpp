@@ -382,7 +382,7 @@ SdpShutdown(void)
 }
 
 
-void HciAsyncTaskHandler::
+void BtHci::
 HciDataReadyNot(SocketNotifier *notp, int fh)
 {
 	char evbuf[HCI_MAX_EVENT_SIZE + 1];
@@ -406,14 +406,15 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		    (errno == ENOBUFS))
 			return;
 
-		m_ei->LogWarn("HCI socket read error: %s\n", strerror(errno));
-		m_hub->InvoluntaryStop();
+		GetDi()->LogWarn("HCI socket read error: %s\n",
+				 strerror(errno));
+		GetHub()->InvoluntaryStop();
 		return;
 	}
 
 	if (!ret) {
-		m_ei->LogWarn("HCI socket spontaneously closed\n");
-		m_hub->InvoluntaryStop();
+		GetDi()->LogWarn("HCI socket spontaneously closed\n");
+		GetHub()->InvoluntaryStop();
 		return;
 	}
 
@@ -421,17 +422,17 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		return;
 
 	if (ret < (1 + HCI_EVENT_HDR_SIZE)) {
-		m_ei->LogError("HCI short read, expect: %d got: %zd\n",
-			       HCI_EVENT_HDR_SIZE + 1, ret);
-		m_hub->InvoluntaryStop();
+		GetDi()->LogError("HCI short read, expect: %d got: %zd\n",
+				  HCI_EVENT_HDR_SIZE + 1, ret);
+		GetHub()->InvoluntaryStop();
 		return;
 	}
 
 	hdr = (hci_event_hdr *) &evbuf[1];
 	if (ret < (1 + HCI_EVENT_HDR_SIZE + hdr->plen)) {
-		m_ei->LogError("HCI short read, expect: %d got: %zd\n",
-			       HCI_EVENT_HDR_SIZE + hdr->plen + 1, ret);
-		m_hub->InvoluntaryStop();
+		GetDi()->LogError("HCI short read, expect: %d got: %zd\n",
+				  HCI_EVENT_HDR_SIZE + hdr->plen + 1, ret);
+		GetHub()->InvoluntaryStop();
 		return;
 	}
 
@@ -442,9 +443,9 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		if (hdr->plen != ret)
 			goto invalid_struct;
 
-		m_ei->LogDebug("HCI Command status: 0x%02x 0x%02x 0x%04x\n",
-			       statusp->status, statusp->ncmd,
-			       statusp->opcode);
+		GetDi()->LogDebug("HCI Command status: 0x%02x 0x%02x 0x%04x\n",
+				  statusp->status, statusp->ncmd,
+				  statusp->opcode);
 
 		/*
 		 * Unfortunately the command status event isn't specific
@@ -583,7 +584,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 			goto invalid_struct;
 		st = *(uint8_t *) (hdr + 1);
 
-		m_ei->LogDebug("HCI Inquiry complete: 0x%02x\n", st);
+		GetDi()->LogDebug("HCI Inquiry complete: 0x%02x\n", st);
 
 		listp = m_hci_tasks.next;
 		while (listp != &m_hci_tasks) {
@@ -613,9 +614,9 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		{
 			char addr[32];
 			ba2str(&namep->bdaddr, addr);
-			m_ei->LogDebug("HCI Name request complete (%d): "
-				       "\"%s\" -> \"%s\"\n",
-				       namep->status, addr, namep->name);
+			GetDi()->LogDebug("HCI Name request complete (%d): "
+					  "\"%s\" -> \"%s\"\n",
+					  namep->status, addr, namep->name);
 		}
 
 		listp = m_hci_tasks.next;
@@ -657,13 +658,13 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 	return;
 
 invalid_struct:
-	m_ei->LogError("HCI structure size mismatch, expect: %d got: %zd\n",
-		       hdr->plen, ret);
-	m_hub->InvoluntaryStop();
+	GetDi()->LogError("HCI structure size mismatch, expect: %d got: %zd\n",
+			  hdr->plen, ret);
+	GetHub()->InvoluntaryStop();
 }
 
 
-int HciAsyncTaskHandler::
+int BtHci::
 HciSend(int fh, HciTask *taskp, void *data, size_t len)
 {
 	uint8_t *buf;
@@ -683,7 +684,7 @@ HciSend(int fh, HciTask *taskp, void *data, size_t len)
 	if (len)
 		memcpy(hdrp + 1, data, len);
 
-	m_ei->LogDebug("HCI Submit 0x%04x\n", hdrp->opcode);
+	GetDi()->LogDebug("HCI Submit 0x%04x\n", hdrp->opcode);
 
 	while (1) {
 		ret = send(fh, buf, expect, MSG_NOSIGNAL);
@@ -700,21 +701,21 @@ HciSend(int fh, HciTask *taskp, void *data, size_t len)
 	free(buf);
 
 	if (ret < 0) {
-		m_ei->LogError("HCI write failed: %s\n", strerror(errno));
+		GetDi()->LogError("HCI write failed: %s\n", strerror(errno));
 		return -errno;
 	}
 
 	if (ret != expect) {
-		m_ei->LogError("HCI short write: expected: %zd got: %zd\n",
+		GetDi()->LogError("HCI short write: expected: %zd got: %zd\n",
 			       expect, ret);
-		m_hub->InvoluntaryStop();
+		GetHub()->InvoluntaryStop();
 		return -EIO;
 	}
 
 	return 0;
 }
 
-int HciAsyncTaskHandler::
+int BtHci::
 HciSubmit(int fh, HciTask *taskp)
 {
 	switch (taskp->m_tasktype) {
@@ -745,7 +746,7 @@ HciSubmit(int fh, HciTask *taskp)
 	}
 }
 
-void HciAsyncTaskHandler::
+void BtHci::
 HciResubmit(TimerNotifier *notp)
 {
 	ListItem *listp;
@@ -768,91 +769,28 @@ HciResubmit(TimerNotifier *notp)
 	}
 }
 
-int HciAsyncTaskHandler::
-HciQueue(HciTask *taskp)
-{
-	int res;
-
-	assert(taskp->m_hcit_links.Empty());
-
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
-
-	res = HciSubmit(m_hci_fh, taskp);
-	if (res)
-		return res;
-
-	m_hci_tasks.AppendItem(taskp->m_hcit_links);
-	return 0;
-}
-
-void HciAsyncTaskHandler::
-HciCancel(HciTask *taskp)
-{
-	assert(!taskp->m_hcit_links.Empty());
-	taskp->m_hcit_links.Unlink();
-
-	if ((m_hci_fh >= 0) &&
-	    (taskp->m_tasktype == HciTask::HT_INQUIRY)) {
-		/* Send an INQUIRY CANCEL command to the HCI */
-		taskp->m_opcode = htobs(cmd_opcode_pack(OGF_LINK_CTL,
-							OCF_INQUIRY_CANCEL));
-		(void) HciSend(m_hci_fh, taskp, 0, 0);
-	}
-}
-
-int HciAsyncTaskHandler::
-HciGetScoMtu(uint16_t &mtu, uint16_t &pkts)
-{
-	hci_dev_info di;
-
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
-
-	di.dev_id = m_hci_id;
-	if (ioctl(m_hci_fh, HCIGETDEVINFO, (void *) &di) < 0)
-		return -errno;
-
-	mtu = di.sco_mtu;
-	pkts = di.sco_pkts;
-	return 0;
-}
-
-/* This only works as superuser */
-int HciAsyncTaskHandler::
-HciSetScoMtu(uint16_t mtu, uint16_t pkts)
-{
-	hci_dev_req dr;
-
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
-
-	dr.dev_id = m_hci_id;
-	((uint16_t *) &dr.dev_opt)[0] = htobs(mtu);
-	((uint16_t *) &dr.dev_opt)[1] = htobs(pkts);
-	if (ioctl(m_hci_fh, HCISETSCOMTU, (void *) &dr) < 0)
-		return -errno;
-
-	return 0;
-}
-
-int HciAsyncTaskHandler::
-HciInit(void)
+int BtHci::
+HciInit(int hci_id)
 {
 	struct hci_filter flt;
-	int did, fh, err;
+	int fh, err;
 
 	assert(m_hci_fh == -1);
 	assert(!m_hci_not);
 	assert(m_hci_tasks.Empty());
 
-	did = hci_get_route(0);
-	if (did < 0)
-		return -ENODEV;
-	fh = hci_open_dev(did);
+	fh = hci_open_dev(hci_id);
 	if (fh < 0) {
 		err = -errno;
-		m_ei->LogWarn("Could not open HCI: %s\n", strerror(errno));
+		GetDi()->LogWarn("Could not open HCI: %s\n", strerror(-err));
+		return err;
+	}
+
+	if (hci_devba(hci_id, &m_bdaddr) < 0) {
+		err = -errno;
+		close(fh);
+		GetDi()->LogWarn("Get HCI adapter address: %s\n",
+				 strerror(-err));
 		return err;
 	}
 
@@ -866,19 +804,19 @@ HciInit(void)
 
 	if (setsockopt(fh, SOL_HCI, HCI_FILTER, &flt, sizeof(flt)) < 0) {
 		err = -errno;
-		m_ei->LogWarn("Could not set filter on HCI: %s\n",
-			      strerror(errno));
+		GetDi()->LogWarn("Could not set filter on HCI: %s\n",
+				 strerror(errno));
 		close(fh);
 		return err;
 	}
 
-	m_hci_not = m_ei->NewSocket(fh, false);
+	m_hci_not = GetDi()->NewSocket(fh, false);
 	if (!m_hci_not) {
 		close(fh);
 		return -ENOMEM;
 	}
 
-	m_resubmit = m_ei->NewTimer();
+	m_resubmit = GetDi()->NewTimer();
 	if (!m_resubmit) {
 		close(fh);
 		delete m_hci_not;
@@ -886,15 +824,15 @@ HciInit(void)
 		return -ENOMEM;
 	}
 
-	m_resubmit->Register(this, &HciAsyncTaskHandler::HciResubmit);
-	m_hci_not->Register(this, &HciAsyncTaskHandler::HciDataReadyNot);
+	m_resubmit->Register(this, &BtHci::HciResubmit);
+	m_hci_not->Register(this, &BtHci::HciDataReadyNot);
 
-	m_hci_id = did;
+	m_hci_id = hci_id;
 	m_hci_fh = fh;
 	return 0;
 }
 
-void HciAsyncTaskHandler::
+void BtHci::
 HciShutdown(void)
 {
 	if (m_resubmit) {
@@ -924,6 +862,110 @@ HciShutdown(void)
 }
 
 
+int BtHci::
+Queue(HciTask *taskp)
+{
+	int res;
+
+	assert(taskp->cb_Result.Registered());
+	assert(taskp->m_hcit_links.Empty());
+
+	if (m_hci_fh < 0)
+		return -ESHUTDOWN;
+
+	res = HciSubmit(m_hci_fh, taskp);
+	if (res)
+		return res;
+
+	m_hci_tasks.AppendItem(taskp->m_hcit_links);
+	return 0;
+}
+
+void BtHci::
+Cancel(HciTask *taskp)
+{
+	assert(!taskp->m_hcit_links.Empty());
+	taskp->m_hcit_links.Unlink();
+
+	if ((m_hci_fh >= 0) &&
+	    (taskp->m_tasktype == HciTask::HT_INQUIRY)) {
+		/* Send an INQUIRY CANCEL command to the HCI */
+		taskp->m_opcode = htobs(cmd_opcode_pack(OGF_LINK_CTL,
+							OCF_INQUIRY_CANCEL));
+		(void) HciSend(m_hci_fh, taskp, 0, 0);
+	}
+}
+
+int BtHci::
+GetScoMtu(uint16_t &mtu, uint16_t &pkts)
+{
+	hci_dev_info di;
+
+	if (m_hci_fh < 0)
+		return -ESHUTDOWN;
+
+	di.dev_id = m_hci_id;
+	if (ioctl(m_hci_fh, HCIGETDEVINFO, (void *) &di) < 0)
+		return -errno;
+
+	mtu = di.sco_mtu;
+	pkts = di.sco_pkts;
+	return 0;
+}
+
+/* This only works as superuser */
+int BtHci::
+SetScoMtu(uint16_t mtu, uint16_t pkts)
+{
+	hci_dev_req dr;
+
+	if (m_hci_fh < 0)
+		return -ESHUTDOWN;
+
+	dr.dev_id = m_hci_id;
+	((uint16_t *) &dr.dev_opt)[0] = htobs(mtu);
+	((uint16_t *) &dr.dev_opt)[1] = htobs(pkts);
+	if (ioctl(m_hci_fh, HCISETSCOMTU, (void *) &dr) < 0)
+		return -errno;
+
+	return 0;
+}
+
+bool BtHci::
+GetDeviceClassLocal(uint32_t &devclass)
+{
+	int res;
+	uint8_t cls[3];
+
+	/*
+	 * This is a synchronous operation, and a broken HCI may be able
+	 * to hang our main thread for the 1s timeout.
+	 */
+	if (m_hci_fh < 0)
+		return false;
+
+	res = hci_read_class_of_dev(m_hci_fh, cls, 1000);
+	if (res < 0)
+		return false;
+
+	devclass = (cls[2] << 16) | (cls[1] << 8) | cls[0];
+	return true;
+}
+
+bool BtHci::
+SetDeviceClassLocal(uint32_t devclass)
+{
+	int res;
+
+	if (m_hci_fh < 0)
+		return false;
+
+	res = hci_write_class_of_dev(m_hci_fh, devclass, 1000);
+
+	return (res < 0);
+}
+
+
 BtManaged::
 ~BtManaged()
 {
@@ -950,7 +992,7 @@ Put(void)
 BtHub::
 BtHub(DispatchInterface *eip)
 	: m_sdp(NULL), m_ei(eip), m_inquiry_task(0),
-	  m_sdp_handler(this, eip), m_hci_handler(this, eip),
+	  m_sdp_handler(this, eip), m_hci(0),
 	  m_sdp_not(0), m_timer(0),
 	  m_autorestart(false), m_autorestart_timeout(5000),
 	  m_autorestart_set(false), m_cleanup_set(false)
@@ -1008,7 +1050,7 @@ Start(void)
 {
 	ListItem unstarted;
 	BtService *svcp;
-	int res;
+	int res, hci_id;
 
 	if (IsStarted())
 		return true;
@@ -1016,10 +1058,17 @@ Start(void)
 	/*
 	 * Simple test for Bluetooth protocol support
 	 */
-	if ((hci_get_route(NULL) < 0) && (errno == EAFNOSUPPORT)) {
-		m_ei->LogError("Your kernel is not configured with support "
-			       "for Bluetooth.\n");
-		SetAutoRestart(false);
+	hci_id = hci_get_route(NULL);
+	if (hci_id < 0) {
+		if (errno == EAFNOSUPPORT) {
+			m_ei->LogError("Your kernel is not configured with "
+				       "support for Bluetooth.\n");
+			SetAutoRestart(false);
+			return false;
+		}
+
+		m_ei->LogDebug("Error retrieving HCI route: %s\n",
+			       strerror(errno));
 		return false;
 	}
 
@@ -1037,7 +1086,10 @@ Start(void)
 		goto failed;
 	}
 
-	res = m_hci_handler.HciInit();
+	m_hci = new BtHci(this);
+	if (!m_hci)
+		goto failed;
+	res = m_hci->HciInit(hci_id);
 	if (res) {
 		m_ei->LogWarn("Could not create HCI task handler: %s\n",
 			      strerror(-res));
@@ -1092,7 +1144,11 @@ failed:
 		m_sdp_not = 0;
 	}
 	m_sdp_handler.SdpShutdown();
-	m_hci_handler.HciShutdown();
+	if (m_hci) {
+		m_hci->HciShutdown();
+		m_hci->Put();
+		m_hci = 0;
+	}
 	sdp_close(m_sdp);
 	m_sdp = NULL;
 	return false;
@@ -1124,7 +1180,12 @@ __Stop(void)
 	}
 
 	m_sdp_handler.SdpShutdown();
-	m_hci_handler.HciShutdown();
+
+	if (m_hci) {
+		m_hci->HciShutdown();
+		m_hci->Put();
+		m_hci = 0;
+	}
 
 	assert(m_inquiry_task == 0);
 }
@@ -1282,7 +1343,7 @@ StartInquiry(int timeout_ms)
 	taskp->m_timeout_ms = timeout_ms;
 	taskp->cb_Result.Register(this, &BtHub::HciInquiryResult);
 
-	res = m_hci_handler.HciQueue(taskp);
+	res = m_hci->Queue(taskp);
 	if (res) {
 		delete taskp;
 		return res;
@@ -1306,30 +1367,12 @@ StopInquiry(void)
 	taskp = m_inquiry_task;
 	m_inquiry_task = 0;
 
-	m_hci_handler.HciCancel(taskp);
+	m_hci->Cancel(taskp);
 	delete taskp;
 	ClearInquiryFlags();
 
 	return 0;
 }
-
-int BtHub::
-HciTaskSubmit(HciTask *taskp)
-{
-	assert(taskp->cb_Result.Registered());
-
-	if (!IsStarted())
-		return -ESHUTDOWN;
-
-	return m_hci_handler.HciQueue(taskp);
-}
-
-void BtHub::
-HciTaskCancel(HciTask *taskp)
-{
-	return m_hci_handler.HciCancel(taskp);
-}
-
 
 int BtHub::
 SdpTaskSubmit(SdpTask *taskp)
@@ -1498,53 +1541,6 @@ Timeout(TimerNotifier *notp)
 }
 
 
-bool BtHub::
-GetDeviceClassLocal(uint32_t &devclass)
-{
-	int dh, did, res;
-	uint8_t cls[3];
-
-	/*
-	 * This is a synchronous operation, and a broken HCI may be able
-	 * to hang our main thread for the 1s timeout.
-	 */
-
-	did = hci_get_route(NULL);
-	if (did < 0)
-		return false;
-	dh = hci_open_dev(did);
-	if (dh < 0)
-		return false;
-
-	res = hci_read_class_of_dev(dh, cls, 1000);
-	hci_close_dev(dh);
-
-	if (res < 0)
-		return false;
-
-	devclass = (cls[2] << 16) | (cls[1] << 8) | cls[0];
-	return true;
-}
-
-bool BtHub::
-SetDeviceClassLocal(uint32_t devclass)
-{
-	int dh, did, res;
-
-	did = hci_get_route(NULL);
-	if (did < 0)
-		return false;
-	dh = hci_open_dev(did);
-	if (dh < 0)
-		return false;
-
-	res = hci_write_class_of_dev(dh, devclass, 1000);
-	hci_close_dev(dh);
-
-	return (res < 0);
-}
-
-
 BtDevice::
 BtDevice(BtHub *hubp, bdaddr_t const &bdaddr)
 	: BtManaged(hubp), m_bdaddr(bdaddr), m_inquiry_found(false),
@@ -1557,12 +1553,16 @@ BtDevice(BtHub *hubp, bdaddr_t const &bdaddr)
 BtDevice::
 ~BtDevice()
 {
+	BtHci *hcip;
+
 	assert(!m_inquiry_found);
 	GetDi()->LogDebug("Destroying record for %s\n", GetName());
 	if (!m_index_links.Empty())
 		m_index_links.Unlink();
 	if (m_name_task) {
-		GetHub()->HciTaskCancel(m_name_task);
+		hcip = GetHub()->GetHci();
+		if (hcip)
+			hcip->Cancel(m_name_task);
 		delete m_name_task;
 		m_name_task = 0;
 	}
@@ -1578,6 +1578,7 @@ bool BtDevice::
 ResolveName(void)
 {
 	HciTask *taskp;
+	BtHci *hcip;
 
 	if (m_name_task)
 		return true;
@@ -1596,7 +1597,8 @@ ResolveName(void)
 	}
 	taskp->cb_Result.Register(this, &BtDevice::NameResolutionResult);
 
-	if (GetHub()->HciTaskSubmit(taskp)) {
+	hcip = GetHub()->GetHci();
+	if (!hcip || (hcip->Queue(taskp) < 0)) {
 		delete taskp;
 		return false;
 	}

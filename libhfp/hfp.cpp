@@ -129,8 +129,13 @@ ScoListen(void)
 	struct sockaddr_sco saddr;
 	int sock = -1, res;
 	uint16_t mtu, pkts;
+	BtHci *hcip;
 
 	assert(m_sco_listen == -1);
+
+	hcip = GetHub()->GetHci();
+	if (!hcip)
+		return false;
 
 	/*
 	 * I'm not sure what the whole story is with this, but some
@@ -139,7 +144,7 @@ ScoListen(void)
 	 * packets and more buffering, and we will refuse to listen
 	 * if it is not available.
 	 */
-	res = GetHub()->HciGetScoMtu(mtu, pkts);
+	res = hcip->GetScoMtu(mtu, pkts);
 	if (res) {
 		GetDi()->LogWarn("Get SCO MTU: %s\n",
 				 strerror(-res));
@@ -147,7 +152,7 @@ ScoListen(void)
 	}
 
 	if ((mtu < 48) || (pkts < 8)) {
-		if (GetHub()->HciSetScoMtu(64, 8) < 0) {
+		if (hcip->SetScoMtu(64, 8) < 0) {
 			GetDi()->LogError("Unsuitable SCO MTU values %u:%u "
 					  "detected\n", mtu, pkts);
 			GetDi()->LogError("To fix this, run, as superuser, "
@@ -182,11 +187,19 @@ ScoListen(void)
 
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sco_family = AF_BLUETOOTH;
-	bacpy(&saddr.sco_bdaddr, BDADDR_ANY);
+	bacpy(&saddr.sco_bdaddr, &(hcip->GetAddr()));
 
 	if (bind(sock, (struct sockaddr*)&saddr, sizeof(saddr)) < 0) {
-		GetDi()->LogWarn("Bind SCO socket: %s\n",
-				 strerror(errno));
+		res = -errno;
+		if (res == -EADDRINUSE) {
+			GetDi()->LogError("Another service has claimed your "
+					  "system's Bluetooth audio socket.\n");
+			GetDi()->LogError("Please disable it before "
+					  "attempting to use HFP for Linux\n");
+		} else {
+			GetDi()->LogWarn("Bind SCO socket: %s\n",
+					 strerror(-res));
+		}
 		goto failed;
 	}
 
@@ -736,6 +749,7 @@ ScoConnect(void)
 {
 	struct sockaddr_sco src, dest;
 	int ssock, err;
+	BtHci *hcip;
 
 	if (!IsConnected()) {
 		return false;
@@ -744,10 +758,13 @@ ScoConnect(void)
 		return false;
 	}
 
+	hcip = GetHub()->GetHci();
+	if (!hcip)
+		return false;
+
 	memset(&src, 0, sizeof(src));
 	src.sco_family = AF_BLUETOOTH;
-
-	bacpy(&src.sco_bdaddr, BDADDR_ANY);
+	bacpy(&src.sco_bdaddr, &(hcip->GetAddr()));
 
 	memset(&dest, 0, sizeof(dest));
 	dest.sco_family = AF_BLUETOOTH;

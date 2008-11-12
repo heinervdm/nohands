@@ -1237,7 +1237,8 @@ DoStarted(void)
 			      DBUS_TYPE_BOOLEAN, &a,
 			      DBUS_TYPE_INVALID);
 
-	if (m_hub->GetDeviceClassLocal(devclass) &&
+	if (m_hub->GetHci() &&
+	    m_hub->GetHci()->GetDeviceClassLocal(devclass) &&
 	    !m_hfp->IsDeviceClassHf(devclass)) {
 		m_hfp->SetDeviceClassHf(devclass);
 		GetDi()->LogWarn("*** Your configured device class may "

@@ -264,53 +264,12 @@ struct HciTask {
 		  m_submitted(false), m_resubmit(false) {}
 };
 
-class HciAsyncTaskHandler {
-public:
-	friend class BtHub;
-
-	/*
-	 * Async task handler for performing HCI jobs that can be
-	 * done asynchronously using the HCI raw socket.
-	 */
-
-private:
-	class BtHub			*m_hub;
-	DispatchInterface		*m_ei;
-	int				m_hci_fh;
-	int				m_hci_id;
-	SocketNotifier			*m_hci_not;
-	TimerNotifier			*m_resubmit;
-	ListItem			m_hci_tasks;
-	bool				m_resubmit_needed;
-	bool				m_resubmit_set;
-
-	/* This alerts the main thread when the HCI thread replies */
-	void HciDataReadyNot(SocketNotifier *, int fh);
-	int HciSend(int fh, HciTask *paramsp, void *data, size_t len);
-	int HciSubmit(int fh, HciTask *paramsp);
-	void HciResubmit(TimerNotifier *notp);
-
-public:
-	int HciInit(void);
-	void HciShutdown(void);
-	int HciQueue(HciTask *in_task);
-	void HciCancel(HciTask *taskp);
-
-	int HciGetScoMtu(uint16_t &mtu, uint16_t &pkts);
-	int HciSetScoMtu(uint16_t mtu, uint16_t pkts);
-
-	HciAsyncTaskHandler(BtHub *hubp, DispatchInterface *eip)
-		: m_hub(hubp), m_ei(eip), m_hci_fh(-1), m_hci_id(-1),
-		  m_hci_not(0), m_resubmit(0), m_resubmit_set(false) {}
-
-	~HciAsyncTaskHandler() { HciShutdown(); }
-};
-
 
 class BtManaged;
 class BtDevice;
 class BtService;
 class BtSession;
+class BtHci;
 
 /**
  * @brief Bluetooth Device Manager
@@ -344,7 +303,7 @@ class BtSession;
  */
 class BtHub {
 	friend class SdpAsyncTaskHandler;
-	friend class HciAsyncTaskHandler;
+	friend class BtHci;
 	friend class BtManaged;
 	friend class BtDevice;
 
@@ -361,7 +320,8 @@ private:
 	bool SdpRegister(uint8_t channel);
 
 	SdpAsyncTaskHandler		m_sdp_handler;
-	HciAsyncTaskHandler		m_hci_handler;
+	BtHci				*m_hci;
+
 	int				m_hci_seqid;
 
 	/* Service routines for use in the UI context */
@@ -388,9 +348,6 @@ private:
 	bool			m_autorestart_set;
 	bool			m_cleanup_set;
 
-	int HciTaskSubmit(HciTask *taskp);
-	void HciTaskCancel(HciTask *taskp);
-
 public:
 	DispatchInterface *GetDi(void) const { return m_ei; }
 
@@ -400,10 +357,24 @@ public:
 	bool SdpRecordRegister(sdp_record_t *recp);
 	void SdpRecordUnregister(sdp_record_t *recp);
 
-	int HciGetScoMtu(uint16_t &mtu, uint16_t &pkts)
-		{ return m_hci_handler.HciGetScoMtu(mtu, pkts); }
-	int HciSetScoMtu(uint16_t mtu, uint16_t pkts)
-		{ return m_hci_handler.HciSetScoMtu(mtu, pkts); }
+	/**
+	 * @brief Query the HCI currently used by the Bluetooth system
+	 *
+	 * The HCI object allows a number of special functions to be
+	 * used, including querying the local address, the device class,
+	 * and the SCO MTU.
+	 *
+	 * The Bluetooth subsystem will only actively attach to @b one
+	 * HCI.  In theory it should be possible to attach to multiple
+	 * HCIs, but there are a few minor reasons that we don't:
+	 * - We want to notice collisions with other SCO listeners.
+	 * Unfortunately, the kernel interfaces only return EADDRINUSE
+	 * when we attempt to bind a SCO socket to a specific local bdaddr.
+	 * - Any registered SDP records that include RFCOMM channels would
+	 * need to have the services listen on the same channels consistently
+	 * across HCIs.  For now, we only do this on one HCI.
+	 */
+	BtHci *GetHci(void) const { return m_hci; }
 
 	/**
 	 * @brief Notification that the Bluetooth system has stopped
@@ -750,9 +721,6 @@ public:
 	 * @retval false Device scan is not in progress
 	 */
 	bool IsScanning(void) const { return m_inquiry_task != 0; }
-
-	static bool GetDeviceClassLocal(uint32_t &devclass);
-	static bool SetDeviceClassLocal(uint32_t devclass);
 };
 
 
@@ -860,6 +828,63 @@ public:
 
 
 /**
+ * @brief Bluetooth Local Adapter Record
+ * @ingroup hfp
+ *
+ * This class represents a locally attached Bluetooth module, typically
+ * a module integrated into a laptop or a USB dongle.
+ */
+class BtHci : public BtManaged {
+	friend class BtHub;
+
+	ListItem		m_links;
+	bdaddr_t		m_bdaddr;
+
+	int			m_hci_fh;
+	int			m_hci_id;
+	SocketNotifier		*m_hci_not;
+	TimerNotifier		*m_resubmit;
+	ListItem		m_hci_tasks;
+	bool			m_resubmit_needed;
+	bool			m_resubmit_set;
+
+	/* This alerts the main thread when the HCI thread replies */
+	void HciDataReadyNot(SocketNotifier *, int fh);
+	int HciSend(int fh, HciTask *paramsp, void *data, size_t len);
+	int HciSubmit(int fh, HciTask *paramsp);
+	void HciResubmit(TimerNotifier *notp);
+
+	int HciInit(int hci_id);
+	void HciShutdown(void);
+
+	BtHci(BtHub *hubp)
+		: BtManaged(hubp), m_hci_fh(-1), m_hci_id(-1),
+		  m_hci_not(0), m_resubmit(0), m_resubmit_set(false) {}
+
+public:
+	virtual ~BtHci() { HciShutdown(); }
+
+	/**
+	 * @brief Query the Bluetooth address of the HCI
+	 *
+	 * @return A reference to a bdaddr_t containing the Bluetooth
+	 * address of the HCI.  Can be passed as an argument to
+	 * bacmp() and ba2str().
+	 */
+	bdaddr_t const &GetAddr(void) const { return m_bdaddr; }
+
+	int Queue(HciTask *in_task);
+	void Cancel(HciTask *taskp);
+
+	int GetScoMtu(uint16_t &mtu, uint16_t &pkts);
+	int SetScoMtu(uint16_t mtu, uint16_t pkts);
+
+	bool GetDeviceClassLocal(uint32_t &devclass);
+	bool SetDeviceClassLocal(uint32_t devclass);
+};
+
+
+/**
  * @brief Bluetooth Device Record
  * @ingroup hfp
  *
@@ -905,7 +930,6 @@ class BtDevice : public BtManaged {
 private:
 	ListItem		m_index_links;
 	bdaddr_t		m_bdaddr;
-	int			m_refs;
 	ListItem		m_sessions;
 	bool			m_inquiry_found;
 	uint16_t		m_inquiry_clkoff;

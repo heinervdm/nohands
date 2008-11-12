@@ -156,11 +156,16 @@ bool RfcommService::
 RfcommListen(uint8_t channel)
 {
 	struct sockaddr_rc raddr;
+	BtHci *hcip;
 	int rsock = -1;
 	socklen_t al;
 
 	assert(GetHub());
 	assert(m_rfcomm_listen == -1);
+
+	hcip = GetHub()->GetHci();
+	if (!hcip)
+		return false;
 
 	rsock = socket(PF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
 	if (rsock < 0) {
@@ -177,7 +182,7 @@ RfcommListen(uint8_t channel)
 
 	memset(&raddr, 0, sizeof(raddr));
 	raddr.rc_family = AF_BLUETOOTH;
-	bacpy(&raddr.rc_bdaddr, BDADDR_ANY);
+	bacpy(&raddr.rc_bdaddr, &(hcip->GetAddr()));
 
 	if (channel) {
 		raddr.rc_channel = channel;
@@ -455,16 +460,14 @@ bool RfcommSession::
 RfcommConnect(uint8_t channel)
 {
 	struct sockaddr_rc raddr;
-	int hciid;
+	BtHci *hcip;
 	int rsock = -1;
 
 	assert(m_rfcomm_state == RFC_Disconnected);
 
-	hciid = hci_get_route((bdaddr_t *) &(GetDevice()->GetAddr()));
-	if (hciid < 0) {
-		GetDi()->LogWarn("No HCI route for BDADDR\n");
-		goto failure;
-	}
+	hcip = GetHub()->GetHci();
+	if (!hcip)
+		return false;
 
 	rsock = socket(PF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
 	if (rsock < 0) {
@@ -475,11 +478,7 @@ RfcommConnect(uint8_t channel)
 
 	memset(&raddr, 0, sizeof(raddr));
 	raddr.rc_family = AF_BLUETOOTH;
-	if (hci_devba(hciid, &raddr.rc_bdaddr) < 0) {
-		GetDi()->LogWarn("Get HCI adapter address: %s\n",
-				 strerror(errno));
-		goto failure;
-	}
+	bacpy(&raddr.rc_bdaddr, &(hcip->GetAddr()));
 	raddr.rc_channel = 0;
 
 	if (bind(rsock, (struct sockaddr*)&raddr, sizeof(raddr)) < 0) {

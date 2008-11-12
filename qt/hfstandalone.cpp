@@ -1355,7 +1355,8 @@ public:
 			printf("Bluetooth Failure, hub shut down\n");
 		} else {
 			uint32_t devclass;
-			if (m_hub->GetDeviceClassLocal(devclass) &&
+			if (m_hub->GetHci() &&
+			    m_hub->GetHci()->GetDeviceClassLocal(devclass) &&
 			    !m_hfpsvc->IsDeviceClassHf(devclass)) {
 				m_hfpsvc->SetDeviceClassHf(devclass);
 				printf("*** Your configured device class may "
