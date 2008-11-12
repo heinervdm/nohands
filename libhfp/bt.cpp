@@ -931,6 +931,29 @@ SetScoMtu(uint16_t mtu, uint16_t pkts)
 	return 0;
 }
 
+int BtHci::
+GetScoVoiceSetting(uint16_t &vs)
+{
+	if (m_hci_fh < 0)
+		return -ESHUTDOWN;
+
+	if (hci_read_voice_setting(m_hci_fh, &vs, 1000))
+		return -errno;
+	return 0;
+}
+
+/* This only works as superuser */
+int BtHci::
+SetScoVoiceSetting(uint16_t vs)
+{
+	if (m_hci_fh < 0)
+		return -ESHUTDOWN;
+
+	if (hci_write_voice_setting(m_hci_fh, vs, 1000))
+		return -errno;
+	return 0;
+}
+
 bool BtHci::
 GetDeviceClassLocal(uint32_t &devclass)
 {

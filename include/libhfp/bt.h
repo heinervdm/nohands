@@ -879,6 +879,9 @@ public:
 	int GetScoMtu(uint16_t &mtu, uint16_t &pkts);
 	int SetScoMtu(uint16_t mtu, uint16_t pkts);
 
+	int GetScoVoiceSetting(uint16_t &vs);
+	int SetScoVoiceSetting(uint16_t vs);
+
 	bool GetDeviceClassLocal(uint32_t &devclass);
 	bool SetDeviceClassLocal(uint32_t devclass);
 };

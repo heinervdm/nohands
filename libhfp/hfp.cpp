@@ -128,7 +128,7 @@ ScoListen(void)
 {
 	struct sockaddr_sco saddr;
 	int sock = -1, res;
-	uint16_t mtu, pkts;
+	uint16_t mtu, pkts, vs, nvs;
 	BtHci *hcip;
 
 	assert(m_sco_listen == -1);
@@ -166,6 +166,31 @@ ScoListen(void)
 	}
 
 	/*
+	 * Verify that the voice setting is suitable for our ends.
+	 * We expect 2's complement, 16-bit linear coding.
+	 */
+	res = hcip->GetScoVoiceSetting(vs);
+	if (res) {
+		GetDi()->LogWarn("Get SCO voice setting: %s\n",
+				 strerror(-res));
+		return false;
+	}
+
+	if (vs != 0x0060) {
+		nvs = 0x0060;
+		if (hcip->SetScoVoiceSetting(vs) < 0) {
+			GetDi()->LogError("Unsuitable SCO voice setting "
+					  "0x%04x detected\n", vs);
+			GetDi()->LogError("To fix this, run, as superuser, "
+					  "\"hciconfig hci0 voice 0x0060\"\n");
+			GetHub()->SetAutoRestart(false);
+			return false;
+		}
+
+		vs = nvs;
+	}
+
+	/*
 	 * Somebody may have also forgotten to enable SCO support
 	 * in the kernel, or the sco.ko module got lost.
 	 */
@@ -183,7 +208,7 @@ ScoListen(void)
 		return false;
 	}
 
-	GetDi()->LogDebug("SCO MTU: %u:%u\n", mtu, pkts);
+	GetDi()->LogDebug("SCO MTU: %u:%u Voice: 0x%04x\n", mtu, pkts, vs);
 
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sco_family = AF_BLUETOOTH;
