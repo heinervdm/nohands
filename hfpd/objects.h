@@ -321,8 +321,8 @@ static const DbusMethod g_HandsFree_signals[] = {
 	DbusSignalEntry(SystemStateChanged, "b"),
 	DbusSignalEntry(InquiryStateChanged, "b"),
 	DbusSignalEntry(InquiryResult, "su"),
-	DbusSignalEntry(AudioGatewayAdded, "s"),
-	DbusSignalEntry(AudioGatewayRemoved, "s"),
+	DbusSignalEntry(AudioGatewayAdded, "o"),
+	DbusSignalEntry(AudioGatewayRemoved, "o"),
 	DbusSignalEntry(LogMessage, "us"),
 	{ 0, }
 };

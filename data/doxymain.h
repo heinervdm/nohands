@@ -1,3 +1,23 @@
+/*
+ * Software Bluetooth Hands-Free Implementation
+ *
+ * Copyright (C) 2008 Sam Revitch <samr7@cs.washington.edu>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
 /**
  * @mainpage Bluetooth Hands-Free Profile Server
  *
@@ -12,8 +32,9 @@
  *
  * - @b libhfp, a modular, toolkit-independent backend library with
  * rich APIs.  This documentation is primarily concerned with libhfp.
- * - @b hfpd, a D-Bus service daemon providing D-Bus APIs.  The D-Bus
- * APIs are presently undocumented, but are introspectable.
+ * - @b hfpd, a D-Bus service daemon providing D-Bus APIs.  A link to
+ * documentation for the D-Bus APIs can be found on the HFP for Linux
+ * home page.
  * - @b hfconsole, a PyGTK console application for controlling the
  * D-Bus service daemon.
  *
