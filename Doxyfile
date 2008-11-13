@@ -4,7 +4,7 @@
 # Project related configuration options
 #---------------------------------------------------------------------------
 DOXYFILE_ENCODING      = UTF-8
-PROJECT_NAME           = HFP for Linux
+PROJECT_NAME           = libhfp
 PROJECT_NUMBER         = 
 OUTPUT_DIRECTORY       = doc
 CREATE_SUBDIRS         = NO

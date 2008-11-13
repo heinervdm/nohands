@@ -520,10 +520,12 @@ public:
 };
 
 
-/*
- * SoundIoDeviceList is a utility class used to communicate a list of
- * detected sound card names and descriptions associated with each
- * driver.
+/**
+ * @brief Utility class used to communicate a list of detected sound
+ * card names and descriptions associated with each driver.
+ *
+ * An instance of this class is returned by SoundIoManager::GetDriverInfo()
+ * to describe local sound card devices discovered during probing.
  */
 
 class SoundIoDeviceList {
@@ -540,9 +542,31 @@ public:
 
 	bool Add(const char *name, const char *desc);
 
+	/**
+	 * @brief Move the internal cursor to the beginning of the list
+	 *
+	 * @retval true List is nonempty
+	 * @retval false List is empty
+	 */
 	bool First(void) { m_cursor = m_first; return m_cursor != 0; }
+
+	/**
+	 * @brief Move the internal cursor to the next element of the list
+	 *
+	 * @retval true End of list has not been reached
+	 * @retval false End of list has been reached
+	 */
 	bool Next(void) { m_cursor = m_cursor->m_next; return m_cursor != 0; }
+
+	/**
+	 * @brief Retrieve the name of the current list entry
+	 */
 	const char *GetName(void) const { return m_cursor->m_name; }
+
+	/**
+	 * @brief Retrieve the human-readable description of the
+	 * current list entry
+	 */
 	const char *GetDesc(void) const { return m_cursor->m_desc; }
 };
 
@@ -1286,7 +1310,7 @@ public:
 	/**
 	 * @brief Set the desired window size on output buffers
 	 *
-	 * The method provides the client some level of control over the
+	 * This method provides the client some level of control over the
 	 * output window size, i.e. the limit of the fill level of output
 	 * buffers above and beyond the minimum.  This value has two
 	 * consequences:
@@ -1335,7 +1359,8 @@ public:
  * The primary endpoint can be configured by driver name and option
  * strings.  A default driver with default options will be used if no
  * options are provided.  Clients need not have any knowledge of available
- * drivers.
+ * drivers, but can enumerate them, as well as probe for available local
+ * sound card devices, using GetDriverInfo().
  *
  * The primary endpoint is automatically opened and closed, and
  * has its format set to that of the secondary endpoint when the stream
@@ -1347,10 +1372,10 @@ public:
  * loopback mode.  Loopback mode is useful for qualitatively evaluating
  * latency.
  *
- * This object also supports a streaming mute mode.  This can be enabled at
- * any time using SetMute().  When enabled, a clocked secondary endpoint
- * will continue streaming while the primary endpoint is swapped out and
- * closed.
+ * This object also supports software mute mode.  Software mute can be
+ * enabled at any time using SetMute().  When enabled, both endpoints will
+ * continue streaming, but the audio data in one or both directions will
+ * be replaced with silence.
  */
 class SoundIoManager {
 private:
@@ -1469,7 +1494,7 @@ public:
 	/**
 	 * @brief Temporarily disable and close the primary endpoint
 	 *
-	 * Hard streaming mute mode allows the secondary endpoint to contine
+	 * Hard streaming mute mode allows the secondary endpoint to continue
 	 * streaming while the primary is removed.  The primary endpoint
 	 * may also be optionally closed.
 	 *
@@ -1701,7 +1726,7 @@ public:
 	/**
 	 * @brief Set the desired packet size for the primary endpoint
 	 *
-	 * The method provides the client some level of control over the
+	 * This method provides the client some level of control over the
 	 * packet size of the primary endpoint, i.e. the interrupt period
 	 * length.  This value has two consequences:
 	 * - If it is too small, the number of hardware interrupts

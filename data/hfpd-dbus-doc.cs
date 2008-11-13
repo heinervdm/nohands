@@ -34,6 +34,11 @@
  * D-Bus messages.  All of its status can be retrieved via D-Bus, and
  * changes to its status are notified through D-Bus signals.
  *
+ * The D-Bus APIs are ideally suited for constructing hands-free
+ * applications using high-level languages, such as Python, C#, or even
+ * Perl.  As a lower level and much more complicated alternative, one
+ * may use the <a href="../doxy/index.html">libhfp C++ APIs</a>.
+ *
  * The D-Bus APIs described in this document are relatively complete.
  * The hfconsole application is implemented entirely in Python, and uses
  * dbus-python to access D-Bus APIs described in this document.  It does
@@ -41,9 +46,29 @@
  * Python bindings.  The APIs described here, and PyGTK, are the only
  * dependencies of hfconsole in order for it to do its job.
  *
+ * @section features HFPD Features
+ *
+ * - Supports device scanning, connection, disconnection, and automatic
+ * reconnection
+ * - Supports multiple concurrently connected audio gateway devices
+ * - Resilient to loss of Bluetooth service
+ * - Supports the ALSA and OSS audio hardware interfaces
+ * - Supports audio system test modes
+ * - Supports microphone input cleanup, including echo cancellation and
+ * noise reduction.
+ * - Supports simple recording and playback of stored audio files, e.g.
+ * for recording calls and playing ring tones.
+ *
  * @section access D-Bus Access
  *
- * The hfpd process acquires the D-Bus unique name @b @c net.sf.nohands.hfpd .
+ * A D-Bus client wishing to make use of HFPD must be able to connect to
+ * D-Bus, and send and receive messages.  The simplest way to do this is to
+ * choose an appropriate D-Bus binding for your language or toolkit.  An
+ * <a href="http://www.freedesktop.org/wiki/Software/DBusBindings">
+ * updated list of bindings</a> can be found connected to the
+ * D-Bus home page.
+ *
+ * The HFPD process acquires the D-Bus unique name @b @c net.sf.nohands.hfpd .
  *
  * The install target of the HFP for Linux Makefiles will install a
  * D-Bus service description file for HFPD.  This allows dbus-daemon to
@@ -57,18 +82,91 @@
  * - @b @c /net/sf/nohands/hfpd , with interface net.sf.nohands.hfpd.HandsFree
  * - @b @c /net/sf/nohands/hfpd/soundio , with interface net.sf.nohands.hfpd.SoundIo
  *
+ * For each known audio gateway device, an object with interface
+ * net.sf.nohands.hfpd.AudioGateway will be instantiated.  A new object
+ * of this type can be instantiated for an audio gateway device with a
+ * specific Bluetooth address using net.sf.nohands.hfpd.HandsFree.AddDevice(),
+ * and the paths of all such objects of this type are enumerated in
+ * net.sf.nohands.hfpd.HandsFree.AudioGateways.
+ *
  * All interfaces provided by HFPD are introspectable and should be
  * usable with most any language binding.
  *
  * @section property D-Bus Properties
  *
- * HFPD D-Bus objects make extensive use of the standard D-Bus property
- * interface, @c org.freedesktop.DBus.Properties.  A number of D-Bus
- * language bindings skimp on properties and do not provide access to
- * properties in the most transparent possible way.  Deficient language
- * bindings include the dbus-python binding for Python.  Depending
- * on the language used, a D-Bus client application of HFPD may need to
- * take extra measures to access properties.
+ * HFPD D-Bus objects make extensive use of the standard D-Bus properties
+ * interface, @c org.freedesktop.DBus.Properties.  Ideally, one would
+ * expect a D-Bus language binding for an object-oriented language to
+ * expose properties as simple data members of the proxy objects.
+ * For example, in Python, the following would make a lot of sense to
+ * set the net.sf.nohands.hfpd.HandsFree.SecMode property on an HFPD
+ * instance:
+ *
+ * @code
+ * hfpd = dbus.Interface(
+ *	dbus.get_object('net.sf.nohands.hfpd',
+ *			'/net/sf/nohands/hfpd'),
+ *			dbus_interface = 'net.sf.nohands.hfpd.HandsFree')
+ * hfpd.SecMode = 2
+ * @endcode
+ *
+ * Unfortunately, a number of D-Bus language bindings, including
+ * dbus-python, skimp on properties and do not provide access to
+ * properties in the most transparent possible way.  Depending on the
+ * language and bindings package used, a D-Bus client application of HFPD
+ * may need to take extra measures to access properties, often manually
+ * invoking @c org.freedesktop.DBus.Properties.Get and
+ * @c org.freedesktop.DBus.Properties.Set .  For example, the above must
+ * instead be implemented as:
+ *
+ * @code
+ * hfpd = dbus.Interface(
+ *	dbus.get_object('net.sf.nohands.hfpd',
+ *			'/net/sf/nohands/hfpd'),
+ *			dbus_interface = 'net.sf.nohands.hfpd.HandsFree')
+ * hfpdprop = dbus.Interface(
+ *	dbus.get_object('net.sf.nohands.hfpd',
+ *			'/net/sf/nohands/hfpd'),
+ *			dbus_interface = 'org.freedesktop.DBus.Properties')
+ * hfpdprop.Set('net.sf.nohands.hfpd.HandsFree', 'SecMode', 2)
+ * @endcode
+ *
+ * For more information on the standard D-Bus properties interface,
+ * consult the
+ * <a href="http://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces-properties">
+ * D-Bus specification</a>.
+ *
+ * @section clients D-Bus Client Guide
+ *
+ * The purpose of an HFPD D-Bus client is to implement the very high-level
+ * logic of managing audio gateway devices and voice connections, and of
+ * course, presenting status information to the user.  It is possible to
+ * create a complete D-Bus client for HFPD that is very simple.  Such a
+ * program might implement the following:
+ * - Keep a private configuration file, and use it to save the Bluetooth
+ * address of at least one audio gateway device that it is bound to.
+ * - Connect to HFPD using D-Bus, and claim the device(s) remembered
+ * in its configuration file using net.sf.nohands.hfpd.HandsFree.AddDevice().
+ * - For each claimed device:
+ *	- Set the net.sf.nohands.hfpd.AudioGateway.AutoReconnect property
+ *	  to @c true.
+ *	- Register to receive the
+ *	  net.sf.nohands.hfpd.AudioGateway.VoiceStateChanged signal, and use
+ *	  the signal handler to start streaming audio to and from the audio
+ *	  gateway device, using
+ *	  net.sf.nohands.hfpd.SoundIo.AudioGatewayStart(), or failing that,
+ *	  close the audio connection with
+ *	  net.sf.nohands.hfpd.AudioGateway.CloseVoice().
+ *	- Register to receive the
+ *	  net.sf.nohands.hfpd.AudioGateway.StateChanged and
+ *	  net.sf.nohands.hfpd.AudioGateway.CallStateChanged signals, and
+ *	  use them to display simple status for the audio gateway.
+ *
+ * It is also possible to create a D-Bus client that does not claim any
+ * devices.  Such a client might maintain a status display, and either
+ * depend on another client to claim and manage audio gateway devices, or
+ * depend on HFPD's list of permanently known audio gateway devices to
+ * permit incoming connections.
  */
 
 namespace net.sf.nohands.hfpd {
@@ -1910,7 +2008,8 @@ namespace net.sf.nohands.hfpd {
 		 * - Reject the call with HangUp().
 		 * - Report User Determined User Busy with CallDropHeldUdub().
 		 */
-		public signal Ring(string caller_id, string caller_name);
+		public signal Ring(out string caller_id,
+				   out string caller_name);
 
 		/**
 		 * @brief Notification of miscellaneous audio gateway
@@ -1935,8 +2034,8 @@ namespace net.sf.nohands.hfpd {
 		 * - @c "Voice Mail" 0 = no voice mail, 1 = voice mail,
 		 * nonstandard and supported by some Motorola phones
 		 */
-		public signal IndicatorChanged(string indicator_name,
-					       int32 value);
+		public signal IndicatorChanged(out string indicator_name,
+					       out int32 value);
 
 		/**
 		 * @brief Bluetooth name resolution complete notification
@@ -1950,6 +2049,6 @@ namespace net.sf.nohands.hfpd {
 		 * @param[out] name Bluetooth name read from the audio
 		 * gateway device.
 		 */
-		public signal NameResolved(string name);
+		public signal NameResolved(out string name);
 	}
 }

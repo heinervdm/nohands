@@ -358,25 +358,6 @@ public:
 	void SdpRecordUnregister(sdp_record_t *recp);
 
 	/**
-	 * @brief Query the HCI currently used by the Bluetooth system
-	 *
-	 * The HCI object allows a number of special functions to be
-	 * used, including querying the local address, the device class,
-	 * and the SCO MTU.
-	 *
-	 * The Bluetooth subsystem will only actively attach to @b one
-	 * HCI.  In theory it should be possible to attach to multiple
-	 * HCIs, but there are a few minor reasons that we don't:
-	 * - We want to notice collisions with other SCO listeners.
-	 * Unfortunately, the kernel interfaces only return EADDRINUSE
-	 * when we attempt to bind a SCO socket to a specific local bdaddr.
-	 * - Any registered SDP records that include RFCOMM channels would
-	 * need to have the services listen on the same channels consistently
-	 * across HCIs.  For now, we only do this on one HCI.
-	 */
-	BtHci *GetHci(void) const { return m_hci; }
-
-	/**
 	 * @brief Notification that the Bluetooth system has stopped
 	 * or restarted asynchronously
 	 *
@@ -454,6 +435,28 @@ public:
 	 * @brief Standard destructor
 	 */
 	~BtHub();
+
+	/**
+	 * @brief Query the HCI currently used by the Bluetooth system
+	 *
+	 * The HCI object allows a number of special functions to be
+	 * used, including querying the local address, the device class,
+	 * and the SCO MTU.
+	 *
+	 * @return A pointer to the active BtHci object, or @c 0 if the
+	 * Bluetooth service is stopped and an HCI is unavailable.
+	 *
+	 * The libhfp Bluetooth subsystem will only actively attach to
+	 * @b one HCI.  In theory it should be possible to attach to multiple
+	 * HCIs, but there are some small reasons that it does not:
+	 * - We want to notice collisions with other SCO listeners.
+	 * Unfortunately, the kernel interfaces only return EADDRINUSE
+	 * when we attempt to bind a SCO socket to a specific local bdaddr.
+	 * - Any registered SDP records that include RFCOMM channels would
+	 * need to have the services listen on the same channels consistently
+	 * across HCIs.  For now, we only do this on one HCI.
+	 */
+	BtHci *GetHci(void) const { return m_hci; }
 
 	/**
 	 * @brief Default factory method for BtDevice objects
@@ -873,13 +876,50 @@ public:
 	 */
 	bdaddr_t const &GetAddr(void) const { return m_bdaddr; }
 
+	/**
+	 * @brief Submit an HCI task to be executed
+	 */
 	int Queue(HciTask *in_task);
+
+	/**
+	 * @brief Cancel a pending HCI task
+	 */
 	void Cancel(HciTask *taskp);
 
+	/**
+	 * @brief Query the configured SCO MTU of the HCI
+	 */
 	int GetScoMtu(uint16_t &mtu, uint16_t &pkts);
+
+	/**
+	 * @brief Set the SCO MTU of the HCI
+	 *
+	 * @note The kernel BlueZ components require superuser access
+	 * in order to execute this command.
+	 */
 	int SetScoMtu(uint16_t mtu, uint16_t pkts);
 
+	/**
+	 * @brief Query the configured SCO voice setting of the HCI
+	 *
+	 * @param[out] vs On success, a bit field value containing the
+	 * voice setting of the HCI is stored in this parameter.
+	 *
+	 * @retval 0 Success.
+	 * @retval <0 Failure.  The returned value is a negative @em errno
+	 * value, e.g. -ESHUTDOWN.
+	 *
+	 * @sa Bluetooth specification version 2.1, volume 2, section 6.12
+	 * for more information on the format of @em vs.
+	 */
 	int GetScoVoiceSetting(uint16_t &vs);
+
+	/**
+	 * @brief Set the SCO voice setting of the HCI
+	 *
+	 * @note The kernel BlueZ components require superuser access
+	 * in order to execute this command.
+	 */
 	int SetScoVoiceSetting(uint16_t vs);
 
 	bool GetDeviceClassLocal(uint32_t &devclass);

@@ -19,51 +19,43 @@
  */
 
 /**
- * @mainpage Bluetooth Hands-Free Profile Server
+ * @mainpage Bluetooth Hands-Free Profile Service Library
  *
  * @section intro Introduction
  *
- * HFP for Linux is a Bluetooth Hands-Free Profile server, allowing 
- * your Linux system to act as a speakerphone for your mobile phone.  
- * It aims to be a compliant Bluetooth HFP 1.5 Hands Free 
- * implementation, supporting all required commands and notifications, 
- * as well as streaming audio.  The HFP for Linux package includes
- * three main components:
+ * The HFP for Linux package provides a low-level library, libhfp, that
+ * implements the smallest details of the hands-free side of
+ * the Bluetooth Hands-Free Profile.  libhfp is written in C++, and is
+ * intended to be modular and independent of any specific application
+ * toolkit.  libhfp can be integrated with the main event loop of Qt,
+ * glib, or any other toolkit with support for low-level events.
  *
- * - @b libhfp, a modular, toolkit-independent backend library with
- * rich APIs.  This documentation is primarily concerned with libhfp.
- * - @b hfpd, a D-Bus service daemon providing D-Bus APIs.  A link to
- * documentation for the D-Bus APIs can be found on the HFP for Linux
- * home page.
- * - @b hfconsole, a PyGTK console application for controlling the
+ * The HFP for Linux package includes two applications that make use of
+ * libhfp:
+ * - @b hfpd, a D-Bus service daemon that uses libhfp and provides
+ * D-Bus APIs.  Documentation for the D-Bus APIs is available in
+ * <a href="../dbus/index.html">a separate document</a>.  hfpd is the
+ * backend for hfconsole, a PyGTK console application for controlling the
  * D-Bus service daemon.
+ * - @b hfstandalone, a demonstration monolithic speakerphone program built
+ * with libhfp and Trolltech Qt.  hfstandalone uses its own instance of
+ * libhfp and operates independently of hfpd.
  *
- * The package also includes @b hfstandalone, a demonstration
- * monolithic speakerphone program built with Trolltech Qt.  hfstandalone
- * uses its own instance of libhfp and operates independently of hfpd.
- *
- * The developer of HFP for Linux believes that HFP is most useful in 
- * embedded devices, each with unique user interface requirements.  
- * Because of this, emphasis is placed on the internals and backend 
- * interfaces of libhfp, and the D-Bus interfaces of hfpd, so that it 
- * may be useful as a toolkit for building HFP applications and 
- * integrating HFP functionality into other applications.
- *
- * @section features Features
+ * @section features libhfp Features
  *
  * - Supports device scanning, connection, disconnection, and automatic
  * reconnection
  * - Supports multiple concurrently connected audio gateway devices
  * - Resilient to loss of Bluetooth service
  * - Modular, event-driven backend
- * - All APIs are single-threaded, clients do not need to be concerned with
- * thread synchronization
+ * - All APIs are single-threaded, libhfp does not force its clients to be
+ * concerned with threading and synchronization
  * - Audio handling components are completely asynchronous
  * - Supports the ALSA and OSS audio hardware interfaces
  * - Supports microphone input cleanup, including echo cancellation and
- * noise reduction.
+ * noise reduction
  * - Supports simple recording and playback of stored audio files, e.g.
- * for recording calls and playing ring tones.
+ * for recording calls and playing ring tones
  *
  * @section reqs Software Requirements and Build Options
  *
