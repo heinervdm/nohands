@@ -103,3 +103,5 @@ void NoHands::OpenScanDialog() {
 }
 void NoHands::OpenPrefsDialog() {
 }
+
+#include "nohands.moc"

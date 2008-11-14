@@ -172,3 +172,5 @@ void PrefsDialog::ProcTest_toggled( bool val)
     PlayTestRadio->setDisabled(val);
     ToggleProcTest(val);
 }
+
+#include "prefs.moc"

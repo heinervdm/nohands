@@ -17,3 +17,5 @@ void ScanDialog::SelectDevice( QListBoxItem *item ) {
 	buttonOk->setEnabled(true);
     }
 }
+
+#include "scandialog.moc"

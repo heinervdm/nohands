@@ -1,6 +1,6 @@
 # $Id: $
 
-AC_INIT([libhfp], [0.1.0], [samr7@cs.washington.edu])
+AC_INIT([hfp4linux], [0.1.0], [samr7@cs.washington.edu])
 AC_CONFIG_HEADER([config.h])
 AM_MAINTAINER_MODE
 
@@ -113,6 +113,10 @@ AC_ARG_ENABLE(dbus,
 	AC_HELP_STRING([--enable-dbus], [build D-Bus components -- hfpd]),
 	want_dbus=$enableval, want_dbus=maybe)
 
+AC_ARG_ENABLE(dbus-service,
+	AC_HELP_STRING([--disable-dbus-service], [Install D-Bus service file]),
+	do_dbus_service=$enableval, do_dbus_service=yes)
+
 AC_ARG_ENABLE(nghost,
 	AC_HELP_STRING([--enable-nghost], [build the nhandsfree nGhost plugin]),
 	want_nghost=$enableval, want_nghost=maybe)
@@ -179,7 +183,7 @@ if test $want_dbus != "no"; then
 	if test $use_dbus = "no" -a $want_dbus = "yes"; then
 	        AC_MSG_ERROR([[
 ***
-*** libspeexdsp support has been requested, but was not found.
+*** D-Bus support has been requested, but was not found.
 *** Check pkg_config_dir if this is in error.
 *** Aborting.
 ***
@@ -190,7 +194,7 @@ fi
 dnl Find the D-Bus service path from pkgconfig
 dnl This may be a different directory than we would expect
 dnl based on our chosen prefix!
-if test $use_dbus = "yes"; then
+if test $use_dbus = "yes" -a $do_dbus_service = "yes"; then
 	AC_ARG_VAR([DBUS_SERVICE_PATH],
 	           [Path for D-Bus .service fiels, overriding pkg-config])
 	_PKG_CONFIG([DBUS_SERVICE_PATH], [variable=session_bus_services_dir],
@@ -342,8 +346,9 @@ fi
 AC_SUBST(libnghost_CFLAGS)
 AC_SUBST(libnghost_LIBS)
 AM_CONDITIONAL(BUILD_DBUS, [test $use_dbus = "yes"])
+AM_CONDITIONAL(BUILD_DBUS_SERVICE, [test $use_dbus = "yes" -a $do_dbus_service = "yes"])
 AM_CONDITIONAL(BUILD_QT, [test $have_qt = "yes"])
 AM_CONDITIONAL(BUILD_NGHOST, [test $use_nghost = "yes"])
 
-AC_CONFIG_FILES([Makefile libhfp/Makefile qt/Makefile nhandsfree/Makefile hfpd/Makefile test/Makefile data/Makefile])
+AC_CONFIG_FILES([Makefile libhfp/Makefile include/Makefile include/libhfp/Makefile qt/Makefile nhandsfree/Makefile hfpd/Makefile test/Makefile data/Makefile])
 AC_OUTPUT

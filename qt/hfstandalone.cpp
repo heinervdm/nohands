@@ -1806,4 +1806,5 @@ main(int argc, char **argv)
 	return app.exec();
 }
 
-#include "hfstandalone.moc.cpp"
+#include "hfstandalone.moc"
+#include "events-qt.moc"

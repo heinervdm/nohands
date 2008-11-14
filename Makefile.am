@@ -16,5 +16,11 @@ else !BUILD_DBUS
 DBUS=
 endif !BUILD_DBUS
 
-SUBDIRS = libhfp $(DBUS) $(NHANDSFREE) $(QT) data
+SUBDIRS = libhfp $(DBUS) $(NHANDSFREE) $(QT) data test
+DIST_SUBDIRS = $(SUBDIRS) include
+
+# Do not attempt to install the D-Bus service file when
+# performing a 'make distcheck'
+DISTCHECK_CONFIGURE_FLAGS = --disable-dbus-service
+
 include m4/doxy.am
