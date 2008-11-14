@@ -2,6 +2,7 @@
 
 AC_INIT([hfp4linux], [0.1.0], [samr7@cs.washington.edu])
 AC_CONFIG_HEADER([config.h])
+AC_CONFIG_MACRO_DIR([m4])
 AM_MAINTAINER_MODE
 
 DX_HTML_FEATURE(ON)

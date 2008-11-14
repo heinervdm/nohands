@@ -23,4 +23,5 @@ DIST_SUBDIRS = $(SUBDIRS) include
 # performing a 'make distcheck'
 DISTCHECK_CONFIGURE_FLAGS = --disable-dbus-service
 
+ACLOCAL_AMFLAGS = -I m4
 include m4/doxy.am

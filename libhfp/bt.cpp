@@ -918,13 +918,15 @@ int BtHci::
 SetScoMtu(uint16_t mtu, uint16_t pkts)
 {
 	hci_dev_req dr;
+	uint16_t *mtup;
 
 	if (m_hci_fh < 0)
 		return -ESHUTDOWN;
 
 	dr.dev_id = m_hci_id;
-	((uint16_t *) &dr.dev_opt)[0] = htobs(mtu);
-	((uint16_t *) &dr.dev_opt)[1] = htobs(pkts);
+	mtup = (uint16_t *) &dr.dev_opt;
+	mtup[0] = htobs(mtu);
+	mtup[1] = htobs(pkts);
 	if (ioctl(m_hci_fh, HCISETSCOMTU, (void *) &dr) < 0)
 		return -errno;
 

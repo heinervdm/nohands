@@ -502,7 +502,7 @@ Connect(const char *addrstr)
 bool HfpService::
 SetServiceName(const char *val)
 {
-	char *oldval, *newval;
+	char *oldval, *newval = 0;
 
 	oldval = m_svc_name;
 	m_svc_name = 0;
@@ -534,7 +534,7 @@ SetServiceName(const char *val)
 bool HfpService::
 SetServiceDesc(const char *val)
 {
-	char *oldval, *newval;
+	char *oldval, *newval = 0;
 
 	oldval = m_svc_desc;
 	m_svc_desc = 0;

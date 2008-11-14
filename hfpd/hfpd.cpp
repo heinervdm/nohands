@@ -83,7 +83,7 @@ typedef DispatchInterface::logtype_t loglev_t;
 int
 main(int argc, char **argv)
 {
-	loglev_t loglevel, elevlevel;
+	loglev_t loglevel, elevlevel = DispatchInterface::EVLOG_WARNING;
 	const char *cfgfile = 0;
 	bool elev_set = false;
 	bool do_dbus_system = false;
@@ -99,7 +99,6 @@ main(int argc, char **argv)
 #endif
 #if defined(USE_VERBOSE_DEBUG)
 	elev_set = true;
-	elevlevel = DispatchInterface::EVLOG_WARNING;
 #endif
 
 	opterr = 0;
