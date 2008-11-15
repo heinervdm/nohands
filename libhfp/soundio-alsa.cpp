@@ -384,21 +384,21 @@ public:
 		snd_pcm_sw_params_alloca(&swp);
 
 		err = snd_pcm_hw_params_any(pcmp, hwp);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA hw_params_any failed: %s\n",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_hw_params_set_access(pcmp, hwp, pcm_access);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA set_access failed: %s\n",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_hw_params_set_format(pcmp, hwp, sampfmt);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA set_format failed: %s\n",
 				      strerror(-err));
 			goto failed;
@@ -406,7 +406,7 @@ public:
 
 		err = snd_pcm_hw_params_set_rate(pcmp, hwp,
 						 format.samplerate, 0);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA set_rate failed: %s\n",
 				      strerror(-err));
 			goto failed;
@@ -414,7 +414,7 @@ public:
 
 		err = snd_pcm_hw_params_set_channels(pcmp, hwp,
 						     format.nchannels);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA set_channels failed: %s\n",
 				      strerror(-err));
 			goto failed;
@@ -424,7 +424,7 @@ public:
 
 		err = snd_pcm_hw_params_set_period_size_near(pcmp, hwp,
 							     &packetsize, 0);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA set_period failed: %s\n",
 				      strerror(-err));
 			goto failed;
@@ -437,7 +437,7 @@ public:
 
 		err = snd_pcm_hw_params_set_buffer_size_near(pcmp, hwp,
 							     &buffersize);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA set_buffer_size failed: %s\n",
 				      strerror(-err));
 			goto failed;
@@ -458,13 +458,13 @@ public:
 		}
 
 		err = snd_pcm_hw_params_get_buffer_size(hwp, &buffersize);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA get_buffer_size failed: %s\n",
 				      strerror(-err));
 			goto failed;
 		}
 		err = snd_pcm_hw_params_get_period_size(hwp, &packetsize, 0);
-		if (err) {
+		if (err < 0) {
 			m_ei->LogWarn("ALSA get_period_size failed: %s\n",
 				      strerror(-err));
 			goto failed;
