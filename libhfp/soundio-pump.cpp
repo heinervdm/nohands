@@ -1149,7 +1149,7 @@ bool SoundIoPump::
 WatchdogThreshold(sio_sampnum_t &count, char &strikes, const char *name,
 		  ErrorInfo &error)
 {
-	int res = 0;
+	char res = 0;
 
 	if (count < m_config.watchdog_min_progress) {
 		GetDi()->LogDebug("SoundIoPump: %s underprocessed (%d < %d)",
@@ -1169,12 +1169,16 @@ WatchdogThreshold(sio_sampnum_t &count, char &strikes, const char *name,
 
 	strikes += res;
 	if (strikes < -m_config.watchdog_strikes) {
+		GetDi()->LogDebug("SoundIoPump: %d strikes, you're out",
+				  strikes);
 		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
 			  LIBHFP_ERROR_SOUNDIO_WATCHDOG_TIMEOUT,
 			  "SoundIoPump: %s underprocessing", name);
 		return false;
 	}
 	if (strikes > m_config.watchdog_strikes) {
+		GetDi()->LogDebug("SoundIoPump: %d strikes, you're out",
+				  strikes);
 		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
 			  LIBHFP_ERROR_SOUNDIO_WATCHDOG_TIMEOUT,
 			  "SoundIoPump: %s overprocessing", name);
