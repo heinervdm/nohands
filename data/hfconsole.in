@@ -1209,12 +1209,13 @@ class HfConsole:
 		model = self['ConfigDriverDevList'].get_model()
 		model.clear()
 		drivername = self['ConfigDriver'].get_active_text()
+		devlist = None
 		if not drivername:
 			return
 		try:
 			devlist = self.soundio.ProbeDevices(drivername)
 		except dbus.exceptions.DBusException, (ex):
-			print 'Device probe failed: ' + str(ex) + '\n'
+			print 'Device probe failed: ' + str(ex)
 		if devlist:
 			for x in devlist:
 				model.append([x[0], x[1]])
