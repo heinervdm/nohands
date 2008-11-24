@@ -138,7 +138,9 @@ void ErrorInfo::
 Clear(void)
 {
 	if (m_error) {
-		delete m_error;
+		if (m_error != &g_errors.e_nomem) {
+			delete m_error;
+		}
 		m_error = 0;
 	}
 }
