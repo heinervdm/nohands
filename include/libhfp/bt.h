@@ -148,6 +148,42 @@ extern bool SetNonBlock(int fh, bool nonblock);
  * through HfpSession::cb_NotifyConnection.
  */
 
+#define LIBHFP_ERROR_SUBSYS_BT 2
+
+/**
+ * @brief Error values for subsystem LIBHFP_ERROR_SUBSYS_BT
+ * @ingroup hfp
+ */
+enum {
+	LIBHFP_ERROR_BT_INVALID = 0,
+	/** System call failure */
+	LIBHFP_ERROR_BT_SYSCALL,
+	/** HCI error code */
+	LIBHFP_ERROR_BT_HCI,
+	/** Bluetooth support missing from kernel */
+	LIBHFP_ERROR_BT_NO_SUPPORT,
+	/** Conflict over listening address for Bluetooth service */
+	LIBHFP_ERROR_BT_SERVICE_CONFLICT,
+	/** SCO misconfiguration */
+	LIBHFP_ERROR_BT_BAD_SCO_CONFIG,
+	/** Bluetooth system is shut down */
+	LIBHFP_ERROR_BT_SHUTDOWN,
+	/** Device is not connected */
+	LIBHFP_ERROR_BT_NOT_CONNECTED,
+	/** SCO connection has not been established */
+	LIBHFP_ERROR_BT_NOT_CONNECTED_SCO,
+	/** System or service has already been started */
+	LIBHFP_ERROR_BT_ALREADY_STARTED,
+	/** Protocol has been violated */
+	LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
+	/** User-initiated disconnection of device */
+	LIBHFP_ERROR_BT_USER_DISCONNECT,
+	/** Command aborted */
+	LIBHFP_ERROR_BT_COMMAND_ABORTED,
+	/** Command rejected by device */
+	LIBHFP_ERROR_BT_COMMAND_REJECTED,
+};
+
 /*
  * This is an obtuse mess at the moment, partly because we use a
  * helper thread for SDP lookup chores.
@@ -214,9 +250,9 @@ private:
 
 public:
 	/* Routines for maintaining the SDP thread */
-	int SdpCreateThread(void);
+	bool SdpCreateThread(ErrorInfo *error);
 	void SdpShutdown(void);
-        int SdpQueue(SdpTask *in_task);
+	bool SdpQueue(SdpTask *in_task, ErrorInfo *error = 0);
 	void SdpCancel(SdpTask *taskp);
 
 	SdpAsyncTaskHandler(BtHub *hubp, DispatchInterface *eip)
@@ -239,8 +275,7 @@ struct HciTask {
 	hci_tasktype_t			m_tasktype;
 
 	bool				m_complete;
-	int				m_errno;
-	uint8_t				m_hci_status;
+	ErrorInfo			m_error;
 
 	bdaddr_t			m_bdaddr;
 
@@ -258,7 +293,7 @@ struct HciTask {
 	Callback<void, HciTask*>	cb_Result;
 
 	HciTask(void)
-		: m_complete(false), m_errno(0), m_hci_status(0),
+		: m_complete(false),
 		  m_devclass(0), m_pscan(0), m_pscan_rep(0),
 		  m_clkoff(0), m_opcode(0), m_timeout_ms(0),
 		  m_submitted(false), m_resubmit(false) {}
@@ -335,7 +370,7 @@ private:
 
 	void SdpConnectionLost(SocketNotifier *, int fh);
 	void __Stop(void);
-	void InvoluntaryStop(void);
+	void InvoluntaryStop(ErrorInfo *reason);
 
 	SocketNotifier			*m_sdp_not;
 	TimerNotifier			*m_timer;
@@ -351,10 +386,10 @@ private:
 public:
 	DispatchInterface *GetDi(void) const { return m_ei; }
 
-	int SdpTaskSubmit(SdpTask *taskp);
+	bool SdpTaskSubmit(SdpTask *taskp, ErrorInfo *error);
 	void SdpTaskCancel(SdpTask *taskp);
 
-	bool SdpRecordRegister(sdp_record_t *recp);
+	bool SdpRecordRegister(sdp_record_t *recp, ErrorInfo *error);
 	void SdpRecordUnregister(sdp_record_t *recp);
 
 	/**
@@ -362,11 +397,22 @@ public:
 	 * or restarted asynchronously
 	 *
 	 * The callback implementation can distinguish between the
-	 * system having been stopped or restarted by checking IsStarted().
+	 * system having been stopped or restarted by the ErrorInfo*
+	 * parameter being nonzero, or by checking IsStarted().
+	 *
+	 * @param[out] ErrorInfo* Error information structure describing
+	 * the reason for an asynchronous shutdown of the Bluetooth service,
+	 * or @c 0 if the Bluetooth service has been asynchronously started.
 	 *
 	 * Reasons for stopping typically include:
 	 * - The last Bluetooth HCI was disconnected
 	 * - The local SDP daemon became unavailable
+	 *
+	 * The value of the ErrorInfo* structure passed to this callback
+	 * may not reflect a specific difference between the above two
+	 * events.  Frequently, when an HCI is removed, the SDP daemon
+	 * will shut itself down, and it becomes a race condition which
+	 * events is observed first.
 	 *
 	 * This callback may also be invoked if the system is successfully
 	 * started by the auto-restart mechanism.
@@ -377,7 +423,7 @@ public:
 	 *
 	 * @sa SetAutoRestart()
 	 */
-	Callback<void>					cb_NotifySystemState;
+	Callback<void, ErrorInfo*>			cb_NotifySystemState;
 
 	/**
 	 * @brief Factory for BtDevice objects, implemented as a callback
@@ -410,14 +456,14 @@ public:
 	 *
 	 * @param BtDevice* The BtDevice object representing the device,
 	 * or @c 0 to indicate that the inquiry has completed.
-	 * @param int If an inquiry was aborted for reasons other than
-	 * StopInquiry() before the time limit elapsed, this parameter
+	 * @param ErrorInfo* If an inquiry was aborted for reasons other
+	 * than StopInquiry() before the time limit elapsed, this parameter
 	 * will provide an error code indicating why the inquiry failed.
 	 * Otherwise, this parameter will be @c 0.
 	 *
 	 * @sa StartInquiry(), IsScanning()
 	 */
-	Callback<void, BtDevice *, int>			cb_InquiryResult;
+	Callback<void, BtDevice *, ErrorInfo*>		cb_InquiryResult;
 
 	/**
 	 * @brief Standard constructor
@@ -447,13 +493,16 @@ public:
 	 * Bluetooth service is stopped and an HCI is unavailable.
 	 *
 	 * The libhfp Bluetooth subsystem will only actively attach to
-	 * @b one HCI.  In theory it should be possible to attach to multiple
-	 * HCIs, but there are some small reasons that it does not:
-	 * - We want to notice collisions with other SCO listeners.
-	 * Unfortunately, the kernel interfaces only return EADDRINUSE
-	 * when we attempt to bind a SCO socket to a specific local bdaddr.
+	 * @b one HCI.  While it is certainly possible to make use of
+	 * multiple HCIs, there are some reasons that libhfp does not
+	 * currently do this:
+	 * - It is important to be able to notice collisions with other
+	 * SCO listeners.  Unfortunately, the kernel interfaces only
+	 * return EADDRINUSE when attempting to bind a SCO socket to a
+	 * specific local bdaddr.  It also allows many listeners on
+	 * BDADDR_ANY, but only delivers notifications to one of them.
 	 * - Any registered SDP records that include RFCOMM channels would
-	 * need to have the services listen on the same channels consistently
+	 * need to have the services listen on the same channel consistently
 	 * across HCIs.  For now, we only do this on one HCI.
 	 */
 	BtHci *GetHci(void) const { return m_hci; }
@@ -466,10 +515,13 @@ public:
 	/**
 	 * @brief Register a BtService derived service handler
 	 *
-	 * @param svcp Service object to be registered.  Must not currently
-	 * be registered.
+	 * @param[in] svcp Service object to be registered.  Must not
+	 * currently be registered.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
-	 * This function will add the parameter service object to the
+	 * This function will add the @em svcp service object to the
 	 * hub's list of registered services.
 	 *
 	 * If the Bluetooth system is started -- see IsStarted(), an
@@ -481,7 +533,7 @@ public:
 	 * but the service could not be started.  The service was
 	 * not registered in this case.
 	 */
-	bool AddService(BtService *svcp);
+	bool AddService(BtService *svcp, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Unregister a BtService derived service handler
@@ -506,6 +558,10 @@ public:
 	 *
 	 * This function synchronously establishes both components.
 	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 *
 	 * @retval true Bluetooth system started
 	 * @retval false Bluetooth system could not be started
 	 * for reasons that might include:
@@ -517,7 +573,7 @@ public:
 	 *
 	 * @sa Stop(), IsStarted(), BtHub::cb_NotifySystemState
 	 */
-	bool Start(void);
+	bool Start(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Stop Bluetooth system
@@ -688,18 +744,19 @@ public:
 	 * pointer set to @c 0, and an error code set as the second
 	 * parameter.
 	 *
-	 * @param timeout_ms Time limit to place on inquiry.  Longer time
-	 * limits will increase the chance of finding discoverable
+	 * @param[in] timeout_ms Time limit to place on inquiry.  Longer
+	 * time limits will increase the chance of finding discoverable
 	 * devices, up to a point.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
-	 * @retval 0 Inquiry has been initiated.  IsScanning() will
-	 * now return true.
-	 * @retval -EALREADY Inquiry is already in progress
-	 * @retval -ESHUTDOWN Bluetooth system has been shut down
+	 * @return true if the inquiry has been initiated.  IsScanning()
+	 * will now return @em true in this case.  @em false otherwise.
 	 *
 	 * @sa BtHub::cb_InquiryState, BtHub::cb_InquiryResult, IsScanning()
 	 */
-	int StartInquiry(int timeout_ms = 5000);
+	bool StartInquiry(int timeout_ms = 5000, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Halt and cancel an in-progress inquiry for discoverable
@@ -707,12 +764,8 @@ public:
 	 *
 	 * If an inquiry is in progress, this method will cause it to be
 	 * aborted.
-	 *
-	 * @retval 0 Inquiry has been successfully aborted.
-	 * @retval -EALREADY No inquiry was in progress.
-	 * @retval -ESHUTDOWN Bluetooth system has been shut down
 	 */
-	int StopInquiry(void);
+	void StopInquiry(void);
 
 	/**
 	 * @brief Query whether a Bluetooth device inquiry is in progress
@@ -851,13 +904,14 @@ class BtHci : public BtManaged {
 	bool			m_resubmit_needed;
 	bool			m_resubmit_set;
 
-	/* This alerts the main thread when the HCI thread replies */
+	void HciSetStatus(HciTask *taskp, int hcistatus);
 	void HciDataReadyNot(SocketNotifier *, int fh);
-	int HciSend(int fh, HciTask *paramsp, void *data, size_t len);
-	int HciSubmit(int fh, HciTask *paramsp);
+	bool HciSend(int fh, HciTask *paramsp, void *data, size_t len,
+		     ErrorInfo *error);
+	bool HciSubmit(int fh, HciTask *paramsp, ErrorInfo *error);
 	void HciResubmit(TimerNotifier *notp);
 
-	int HciInit(int hci_id);
+	bool HciInit(int hci_id, ErrorInfo *error);
 	void HciShutdown(void);
 
 	BtHci(BtHub *hubp)
@@ -879,7 +933,7 @@ public:
 	/**
 	 * @brief Submit an HCI task to be executed
 	 */
-	int Queue(HciTask *in_task);
+	bool Queue(HciTask *in_task, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Cancel a pending HCI task
@@ -889,7 +943,7 @@ public:
 	/**
 	 * @brief Query the configured SCO MTU of the HCI
 	 */
-	int GetScoMtu(uint16_t &mtu, uint16_t &pkts);
+	bool GetScoMtu(uint16_t &mtu, uint16_t &pkts, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Set the SCO MTU of the HCI
@@ -897,13 +951,16 @@ public:
 	 * @note The kernel BlueZ components require superuser access
 	 * in order to execute this command.
 	 */
-	int SetScoMtu(uint16_t mtu, uint16_t pkts);
+	bool SetScoMtu(uint16_t mtu, uint16_t pkts, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query the configured SCO voice setting of the HCI
 	 *
 	 * @param[out] vs On success, a bit field value containing the
 	 * voice setting of the HCI is stored in this parameter.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval 0 Success.
 	 * @retval <0 Failure.  The returned value is a negative @em errno
@@ -912,7 +969,7 @@ public:
 	 * @sa Bluetooth specification version 2.1, volume 2, section 6.12
 	 * for more information on the format of @em vs.
 	 */
-	int GetScoVoiceSetting(uint16_t &vs);
+	bool GetScoVoiceSetting(uint16_t &vs, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Set the SCO voice setting of the HCI
@@ -920,7 +977,7 @@ public:
 	 * @note The kernel BlueZ components require superuser access
 	 * in order to execute this command.
 	 */
-	int SetScoVoiceSetting(uint16_t vs);
+	bool SetScoVoiceSetting(uint16_t vs, ErrorInfo *error = 0);
 
 	bool GetDeviceClassLocal(uint32_t &devclass);
 	bool SetDeviceClassLocal(uint32_t devclass);
@@ -991,7 +1048,7 @@ private:
 	void RemoveSession(BtSession *sessp);
 	BtSession *FindSession(BtService const *svcp) const;
 
-	void __DisconnectAll(bool notify);
+	void __DisconnectAll(ErrorInfo *reason);
 
 public:
 	/**
@@ -1038,10 +1095,14 @@ public:
 	 * @param char* Bluetooth name of the device, or NULL if name
 	 * resolution failed.  This value is also available by calling
 	 * GetName().
+	 * @param ErrorInfo* error Error information structure describing
+	 * the reason for the asynchronous name resolution failure, or
+	 * @c 0 if the resolution succeeded.
 	 *
 	 * @sa ResolveName(), GetName(), IsNameResolved()
 	 */
-	Callback<void, BtDevice *, const char *>	cb_NotifyNameResolved;
+	Callback<void, BtDevice *, const char *, ErrorInfo*>
+						cb_NotifyNameResolved;
 
 	/* Get device name */
 	/**
@@ -1106,6 +1167,10 @@ public:
 	/**
 	 * @brief Request that the Bluetooth name of the device be resolved
 	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 *
 	 * @retval true Name resolution has been initiated
 	 * @retval false Name resolution not initiated.  Reasons might include:
 	 * - A name resolution is already in progress
@@ -1113,7 +1178,7 @@ public:
 	 *
 	 * @sa GetName(), IsNameResolved(), BtDevice::cb_NotifyNameResolved
 	 */
-	bool ResolveName(void);
+	bool ResolveName(ErrorInfo *error = 0);
 
 	uint32_t GetDeviceClass(void) const { return m_inquiry_class; }
 };
@@ -1138,7 +1203,7 @@ protected:
 	void RemoveSession(BtSession *sessp);
 	BtSession *FindSession(BtDevice const *devp) const;
 
-	virtual bool Start(void) = 0;
+	virtual bool Start(ErrorInfo *error) = 0;
 	virtual void Stop(void) = 0;
 
 	BtService(void);
@@ -1174,7 +1239,8 @@ private:
 protected:
 	BtService		*m_svc;
 	ListItem		m_svc_links;
-	virtual void __Disconnect(bool notify, bool voluntary = false) = 0;
+	virtual void __Disconnect(ErrorInfo *reason = 0,
+				  bool voluntary = false) = 0;
 
 public:
 	BtSession(BtService *svcp, BtDevice *devp);
@@ -1214,7 +1280,7 @@ public:
 	 * Bluetooth radio range.
 	 */
 	void Disconnect(bool voluntary = true)
-		{ __Disconnect(false, voluntary); }
+		{ __Disconnect(0, voluntary); }
 };
 
 

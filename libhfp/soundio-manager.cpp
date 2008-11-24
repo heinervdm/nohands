@@ -39,8 +39,9 @@ namespace libhfp {
  * choose reasonable defaults if no options string is provided.
  */
 
-typedef SoundIo *(*sound_driver_factory_t)(DispatchInterface *, const char *);
-typedef SoundIoDeviceList *(*sound_driver_device_enum_t)(void);
+typedef SoundIo *(*sound_driver_factory_t)(DispatchInterface *, const char *,
+					   ErrorInfo *error);
+typedef SoundIoDeviceList *(*sound_driver_device_enum_t)(ErrorInfo *error);
 
 struct SoundIoDriver {
 	const char *name;
@@ -79,7 +80,9 @@ public:
 	SoundIoLoop(void) {}
 	virtual ~SoundIoLoop() { SndClose(); }
 
-	virtual bool SndOpen(bool play, bool capture) { return true; }
+	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
+		return true;
+	}
 	virtual void SndClose(void) {
 		m_buf.FreeBuffer();
 	}
@@ -88,7 +91,7 @@ public:
 		format = m_fmt;
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
 		m_fmt = format;
 		return true;
 	}
@@ -149,7 +152,13 @@ public:
 		qs.in_queued = m_buf.SpaceUsed() / m_fmt.bytes_per_record;
 		qs.out_queued = 0;
 	}
-	virtual bool SndAsyncStart(bool, bool) { return false; }
+	virtual bool SndAsyncStart(bool, bool, ErrorInfo *error) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_NO_CLOCK,
+				   "Not a clocked endpoint");
+		return false;
+	}
 	virtual void SndAsyncStop(void) {}
 	virtual bool SndIsAsyncStarted(void) const { return false; }
 };
@@ -161,7 +170,9 @@ public:
 	SoundIoNull() {}
 	virtual ~SoundIoNull() { SndClose(); }
 
-	virtual bool SndOpen(bool play, bool capture) { return true; }
+	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
+		return true;
+	}
 	virtual void SndClose(void) {}
 
 	virtual void SndGetProps(SoundIoProps &props) const {
@@ -177,7 +188,7 @@ public:
 		format = m_fmt;
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
 		m_fmt = format;
 		return true;
 	}
@@ -194,7 +205,13 @@ public:
 		qs.in_queued = 0;
 		qs.out_queued = 0;
 	}
-	virtual bool SndAsyncStart(bool, bool) { return false; }
+	virtual bool SndAsyncStart(bool, bool, ErrorInfo *error) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_NO_CLOCK,
+				   "Not a clocked endpoint");
+		return false;
+	}
 	virtual void SndAsyncStop(void) {}
 	virtual bool SndIsAsyncStarted(void) const { return false; }
 };
@@ -207,7 +224,8 @@ class SoundIoFltMute : public SoundIoFilter {
 	uint8_t		*m_silence_dn, *m_silence_up;
 
 public:
-	virtual bool FltPrepare(SoundIoFormat const &fmt, bool up, bool dn) {
+	virtual bool FltPrepare(SoundIoFormat const &fmt, bool up, bool dn,
+				ErrorInfo *error) {
 		m_bpr = fmt.bytes_per_record;
 		m_pktsize = fmt.packet_samps;
 
@@ -216,12 +234,17 @@ public:
 
 		if (dn && m_mute_dn) {
 			m_silence_dn = (uint8_t *) malloc(m_pktsize * m_bpr);
-			if (!m_silence_dn)
+			if (!m_silence_dn) {
+				if (error)
+					error->SetNoMem();
 				return false;
+			}
 		}
 		if (up && m_mute_up) {
 			m_silence_up = (uint8_t *) malloc(m_pktsize * m_bpr);
 			if (!m_silence_up) {
+				if (error)
+					error->SetNoMem();
 				FltCleanup();
 				return false;
 			}
@@ -309,15 +332,28 @@ SoundIoManager::
 }
 
 void SoundIoManager::
-PumpStopped(SoundIoPump *pumpp, SoundIo *offender)
+PumpStopped(SoundIoPump *pumpp, SoundIo *offender, ErrorInfo &error)
 {
+	assert(pumpp == &m_pump);
 	assert(m_primary);
 
-	if (offender == m_primary)
+	StopStats();
+
+	if (offender == m_primary) {
+		ErrorInfo xerr(error);
 		ClosePrimary();
+		error.Clear();
+		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			  LIBHFP_ERROR_SOUNDIO_SOUNDCARD_FAILED,
+			  "Sound card failed: %s",
+			  xerr.Desc());
+
+		/* This is quite severe, make sure everyone can see it! */
+		GetDi()->LogError("%s", error.Desc());
+	}
 
 	if (cb_NotifyAsyncState.Registered())
-		cb_NotifyAsyncState(this);
+		cb_NotifyAsyncState(this, error);
 
 	/*
 	 * If our client didn't manage to restart the pump, and
@@ -328,9 +364,283 @@ PumpStopped(SoundIoPump *pumpp, SoundIo *offender)
 }
 
 
+template <typename T> static T abs_x(T val) { return (val < 0) ? -val : val; }
+
+bool SoundIoManager::
+StartStats(SoundIoFormat &fmt, SoundIoProps &secprops, ErrorInfo *error)
+{
+	/* Zero out the statistics */
+	memset(&m_pump_stat, 0, sizeof(m_pump_stat));
+
+	m_stat_cur_count = 0;
+	m_stat_interval = fmt.samplerate;
+	m_pri_skew_strikes = 0;
+	m_sec_skew_strikes = 0;
+	m_endpoint_skew_strikes = 0;
+
+	/*
+	 * We keep a revolving buffer of statistics over a time
+	 * period, and construct our result from the aggregate.
+	 */
+	m_history_count = 5;
+	m_history = new Stats[m_history_count];
+	if (!m_history) {
+		if (error)
+			error->SetNoMem();
+		return false;
+	}
+
+	memset(m_history, 0, m_history_count * sizeof(*m_history));
+	m_history_pos = 0;
+
+
+	/*
+	 * Be very intolerant of primary endpoint duplex skew.
+	 * Complain if it's over 0.01%
+	 */
+	m_stat_min_pri_duplex_skew = 1;
+
+	/*
+	 * Complain if the skew on the secondary endpoint,
+	 * and between the primary/secondary endpoints is >=2%
+	 */
+	m_stat_min_sec_duplex_skew = 200;
+	m_stat_min_endpoint_skew = 200;
+
+	m_use_process_values = true;  // m_top_loop;
+
+	if (!secprops.has_clock) {
+		m_stat_min_sec_duplex_skew = 0;
+		m_stat_min_endpoint_skew = 0;
+	}
+	m_pump.SetStatistics(&m_pump_stat);
+	m_pump.cb_NotifyStatistics.Register(this,
+					    &SoundIoManager::DoStatistics);
+	return true;
+}
+
+void SoundIoManager::
+StopStats(void)
+{
+	if (m_history) {
+		delete[] m_history;
+		m_history = 0;
+	}
+	m_pump.SetStatistics(0);
+	m_pump.cb_NotifyStatistics.Unregister();
+}
+
+void SoundIoManager::
+DoStatistics(SoundIoPump *pumpp, SoundIoPumpStatistics &stat, bool loss)
+{
+	/* Compile-time debugging flags for this method */
+	const bool skew_debug = false;
+
+	sio_sampnum_t tmp;
+	int i, tmpt, tmpb, max;
+	double skew;
+	bool did_duplex = false;
+	Stats *histp, totals;
+	ErrorInfo error;
+
+	assert(IsStarted());
+	assert(pumpp == &m_pump);
+	assert(&stat == &m_pump_stat);
+
+	assert(cb_NotifySkew.Registered());
+
+	if (stat.process_count < m_stat_interval)
+		return;
+
+	/*
+	 * There are four causes of loss that interest us:
+	 * - Asymmetry of overall rates between the primary and secondary
+	 *   endpoints.  This is to be expected and ignored, but we will
+	 *   complain if it is over a threshold.
+	 * - Overruns/underruns caused by scheduling, which we will
+	 *   complain about if it occurs too frequently.
+	 * - Asymmetry of input and output rates of the secondary endpoint.
+	 * - Asymmetry of input and output rates of the primary endpoint,
+	 *   which make the echo canceler ineffective.  We complain most
+	 *   bitterly about this class of problems.
+	 */
+
+	tmp = (stat.bottom.out.xrun + stat.bottom.in.xrun);
+	if (tmp) {
+		GetDi()->LogDebug("SoundIoDrop: xrun count %d", (int) tmp);
+		cb_NotifySkew(this, SIO_STREAM_SKEW_XRUN, (int) tmp);
+
+		/*
+		 * If buffers over/underran, we don't evaluate for
+		 * other forms of droppage.
+		 */
+		m_stat_cur_count = 0;
+		m_history_pos = 0;
+		memset(m_history, 0, m_history_count * sizeof(*m_history));
+		goto done_zap;
+	}
+
+	m_stat_cur_count++;
+
+	/* Don't evaluate skew for the first two periods */
+	if (m_stat_cur_count <= 1)
+		goto done_zap;
+
+	histp = &m_history[m_history_pos];
+
+	/*
+	 * The process counters are useful for determining skew within
+	 * an endpoint.  However, there is a practical problem that
+	 * prevents it from being terribly useful for cross-endpoint
+	 * skew estimation.  Frequently data will arrive as below:
+	 *
+	 * [0ms] Interrupt from primary: pri +100 samples, sec +0
+	 * [10ms] Interrupt from secondary: pri +0 samples, sec +100
+	 * [20ms] Interrupt from primary: pri +100 samples, sec +0
+	 *
+	 * Ideally, the primary and secondary endpoints would report
+	 * the incremental number of samples that had been processed at
+	 * the midpoint of their interrupt periods, but alas it is common
+	 * not to get this service.  alsa-lib's dmix and resampler like
+	 * to operate in batches, and deliver a period at a time.
+	 *
+	 * So we don't use production counters to estimate cross-endpoint
+	 * skew, and rely instead on the pad/drop counters.
+	 *
+	 * In/drop, out/pad imply a faster clock,
+	 * in/pad, out/drop imply a slower clock
+	 */
+	tmpb = (int) (stat.bottom.in.drop + stat.bottom.out.pad);
+	tmpb -= (int) (stat.bottom.in.pad + stat.bottom.out.pad);
+	tmpt = (int) (stat.top.in.drop + stat.top.out.pad);
+	tmpt -= (int) (stat.top.in.pad + stat.top.out.drop);
+
+	histp->endpoint_skew = (tmpt - tmpb) / 2;
+
+	if (m_use_process_values) {
+		histp->pri_max_nsamples = (int)
+			((stat.bottom.in.process > stat.bottom.out.process) ?
+			 stat.bottom.in.process : stat.bottom.out.process);
+		histp->sec_max_nsamples = (int)
+			((stat.top.in.process > stat.top.out.process) ?
+			 stat.top.in.process : stat.top.out.process);
+
+		histp->pri_duplex_skew = stat.bottom.out.process;
+		histp->pri_duplex_skew -= (int) stat.bottom.in.process;
+		histp->sec_duplex_skew = stat.top.out.process;
+		histp->sec_duplex_skew -= (int) stat.top.in.process;
+
+	} else {
+		tmpb = (int) (stat.process_count + stat.bottom.in.drop);
+		tmpb -= (int) stat.bottom.in.pad;
+		tmpt = (int) (stat.process_count + stat.bottom.out.pad);
+		tmpt -= (int) stat.bottom.out.drop;
+		histp->pri_max_nsamples = (tmpb > tmpt) ? tmpb : tmpt;
+		tmpb = (int) (stat.process_count + stat.top.in.drop);
+		tmpb -= (int) stat.top.in.pad;
+		tmpt = (int) (stat.process_count + stat.top.out.pad);
+		tmpt -= (int) stat.top.out.drop;
+		histp->sec_max_nsamples = (tmpb > tmpt) ? tmpb : tmpt;
+
+		/*
+		 * Padding implies a faster output clock,
+		 * dropping implies a faster input clock 
+		 */
+		histp->pri_duplex_skew =
+			(int) (stat.bottom.in.pad + stat.bottom.out.pad);
+		histp->pri_duplex_skew -=
+			(int) (stat.bottom.in.drop + stat.bottom.out.drop);
+		histp->sec_duplex_skew =
+			(int) (stat.top.in.pad + stat.top.out.pad);
+		histp->sec_duplex_skew -=
+			(int) (stat.top.in.drop + stat.top.out.drop);
+	}
+
+	m_history_pos = (m_history_pos + 1) % m_history_count;
+
+	memset(&totals, 0, sizeof(totals));
+	for (i = 0; i < m_history_count; i++) {
+		totals.pri_max_nsamples += m_history[i].pri_max_nsamples;
+		totals.sec_max_nsamples += m_history[i].sec_max_nsamples;
+		totals.pri_duplex_skew += m_history[i].pri_duplex_skew;
+		totals.sec_duplex_skew += m_history[i].sec_duplex_skew;
+		totals.endpoint_skew += m_history[i].endpoint_skew;
+	}
+
+	max = (totals.pri_max_nsamples > totals.sec_max_nsamples)
+		? totals.pri_max_nsamples : totals.sec_max_nsamples;
+
+	if (skew_debug) {
+		GetDi()->LogDebug("Stat: nsamples:%d priskew:%d "
+				  "secskew:%d epskew:%d",
+				  max, totals.pri_duplex_skew,
+				  totals.sec_duplex_skew,
+				  totals.endpoint_skew);
+	}
+
+	if (m_stat_min_pri_duplex_skew &&
+	    (((abs_x(totals.pri_duplex_skew) * 10000) /
+	      totals.pri_max_nsamples) >
+	     m_stat_min_pri_duplex_skew)) {
+		did_duplex = true;
+		if ((m_pri_skew_strikes > 1) || (++m_pri_skew_strikes > 1)) {
+			skew = totals.pri_duplex_skew;
+			skew /= totals.pri_max_nsamples;
+			skew *= 100;
+			GetDi()->LogDebug("SoundIoDrop: pri duplex skew %f%% "
+					  "to %s", abs_x(skew),
+					  (skew < 0) ? "input" : "output");
+			cb_NotifySkew(this, SIO_STREAM_SKEW_PRI_DUPLEX, skew);
+		}
+	} else {
+		m_pri_skew_strikes = 0;
+	}
+
+	if (m_stat_min_sec_duplex_skew &&
+	    (((abs_x(totals.sec_duplex_skew) * 10000) /
+	      totals.sec_max_nsamples) >
+	     m_stat_min_sec_duplex_skew)) {
+		did_duplex = true;
+		if ((m_sec_skew_strikes > 1) || (++m_sec_skew_strikes > 1)) {
+			skew = totals.sec_duplex_skew;
+			skew /= totals.sec_max_nsamples;
+			skew *= 100;
+			GetDi()->LogDebug("SoundIoDrop: sec duplex skew %f%% "
+					  "to %s", abs_x(skew),
+					  (skew < 0) ? "input" : "output");
+			cb_NotifySkew(this, SIO_STREAM_SKEW_SEC_DUPLEX, skew);
+		}
+	} else {
+		m_sec_skew_strikes = 0;
+	}
+
+	if (!did_duplex &&
+	    m_stat_min_endpoint_skew &&
+	    (((abs_x(totals.endpoint_skew) * 10000) / max) >
+	     m_stat_min_endpoint_skew)) {
+		did_duplex = true;
+		if ((m_endpoint_skew_strikes > 1) ||
+		    (++m_endpoint_skew_strikes > 1)) {
+			skew = totals.endpoint_skew;
+			skew /= max;
+			skew *= 100;
+			GetDi()->LogDebug("SoundIoDrop: endpoint skew %f%% "
+					  "to %s", abs_x(skew),
+				  (skew < 0) ? "primary" : "secondary");
+			cb_NotifySkew(this, SIO_STREAM_SKEW_ENDPOINT, skew);
+		}
+	} else {
+		m_endpoint_skew_strikes = 0;
+	}
+
+done_zap:
+	memset(&stat, 0, sizeof(stat));
+}
+
+
 /* This is only non-static for GetDi() */
 SoundIo *SoundIoManager::
-CreatePrimary(const char *name, const char *opts)
+CreatePrimary(const char *name, const char *opts, ErrorInfo *error)
 {
 	sound_driver_factory_t factory = 0;
 	const char *use_opts;
@@ -339,7 +649,10 @@ CreatePrimary(const char *name, const char *opts)
 	assert(name || !opts);
 
 	if (!sound_drivers[0].name) {
-		GetDi()->LogWarn("SoundIo: No drivers registered\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_NO_DRIVER,
+				 "SoundIo: No drivers registered");
 		return 0;
 	}
 
@@ -358,29 +671,73 @@ CreatePrimary(const char *name, const char *opts)
 	if (!factory) {
 		if (name)
 			GetDi()->LogWarn("SoundIo: unknown driver \"%s\","
-					 "using default \"%s\"\n",
+					 "using default \"%s\"",
 					 name, sound_drivers[0].name);
 
 		factory = sound_drivers[0].factory;
 		assert(factory);
 	}
 
-	return factory(GetDi(), use_opts);
+	return factory(GetDi(), use_opts, error);
+}
+
+bool SoundIoManager::
+DspInstall(ErrorInfo *error)
+{
+	assert(m_dsp);
+	assert(!m_dsp_installed);
+
+	if (!m_pump.AddBottom(m_dsp, error))
+		return false;
+	m_dsp_installed = true;
+
+	/*
+	 * Assume the DSP filter implements an NLMS echo canceler.
+	 * Configure the pump to avoid loss at the primary endpoint,
+	 * before invoking the filters, when the DSP filter is installed.
+	 */
+	m_pump.SetLossMode(false, true);
+	return true;
+}
+
+void SoundIoManager::
+DspRemove(void)
+{
+	SoundIoFilter *fltp;
+
+	if (m_dsp_installed) {
+		assert(m_dsp_enabled);
+		fltp = m_pump.RemoveBottom();
+		assert(fltp == m_dsp);
+		m_dsp_installed = false;
+		m_pump.SetLossMode(true, true);
+	}
 }
 
 
 bool SoundIoManager::
 GetDriverInfo(int index, const char **name, const char **desc,
-	      SoundIoDeviceList **devlist)
+	      SoundIoDeviceList **devlist, ErrorInfo *error)
 {
 	sound_driver_device_enum_t enumfun;
 
 	if ((index < 0) ||
-	    (index >= (int) (sizeof(sound_drivers)/sizeof(sound_drivers[0]))))
+	    (index >= (int) (sizeof(sound_drivers) /
+			     sizeof(sound_drivers[0])))) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_NO_DRIVER,
+				   "No more drivers");
 		return false;
+	}
 
-	if (!sound_drivers[index].name)
+	if (!sound_drivers[index].name) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_NO_DRIVER,
+				   "No more drivers");
 		return false;
+	}
 
 	enumfun = sound_drivers[index].deviceenum;
 
@@ -388,13 +745,16 @@ GetDriverInfo(int index, const char **name, const char **desc,
 		*name = sound_drivers[index].name;
 	if (desc)
 		*desc = sound_drivers[index].descr;
-	if (devlist)
-		*devlist = enumfun();
+	if (devlist) {
+		*devlist = enumfun(error);
+		if (!*devlist)
+			return false;
+	}
 	return true;
 }
 
 bool SoundIoManager::
-SetDriver(const char *drivername, const char *driveropts)
+SetDriver(const char *drivername, const char *driveropts, ErrorInfo *error)
 {
 	SoundIo *driverp = 0;
 	char *nd = 0, *od = 0;
@@ -410,16 +770,22 @@ SetDriver(const char *drivername, const char *driveropts)
 
 	if (drivername) {
 		nd = strdup(drivername);
-		if (!nd)
+		if (!nd) {
+			if (error)
+				error->SetNoMem();
 			return false;
+		}
 	}
 	if (driveropts) {
 		od = strdup(driveropts);
-		if (!od)
+		if (!od) {
+			if (error)
+				error->SetNoMem();
 			goto failed;
+		}
 	}
 
-	driverp = CreatePrimary(nd, od);
+	driverp = CreatePrimary(nd, od, error);
 	if (!driverp)
 		goto failed;
 
@@ -452,13 +818,13 @@ failed:
 }
 
 bool SoundIoManager::
-TestOpen(bool up, bool down)
+TestOpen(bool up, bool down, ErrorInfo *error)
 {
 	SoundIoProps secprops;
 
 	if (!m_primary) {
-		GetDi()->LogDebug("SoundIo: no driver set, using default\n");
-		if (!SetDriver(NULL, NULL))
+		GetDi()->LogDebug("SoundIo: no driver set, using default");
+		if (!SetDriver(NULL, NULL, error))
 			return false;
 	}
 
@@ -476,7 +842,7 @@ TestOpen(bool up, bool down)
 		}
 	}
 
-	if (!OpenPrimary(down, up))
+	if (!OpenPrimary(down, up, error))
 		return false;
 
 	m_primary->SndClose();
@@ -484,7 +850,7 @@ TestOpen(bool up, bool down)
 }
 
 bool SoundIoManager::
-SetSecondary(SoundIo *secp)
+SetSecondary(SoundIo *secp, ErrorInfo *error)
 {
 	SoundIoFormat fmt;
 	SoundIo *oldtop;
@@ -497,7 +863,7 @@ SetSecondary(SoundIo *secp)
 		secp->SndSetFormat(fmt);
 	}
 
-	if (!m_pump.SetTop(secp))
+	if (!m_pump.SetTop(secp, error))
 		return false;
 
 	if (m_top_loop) {
@@ -509,7 +875,7 @@ SetSecondary(SoundIo *secp)
 }
 
 bool SoundIoManager::
-Loopback(void)
+Loopback(ErrorInfo *error)
 {
 	SoundIoFormat fmt;
 	SoundIo *siop;
@@ -518,19 +884,25 @@ Loopback(void)
 		return true;
 
 	siop = new SoundIoLoop;
-	if (!siop)
+	if (!siop) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	if (IsStarted()) {
 		if (m_mute_swap) {
-			GetDi()->LogWarn("SoundIo: loopback mute mode "
-					 "is pointless\n");
+			GetDi()->LogWarn(error,
+					 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					 LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+					 "SoundIo: loopback mute mode "
+					 "is pointless");
 			return false;
 		}
 		m_primary->SndGetFormat(fmt);
 		siop->SndSetFormat(fmt);
 	}
-	if (!m_pump.SetTop(siop)) {
+	if (!m_pump.SetTop(siop, error)) {
 		delete siop;
 		return false;
 	}
@@ -540,7 +912,7 @@ Loopback(void)
 }
 
 bool SoundIoManager::
-SetHardMute(bool state, bool closepri)
+SetHardMute(bool state, bool closepri, ErrorInfo *error)
 {
 	SoundIoProps props;
 	SoundIoFormat fmt;
@@ -557,17 +929,17 @@ SetHardMute(bool state, bool closepri)
 		/* m_primary_open should always be false */
 		if (IsStarted() && !m_primary_open) {
 			assert(m_stream_dn || m_stream_up);
-			if (!OpenPrimary(m_stream_dn, m_stream_up)) {
+			if (!OpenPrimary(m_stream_dn, m_stream_up, error)) {
 				GetDi()->LogWarn("SoundIo: could not open "
-						 "primary for unmute\n");
+						 "primary for unmute");
 				return false;
 			}
 			m_primary_open = true;
 		}
 
-		if (!m_pump.SetBottom(m_primary)) {
+		if (!m_pump.SetBottom(m_primary, error)) {
 			GetDi()->LogWarn("Could not reinstall primary "
-					 "as bottom endpoint\n");
+					 "as bottom endpoint");
 			return false;
 		}
 
@@ -577,14 +949,20 @@ SetHardMute(bool state, bool closepri)
 	}
 
 	if (IsStarted() && m_top_loop) {
-		GetDi()->LogWarn("SoundIo: loopback mute mode is pointless\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+				 "SoundIo: loopback mute mode is pointless");
 		return false;
 	}
 
 	assert(m_pump.GetBottom() == m_primary);
 	siop = new SoundIoNull();
-	if (!siop)
+	if (!siop) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	if (IsStarted()) {
 		m_pump.GetTop()->SndGetFormat(fmt);
@@ -613,7 +991,7 @@ SetHardMute(bool state, bool closepri)
 }
 
 bool SoundIoManager::
-SetMute(bool up, bool dn)
+SetMute(bool up, bool dn, ErrorInfo *error)
 {
 	SoundIoFilter *fltp;
 
@@ -629,10 +1007,13 @@ SetMute(bool up, bool dn)
 
 	if (up || dn) {
 		fltp = new SoundIoFltMute(up, dn);
-		if (!fltp)
+		if (!fltp) {
+			if (error)
+				error->SetNoMem();
 			return false;
+		}
 
-		if (!m_pump.AddTop(fltp)) {
+		if (!m_pump.AddTop(fltp, error)) {
 			delete fltp;
 			return false;
 		}
@@ -645,65 +1026,57 @@ SetMute(bool up, bool dn)
 }
 
 bool SoundIoManager::
-SetDsp(SoundIoFilter *dspp)
+SetDsp(SoundIoFilter *dspp, ErrorInfo *error)
 {
 	bool do_install = false;
-	SoundIoFilter *fltp;
 	if (m_dsp) {
 		if (m_dsp_installed) {
-			assert(m_dsp_enabled);
+			DspRemove();
 			do_install = true;
-			fltp = m_pump.RemoveBottom();
-			assert(fltp == m_dsp);
-			m_dsp_installed = false;
 		}
 		m_dsp = 0;
 	} else {
 		do_install = IsStarted() && !m_top_loop && !m_mute_swap;
 	}
 
-	if (do_install && m_dsp_enabled) {
-		if (!m_pump.AddBottom(dspp))
-			return false;
-		m_dsp_installed = true;
-	}
 	m_dsp = dspp;
+
+	if (do_install && m_dsp_enabled && !DspInstall(error)) {
+		m_dsp = 0;
+		return false;
+	}
+
 	return true;
 }
 
 bool SoundIoManager::
-SetDspEnabled(bool enabled)
+SetDspEnabled(bool enabled, ErrorInfo *error)
 {
-	SoundIoFilter *fltp;
-
 	if (m_dsp_enabled == enabled)
 		return true;
 
 	if (!enabled) {
-		if (m_dsp_installed) {
-			fltp = m_pump.RemoveBottom();
-			assert(fltp == m_dsp);
-			m_dsp_installed = false;
-		}
+		DspRemove();
 		m_dsp_enabled = false;
 		return true;
 	}
 
-	if (m_dsp && IsStarted() && !m_top_loop && !m_mute_swap) {
-		if (!m_pump.AddBottom(m_dsp))
-			return false;
-		m_dsp_installed = true;
-	}
+	if (m_dsp && IsStarted() && !m_top_loop && !m_mute_swap &&
+	    !DspInstall(error))
+		return false;
 
 	m_dsp_enabled = true;
 	return true;
 }
 
 bool SoundIoManager::
-OpenPrimary(bool sink, bool source)
+OpenPrimary(bool sink, bool source, ErrorInfo *error)
 {
 	OpLatencyMonitor lm(GetDi(), "primary open");
-	return m_primary->SndOpen(sink, source);
+	bool res;
+	res = m_primary->SndOpen(sink, source, error);
+	assert(res || !error || error->IsSet());
+	return res;
 }
 
 void SoundIoManager::
@@ -718,17 +1091,11 @@ ClosePrimary(void)
 		m_stream_dn = false;
 	}
 
-	if (m_dsp_installed) {
-		SoundIoFilter *fltp;
-		assert(m_dsp_enabled);
-		fltp = m_pump.RemoveBottom();
-		assert(fltp == m_dsp);
-		m_dsp_installed = false;
-	}
+	DspRemove();
 }
 
 bool SoundIoManager::
-Start(bool up, bool down)
+Start(bool up, bool down, ErrorInfo *error)
 {
 	SoundIoProps secprops;
 	SoundIoFormat fmt;
@@ -740,23 +1107,26 @@ Start(bool up, bool down)
 		return false;
 
 	if (!m_primary) {
-		GetDi()->LogDebug("SoundIo: no driver set, using default\n");
-		if (!SetDriver(NULL, NULL))
+		GetDi()->LogDebug("SoundIo: no driver set, using default");
+		if (!SetDriver(NULL, NULL, error))
 			return false;
 	}
 
-	if (!m_pump.GetTop() && !Loopback()) {
-		GetDi()->LogWarn("SoundIo: could not create loopback\n");
+	if (!m_pump.GetTop() && !Loopback(error)) {
+		GetDi()->LogWarn("SoundIo: could not create loopback");
 		return false;
 	}
 
 	if (m_top_loop && m_mute_swap) {
-		GetDi()->LogWarn("SoundIo: loopback mute mode is pointless\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+				 "SoundIo: loopback mute mode is pointless");
 		return false;
 	}
 
+	m_pump.GetTop()->SndGetProps(secprops);
 	if (!up && !down) {
-		m_pump.GetTop()->SndGetProps(secprops);
 		up = secprops.does_sink;
 		down = secprops.does_source;
 	}
@@ -768,8 +1138,8 @@ Start(bool up, bool down)
 
 	was_open = m_primary_open;
 	if (!m_mute_swap && !m_primary_open) {
-		if (!OpenPrimary(down, up)) {
-			GetDi()->LogWarn("SoundIo: could not open primary\n");
+		if (!OpenPrimary(down, up, error)) {
+			GetDi()->LogWarn("SoundIo: could not open primary");
 			return false;
 		}
 		m_primary_open = true;
@@ -778,17 +1148,11 @@ Start(bool up, bool down)
 	if (m_dsp) {
 		if (!m_top_loop && !m_mute_swap &&
 		    m_dsp_enabled && !m_dsp_installed) {
-			res = m_pump.AddBottom(m_dsp);
+			res = DspInstall(0);
 			assert(res);
-			m_dsp_installed = true;
 		}
-		else if ((m_top_loop || m_mute_swap) && m_dsp_installed) {
-			SoundIoFilter *fltp;
-			assert(m_dsp_enabled);
-			fltp = m_pump.RemoveBottom();
-			assert(fltp == m_dsp);
-			m_dsp_installed = false;
-		}
+		else if (m_top_loop || m_mute_swap)
+			DspRemove();
 	}
 
 	if (m_top_loop) {
@@ -806,13 +1170,13 @@ Start(bool up, bool down)
 		pkt = (m_config_packet_ms * fmt.samplerate) / 1000;
 		if (!pkt) {
 			GetDi()->LogWarn("Configured packet size (%d) is "
-					 "too small\n", m_config_packet_ms);
+					 "too small", m_config_packet_ms);
 		} else {
 			fmt.packet_samps = pkt;
 		}
 	}
-	if (!m_primary->SndSetFormat(fmt)) {
-		GetDi()->LogWarn("SoundIo: primary rejected format\n");
+	if (!m_primary->SndSetFormat(fmt, error)) {
+		GetDi()->LogWarn("SoundIo: primary rejected format");
 		goto failed;
 	}
 
@@ -823,8 +1187,12 @@ Start(bool up, bool down)
 		m_pump.GetBottom()->SndSetFormat(fmt);
 	}
 
-	if (!m_pump.Start()) {
-		GetDi()->LogWarn("SoundIo: could not start pump\n");
+	if (up && down && cb_NotifySkew.Registered() &&
+	    !StartStats(fmt, secprops, error))
+		goto failed;
+
+	if (!m_pump.Start(error)) {
+		GetDi()->LogWarn("SoundIo: could not start pump");
 		goto failed;
 	}
 
@@ -837,6 +1205,9 @@ failed:
 	if (!was_open && m_primary_open) {
 		ClosePrimary();
 	}
+
+	StopStats();
+
 	return false;
 }
 
@@ -847,6 +1218,8 @@ Stop(void)
 		return;
 
 	m_pump.Stop();
+
+	StopStats();
 
 	m_stream_up = false;
 	m_stream_dn = false;
@@ -877,21 +1250,21 @@ GetBottomFilter(void) const
 }
 
 bool SoundIoManager::
-AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp)
+AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp, ErrorInfo *error)
 {
 	if (!targp && m_mute_soft)
 		targp = m_mute_soft;
-	return m_pump.AddBelow(fltp, targp);
+	return m_pump.AddBelow(fltp, targp, error);
 }
 
 bool SoundIoManager::
-AddAbove(SoundIoFilter *fltp, SoundIoFilter *targp)
+AddAbove(SoundIoFilter *fltp, SoundIoFilter *targp, ErrorInfo *error)
 {
 	if (!targp && m_dsp_installed) {
 		assert(m_dsp);
 		targp = m_dsp;
 	}
-	return m_pump.AddAbove(fltp, targp);
+	return m_pump.AddAbove(fltp, targp, error);
 }
 
 unsigned int SoundIoManager::

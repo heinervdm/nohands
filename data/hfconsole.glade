@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE glade-interface SYSTEM "glade-2.0.dtd">
-<!--Generated with glade3 3.4.5 on Wed Oct 29 10:40:37 2008 -->
+<!--Generated with glade3 3.4.5 on Mon Nov 24 02:58:39 2008 -->
 <glade-interface>
   <widget class="GtkWindow" id="MainWindow">
     <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
@@ -180,49 +180,43 @@
                     <property name="row_spacing">8</property>
                     <property name="homogeneous">True</property>
                     <child>
-                      <widget class="GtkButton" id="DigitButtonPnd">
+                      <widget class="GtkButton" id="DigitButton1">
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="receives_default">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                         <property name="focus_on_click">False</property>
                         <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="#"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="#"/>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="1"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="1"/>
                         <child>
-                          <widget class="GtkLabel" id="DigitLabelPnd">
+                          <widget class="GtkLabel" id="DigitLabel1">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;#&lt;/span&gt;
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;1&lt;/span&gt;
 </property>
                             <property name="use_markup">True</property>
                             <property name="justify">GTK_JUSTIFY_CENTER</property>
                           </widget>
                         </child>
                       </widget>
-                      <packing>
-                        <property name="left_attach">2</property>
-                        <property name="right_attach">3</property>
-                        <property name="top_attach">3</property>
-                        <property name="bottom_attach">4</property>
-                      </packing>
                     </child>
                     <child>
-                      <widget class="GtkButton" id="DigitButton0">
+                      <widget class="GtkButton" id="DigitButton2">
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="receives_default">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                         <property name="focus_on_click">False</property>
                         <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="0"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="0"/>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="2"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="2"/>
                         <child>
-                          <widget class="GtkLabel" id="DigitLabel0">
+                          <widget class="GtkLabel" id="DigitLabel2">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;0&lt;/span&gt;
-</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;2&lt;/span&gt;
+abc</property>
                             <property name="use_markup">True</property>
                             <property name="justify">GTK_JUSTIFY_CENTER</property>
                           </widget>
@@ -231,52 +225,24 @@
                       <packing>
                         <property name="left_attach">1</property>
                         <property name="right_attach">2</property>
-                        <property name="top_attach">3</property>
-                        <property name="bottom_attach">4</property>
                       </packing>
                     </child>
                     <child>
-                      <widget class="GtkButton" id="DigitButtonAst">
+                      <widget class="GtkButton" id="DigitButton3">
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="receives_default">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                         <property name="focus_on_click">False</property>
                         <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="*"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="*"/>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="3"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="3"/>
                         <child>
-                          <widget class="GtkLabel" id="DigitLabelAst">
+                          <widget class="GtkLabel" id="DigitLabel3">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;*&lt;/span&gt;
-</property>
-                            <property name="use_markup">True</property>
-                            <property name="justify">GTK_JUSTIFY_CENTER</property>
-                          </widget>
-                        </child>
-                      </widget>
-                      <packing>
-                        <property name="top_attach">3</property>
-                        <property name="bottom_attach">4</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <widget class="GtkButton" id="DigitButton9">
-                        <property name="visible">True</property>
-                        <property name="can_focus">True</property>
-                        <property name="receives_default">True</property>
-                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                        <property name="focus_on_click">False</property>
-                        <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="9"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="9"/>
-                        <child>
-                          <widget class="GtkLabel" id="DigitLabel9">
-                            <property name="visible">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;9&lt;/span&gt;
-wxyz</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;3&lt;/span&gt;
+def</property>
                             <property name="use_markup">True</property>
                             <property name="justify">GTK_JUSTIFY_CENTER</property>
                           </widget>
@@ -285,88 +251,30 @@ wxyz</property>
                       <packing>
                         <property name="left_attach">2</property>
                         <property name="right_attach">3</property>
-                        <property name="top_attach">2</property>
-                        <property name="bottom_attach">3</property>
                       </packing>
                     </child>
                     <child>
-                      <widget class="GtkButton" id="DigitButton8">
+                      <widget class="GtkButton" id="DigitButton4">
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="receives_default">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                         <property name="focus_on_click">False</property>
                         <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="8"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="8"/>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="4"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="4"/>
                         <child>
-                          <widget class="GtkLabel" id="DigitLabel8">
+                          <widget class="GtkLabel" id="DigitLabel4">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;8&lt;/span&gt;
-tuv</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;4&lt;/span&gt;
+ghi</property>
                             <property name="use_markup">True</property>
                             <property name="justify">GTK_JUSTIFY_CENTER</property>
                           </widget>
                         </child>
                       </widget>
                       <packing>
-                        <property name="left_attach">1</property>
-                        <property name="right_attach">2</property>
-                        <property name="top_attach">2</property>
-                        <property name="bottom_attach">3</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <widget class="GtkButton" id="DigitButton7">
-                        <property name="visible">True</property>
-                        <property name="can_focus">True</property>
-                        <property name="receives_default">True</property>
-                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                        <property name="focus_on_click">False</property>
-                        <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="7"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="7"/>
-                        <child>
-                          <widget class="GtkLabel" id="DigitLabel7">
-                            <property name="visible">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;7&lt;/span&gt;
-pqrs</property>
-                            <property name="use_markup">True</property>
-                            <property name="justify">GTK_JUSTIFY_CENTER</property>
-                          </widget>
-                        </child>
-                      </widget>
-                      <packing>
-                        <property name="top_attach">2</property>
-                        <property name="bottom_attach">3</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <widget class="GtkButton" id="DigitButton6">
-                        <property name="visible">True</property>
-                        <property name="can_focus">True</property>
-                        <property name="receives_default">True</property>
-                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                        <property name="focus_on_click">False</property>
-                        <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="6"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="6"/>
-                        <child>
-                          <widget class="GtkLabel" id="DigitLabel6">
-                            <property name="visible">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;6&lt;/span&gt;
-mno</property>
-                            <property name="use_markup">True</property>
-                            <property name="justify">GTK_JUSTIFY_CENTER</property>
-                          </widget>
-                        </child>
-                      </widget>
-                      <packing>
-                        <property name="left_attach">2</property>
-                        <property name="right_attach">3</property>
                         <property name="top_attach">1</property>
                         <property name="bottom_attach">2</property>
                       </packing>
@@ -400,47 +308,21 @@ jkl</property>
                       </packing>
                     </child>
                     <child>
-                      <widget class="GtkButton" id="DigitButton4">
+                      <widget class="GtkButton" id="DigitButton6">
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="receives_default">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                         <property name="focus_on_click">False</property>
                         <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="4"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="4"/>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="6"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="6"/>
                         <child>
-                          <widget class="GtkLabel" id="DigitLabel4">
+                          <widget class="GtkLabel" id="DigitLabel6">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;4&lt;/span&gt;
-ghi</property>
-                            <property name="use_markup">True</property>
-                            <property name="justify">GTK_JUSTIFY_CENTER</property>
-                          </widget>
-                        </child>
-                      </widget>
-                      <packing>
-                        <property name="top_attach">1</property>
-                        <property name="bottom_attach">2</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <widget class="GtkButton" id="DigitButton3">
-                        <property name="visible">True</property>
-                        <property name="can_focus">True</property>
-                        <property name="receives_default">True</property>
-                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                        <property name="focus_on_click">False</property>
-                        <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="3"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="3"/>
-                        <child>
-                          <widget class="GtkLabel" id="DigitLabel3">
-                            <property name="visible">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;3&lt;/span&gt;
-def</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;6&lt;/span&gt;
+mno</property>
                             <property name="use_markup">True</property>
                             <property name="justify">GTK_JUSTIFY_CENTER</property>
                           </widget>
@@ -449,24 +331,52 @@ def</property>
                       <packing>
                         <property name="left_attach">2</property>
                         <property name="right_attach">3</property>
+                        <property name="top_attach">1</property>
+                        <property name="bottom_attach">2</property>
                       </packing>
                     </child>
                     <child>
-                      <widget class="GtkButton" id="DigitButton2">
+                      <widget class="GtkButton" id="DigitButton7">
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="receives_default">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                         <property name="focus_on_click">False</property>
                         <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="2"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="2"/>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="7"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="7"/>
                         <child>
-                          <widget class="GtkLabel" id="DigitLabel2">
+                          <widget class="GtkLabel" id="DigitLabel7">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;2&lt;/span&gt;
-abc</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;7&lt;/span&gt;
+pqrs</property>
+                            <property name="use_markup">True</property>
+                            <property name="justify">GTK_JUSTIFY_CENTER</property>
+                          </widget>
+                        </child>
+                      </widget>
+                      <packing>
+                        <property name="top_attach">2</property>
+                        <property name="bottom_attach">3</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <widget class="GtkButton" id="DigitButton8">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                        <property name="receives_default">True</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="focus_on_click">False</property>
+                        <property name="response_id">0</property>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="8"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="8"/>
+                        <child>
+                          <widget class="GtkLabel" id="DigitLabel8">
+                            <property name="visible">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;8&lt;/span&gt;
+tuv</property>
                             <property name="use_markup">True</property>
                             <property name="justify">GTK_JUSTIFY_CENTER</property>
                           </widget>
@@ -475,29 +385,119 @@ abc</property>
                       <packing>
                         <property name="left_attach">1</property>
                         <property name="right_attach">2</property>
+                        <property name="top_attach">2</property>
+                        <property name="bottom_attach">3</property>
                       </packing>
                     </child>
                     <child>
-                      <widget class="GtkButton" id="DigitButton1">
+                      <widget class="GtkButton" id="DigitButton9">
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="receives_default">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                         <property name="focus_on_click">False</property>
                         <property name="response_id">0</property>
-                        <signal name="pressed" handler="DigitButton_pressed_cb" object="1"/>
-                        <signal name="clicked" handler="DigitButton_clicked_cb" object="1"/>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="9"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="9"/>
                         <child>
-                          <widget class="GtkLabel" id="DigitLabel1">
+                          <widget class="GtkLabel" id="DigitLabel9">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;1&lt;/span&gt;
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;9&lt;/span&gt;
+wxyz</property>
+                            <property name="use_markup">True</property>
+                            <property name="justify">GTK_JUSTIFY_CENTER</property>
+                          </widget>
+                        </child>
+                      </widget>
+                      <packing>
+                        <property name="left_attach">2</property>
+                        <property name="right_attach">3</property>
+                        <property name="top_attach">2</property>
+                        <property name="bottom_attach">3</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <widget class="GtkButton" id="DigitButtonAst">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                        <property name="receives_default">True</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="focus_on_click">False</property>
+                        <property name="response_id">0</property>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="*"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="*"/>
+                        <child>
+                          <widget class="GtkLabel" id="DigitLabelAst">
+                            <property name="visible">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;*&lt;/span&gt;
 </property>
                             <property name="use_markup">True</property>
                             <property name="justify">GTK_JUSTIFY_CENTER</property>
                           </widget>
                         </child>
                       </widget>
+                      <packing>
+                        <property name="top_attach">3</property>
+                        <property name="bottom_attach">4</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <widget class="GtkButton" id="DigitButton0">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                        <property name="receives_default">True</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="focus_on_click">False</property>
+                        <property name="response_id">0</property>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="0"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="0"/>
+                        <child>
+                          <widget class="GtkLabel" id="DigitLabel0">
+                            <property name="visible">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;0&lt;/span&gt;
+</property>
+                            <property name="use_markup">True</property>
+                            <property name="justify">GTK_JUSTIFY_CENTER</property>
+                          </widget>
+                        </child>
+                      </widget>
+                      <packing>
+                        <property name="left_attach">1</property>
+                        <property name="right_attach">2</property>
+                        <property name="top_attach">3</property>
+                        <property name="bottom_attach">4</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <widget class="GtkButton" id="DigitButtonPnd">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                        <property name="receives_default">True</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="focus_on_click">False</property>
+                        <property name="response_id">0</property>
+                        <signal name="pressed" handler="DigitButton_pressed_cb" object="#"/>
+                        <signal name="clicked" handler="DigitButton_clicked_cb" object="#"/>
+                        <child>
+                          <widget class="GtkLabel" id="DigitLabelPnd">
+                            <property name="visible">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="label" translatable="yes">&lt;span size="xx-large" weight="heavy"&gt;#&lt;/span&gt;
+</property>
+                            <property name="use_markup">True</property>
+                            <property name="justify">GTK_JUSTIFY_CENTER</property>
+                          </widget>
+                        </child>
+                      </widget>
+                      <packing>
+                        <property name="left_attach">2</property>
+                        <property name="right_attach">3</property>
+                        <property name="top_attach">3</property>
+                        <property name="bottom_attach">4</property>
+                      </packing>
                     </child>
                   </widget>
                   <packing>
@@ -755,155 +755,6 @@ abc</property>
                 <property name="column_spacing">8</property>
                 <property name="row_spacing">8</property>
                 <child>
-                  <widget class="GtkComboBoxEntry" id="ConfigDriverDevList">
-                    <property name="visible">True</property>
-                    <child internal-child="entry">
-                      <widget class="GtkEntry" id="ConfigDriverOpts">
-                        <property name="visible">True</property>
-                        <property name="can_focus">True</property>
-                      </widget>
-                    </child>
-                  </widget>
-                  <packing>
-                    <property name="left_attach">1</property>
-                    <property name="right_attach">3</property>
-                    <property name="top_attach">1</property>
-                    <property name="bottom_attach">2</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkCheckButton" id="ConfigMinOutBufferHint">
-                    <property name="visible">True</property>
-                    <property name="can_focus">True</property>
-                    <property name="label" translatable="yes">Output Buffer</property>
-                    <property name="response_id">0</property>
-                    <property name="draw_indicator">True</property>
-                    <signal name="toggled" handler="ConfigMinOutBufferHint_toggled_cb"/>
-                  </widget>
-                  <packing>
-                    <property name="top_attach">3</property>
-                    <property name="bottom_attach">4</property>
-                    <property name="x_options">GTK_FILL</property>
-                    <property name="y_options">GTK_FILL</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkCheckButton" id="ConfigPacketIntervalHint">
-                    <property name="visible">True</property>
-                    <property name="can_focus">True</property>
-                    <property name="label" translatable="yes">Packet Interval</property>
-                    <property name="response_id">0</property>
-                    <property name="draw_indicator">True</property>
-                    <signal name="toggled" handler="ConfigPacketIntervalHint_toggled_cb"/>
-                  </widget>
-                  <packing>
-                    <property name="top_attach">2</property>
-                    <property name="bottom_attach">3</property>
-                    <property name="x_options">GTK_FILL</property>
-                    <property name="y_options">GTK_FILL</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkLabel" id="ConfigMinOutBufferLabel">
-                    <property name="visible">True</property>
-                    <property name="xalign">0</property>
-                    <property name="label" translatable="yes">0ms</property>
-                  </widget>
-                  <packing>
-                    <property name="left_attach">2</property>
-                    <property name="right_attach">3</property>
-                    <property name="top_attach">3</property>
-                    <property name="bottom_attach">4</property>
-                    <property name="x_options">GTK_FILL</property>
-                    <property name="y_options">GTK_FILL</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkHScale" id="ConfigPacketInterval">
-                    <property name="visible">True</property>
-                    <property name="can_focus">True</property>
-                    <property name="adjustment">1 0 1 0.01 0.10000000000000001 0</property>
-                    <property name="restrict_to_fill_level">False</property>
-                    <property name="fill_level">1</property>
-                    <property name="digits">0</property>
-                    <property name="draw_value">False</property>
-                    <property name="value_pos">GTK_POS_RIGHT</property>
-                    <signal name="value_changed" handler="ConfigPacketInterval_value_changed_cb"/>
-                  </widget>
-                  <packing>
-                    <property name="left_attach">1</property>
-                    <property name="right_attach">2</property>
-                    <property name="top_attach">2</property>
-                    <property name="bottom_attach">3</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkLabel" id="ConfigPacketIntervalLabel">
-                    <property name="width_request">64</property>
-                    <property name="visible">True</property>
-                    <property name="xalign">0</property>
-                    <property name="label" translatable="yes">0ms</property>
-                  </widget>
-                  <packing>
-                    <property name="left_attach">2</property>
-                    <property name="right_attach">3</property>
-                    <property name="top_attach">2</property>
-                    <property name="bottom_attach">3</property>
-                    <property name="x_options">GTK_FILL</property>
-                    <property name="y_options">GTK_FILL</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkLabel" id="label6">
-                    <property name="visible">True</property>
-                    <property name="xalign">0</property>
-                    <property name="label" translatable="yes">Driver</property>
-                  </widget>
-                  <packing>
-                    <property name="x_options">GTK_FILL</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkHScale" id="ConfigMinOutBuffer">
-                    <property name="visible">True</property>
-                    <property name="can_focus">True</property>
-                    <property name="adjustment">1 0 1 0.01 0.10000000000000001 0</property>
-                    <property name="draw_value">False</property>
-                    <property name="value_pos">GTK_POS_RIGHT</property>
-                    <signal name="value_changed" handler="ConfigMinOutBuffer_value_changed_cb"/>
-                  </widget>
-                  <packing>
-                    <property name="left_attach">1</property>
-                    <property name="right_attach">2</property>
-                    <property name="top_attach">3</property>
-                    <property name="bottom_attach">4</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkLabel" id="label7">
-                    <property name="visible">True</property>
-                    <property name="xalign">0</property>
-                    <property name="label" translatable="yes">Device / Options</property>
-                  </widget>
-                  <packing>
-                    <property name="top_attach">1</property>
-                    <property name="bottom_attach">2</property>
-                    <property name="x_options">GTK_FILL</property>
-                  </packing>
-                </child>
-                <child>
-                  <widget class="GtkComboBox" id="ConfigDriver">
-                    <property name="visible">True</property>
-                    <property name="items" translatable="yes"></property>
-                    <signal name="changed" handler="ConfigDriver_changed_cb"/>
-                  </widget>
-                  <packing>
-                    <property name="left_attach">1</property>
-                    <property name="right_attach">3</property>
-                    <property name="y_options">GTK_EXPAND</property>
-                  </packing>
-                </child>
-                <child>
                   <widget class="GtkFrame" id="frame2">
                     <property name="visible">True</property>
                     <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
@@ -912,45 +763,88 @@ abc</property>
                       <widget class="GtkAlignment" id="alignment2">
                         <property name="visible">True</property>
                         <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="bottom_padding">8</property>
                         <property name="left_padding">12</property>
                         <child>
-                          <widget class="GtkHBox" id="hbox8">
+                          <widget class="GtkVBox" id="vbox10">
                             <property name="visible">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="border_width">10</property>
-                            <property name="spacing">10</property>
+                            <property name="spacing">8</property>
                             <child>
-                              <widget class="GtkToggleButton" id="ConfigFeedbackTest">
+                              <widget class="GtkHBox" id="hbox8">
                                 <property name="visible">True</property>
-                                <property name="can_focus">True</property>
-                                <property name="receives_default">True</property>
                                 <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                                <property name="label" translatable="yes">Feedback Test</property>
-                                <property name="response_id">0</property>
-                                <signal name="toggled" handler="ConfigFeedbackTest_toggled_cb"/>
+                                <property name="border_width">10</property>
+                                <property name="spacing">10</property>
+                                <child>
+                                  <widget class="GtkToggleButton" id="ConfigFeedbackTest">
+                                    <property name="visible">True</property>
+                                    <property name="can_focus">True</property>
+                                    <property name="receives_default">True</property>
+                                    <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                                    <property name="label" translatable="yes">Feedback Test</property>
+                                    <property name="response_id">0</property>
+                                    <signal name="toggled" handler="ConfigFeedbackTest_toggled_cb"/>
+                                  </widget>
+                                </child>
+                                <child>
+                                  <widget class="GtkLabel" id="label21">
+                                    <property name="visible">True</property>
+                                    <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                                    <property name="label" translatable="yes">Real Packet Size:</property>
+                                  </widget>
+                                  <packing>
+                                    <property name="expand">False</property>
+                                    <property name="fill">False</property>
+                                    <property name="position">1</property>
+                                  </packing>
+                                </child>
+                                <child>
+                                  <widget class="GtkLabel" id="ConfigRealPacketSizeLabel">
+                                    <property name="width_request">64</property>
+                                    <property name="visible">True</property>
+                                    <property name="xalign">0</property>
+                                  </widget>
+                                  <packing>
+                                    <property name="expand">False</property>
+                                    <property name="position">2</property>
+                                  </packing>
+                                </child>
                               </widget>
+                              <packing>
+                                <property name="expand">False</property>
+                                <property name="fill">False</property>
+                              </packing>
                             </child>
                             <child>
-                              <widget class="GtkLabel" id="label21">
+                              <widget class="GtkHBox" id="hbox111">
                                 <property name="visible">True</property>
-                                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                                <property name="label" translatable="yes">Real Packet Size:</property>
+                                <property name="spacing">8</property>
+                                <child>
+                                  <widget class="GtkImage" id="ConfigSkewNotice">
+                                    <property name="no_show_all">True</property>
+                                    <property name="stock">gtk-dialog-warning</property>
+                                  </widget>
+                                  <packing>
+                                    <property name="expand">False</property>
+                                  </packing>
+                                </child>
+                                <child>
+                                  <widget class="GtkLabel" id="ConfigSkewNoticeLabel">
+                                    <property name="no_show_all">True</property>
+                                    <property name="xalign">0</property>
+                                    <property name="wrap">True</property>
+                                  </widget>
+                                  <packing>
+                                    <property name="expand">False</property>
+                                    <property name="padding">4</property>
+                                    <property name="position">1</property>
+                                  </packing>
+                                </child>
                               </widget>
                               <packing>
                                 <property name="expand">False</property>
                                 <property name="fill">False</property>
                                 <property name="position">1</property>
-                              </packing>
-                            </child>
-                            <child>
-                              <widget class="GtkLabel" id="ConfigRealPacketSizeLabel">
-                                <property name="width_request">64</property>
-                                <property name="visible">True</property>
-                                <property name="xalign">0</property>
-                              </widget>
-                              <packing>
-                                <property name="expand">False</property>
-                                <property name="position">2</property>
                               </packing>
                             </child>
                           </widget>
@@ -973,6 +867,166 @@ abc</property>
                     <property name="right_attach">3</property>
                     <property name="top_attach">4</property>
                     <property name="bottom_attach">5</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkComboBox" id="ConfigDriver">
+                    <property name="visible">True</property>
+                    <property name="items" translatable="yes"></property>
+                    <signal name="changed" handler="ConfigDriver_changed_cb"/>
+                  </widget>
+                  <packing>
+                    <property name="left_attach">1</property>
+                    <property name="right_attach">3</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkLabel" id="label7">
+                    <property name="visible">True</property>
+                    <property name="xalign">0</property>
+                    <property name="label" translatable="yes">Device / Options</property>
+                  </widget>
+                  <packing>
+                    <property name="top_attach">1</property>
+                    <property name="bottom_attach">2</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkHScale" id="ConfigMinOutBuffer">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="adjustment">1 0 1 0.01 0.10000000000000001 0</property>
+                    <property name="draw_value">False</property>
+                    <property name="value_pos">GTK_POS_RIGHT</property>
+                    <signal name="value_changed" handler="ConfigMinOutBuffer_value_changed_cb"/>
+                  </widget>
+                  <packing>
+                    <property name="left_attach">1</property>
+                    <property name="right_attach">2</property>
+                    <property name="top_attach">3</property>
+                    <property name="bottom_attach">4</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkLabel" id="label6">
+                    <property name="visible">True</property>
+                    <property name="xalign">0</property>
+                    <property name="label" translatable="yes">Driver</property>
+                  </widget>
+                  <packing>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkLabel" id="ConfigPacketIntervalLabel">
+                    <property name="width_request">64</property>
+                    <property name="visible">True</property>
+                    <property name="xalign">0</property>
+                    <property name="label" translatable="yes">0ms</property>
+                  </widget>
+                  <packing>
+                    <property name="left_attach">2</property>
+                    <property name="right_attach">3</property>
+                    <property name="top_attach">2</property>
+                    <property name="bottom_attach">3</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkHScale" id="ConfigPacketInterval">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="adjustment">1 0 1 0.01 0.10000000000000001 0</property>
+                    <property name="restrict_to_fill_level">False</property>
+                    <property name="fill_level">1</property>
+                    <property name="digits">0</property>
+                    <property name="draw_value">False</property>
+                    <property name="value_pos">GTK_POS_RIGHT</property>
+                    <signal name="value_changed" handler="ConfigPacketInterval_value_changed_cb"/>
+                  </widget>
+                  <packing>
+                    <property name="left_attach">1</property>
+                    <property name="right_attach">2</property>
+                    <property name="top_attach">2</property>
+                    <property name="bottom_attach">3</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkLabel" id="ConfigMinOutBufferLabel">
+                    <property name="visible">True</property>
+                    <property name="xalign">0</property>
+                    <property name="label" translatable="yes">0ms</property>
+                  </widget>
+                  <packing>
+                    <property name="left_attach">2</property>
+                    <property name="right_attach">3</property>
+                    <property name="top_attach">3</property>
+                    <property name="bottom_attach">4</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkCheckButton" id="ConfigPacketIntervalHint">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="label" translatable="yes">Packet Interval</property>
+                    <property name="xalign">0</property>
+                    <property name="response_id">0</property>
+                    <property name="draw_indicator">True</property>
+                    <signal name="toggled" handler="ConfigPacketIntervalHint_toggled_cb"/>
+                  </widget>
+                  <packing>
+                    <property name="top_attach">2</property>
+                    <property name="bottom_attach">3</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkCheckButton" id="ConfigMinOutBufferHint">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="label" translatable="yes">Output Buffer</property>
+                    <property name="xalign">0</property>
+                    <property name="response_id">0</property>
+                    <property name="draw_indicator">True</property>
+                    <signal name="toggled" handler="ConfigMinOutBufferHint_toggled_cb"/>
+                  </widget>
+                  <packing>
+                    <property name="top_attach">3</property>
+                    <property name="bottom_attach">4</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
+                  </packing>
+                </child>
+                <child>
+                  <widget class="GtkComboBoxEntry" id="ConfigDriverDevList">
+                    <property name="visible">True</property>
+                    <child internal-child="entry">
+                      <widget class="GtkEntry" id="ConfigDriverOpts">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                      </widget>
+                    </child>
+                  </widget>
+                  <packing>
+                    <property name="left_attach">1</property>
+                    <property name="right_attach">3</property>
+                    <property name="top_attach">1</property>
+                    <property name="bottom_attach">2</property>
+                    <property name="x_options">GTK_FILL</property>
+                    <property name="y_options"></property>
                   </packing>
                 </child>
               </widget>
@@ -1009,120 +1063,68 @@ abc</property>
                         <property name="column_spacing">10</property>
                         <property name="row_spacing">10</property>
                         <child>
-                          <widget class="GtkLabel" id="ConfigDereverbDecayLabel">
+                          <widget class="GtkLabel" id="ConfigEchoCancelTailLabel">
+                            <property name="width_request">64</property>
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                             <property name="xalign">0</property>
-                            <property name="label" translatable="yes">0</property>
+                            <property name="label" translatable="yes">0ms</property>
                           </widget>
                           <packing>
                             <property name="left_attach">2</property>
                             <property name="right_attach">3</property>
-                            <property name="top_attach">3</property>
-                            <property name="bottom_attach">4</property>
+                            <property name="top_attach">4</property>
+                            <property name="bottom_attach">5</property>
                             <property name="x_options">GTK_FILL</property>
                             <property name="y_options">GTK_FILL</property>
                           </packing>
                         </child>
                         <child>
-                          <widget class="GtkLabel" id="ConfigDereverbValueLabel">
-                            <property name="visible">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="xalign">0</property>
-                            <property name="label" translatable="yes">0</property>
-                          </widget>
-                          <packing>
-                            <property name="left_attach">2</property>
-                            <property name="right_attach">3</property>
-                            <property name="top_attach">2</property>
-                            <property name="bottom_attach">3</property>
-                            <property name="x_options">GTK_FILL</property>
-                            <property name="y_options">GTK_FILL</property>
-                          </packing>
-                        </child>
-                        <child>
-                          <widget class="GtkCheckButton" id="ConfigDenoise">
+                          <widget class="GtkHScale" id="ConfigEchoCancelTail">
                             <property name="visible">True</property>
                             <property name="can_focus">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">Noise Reduction</property>
-                            <property name="xalign">0</property>
-                            <property name="response_id">0</property>
-                            <property name="draw_indicator">True</property>
-                            <signal name="toggled" handler="ConfigDenoise_toggled_cb"/>
+                            <property name="adjustment">0 0 1 0.01 0.10000000000000001 0</property>
+                            <property name="draw_value">False</property>
+                            <signal name="value_changed" handler="ConfigEchoCancelTail_value_changed_cb"/>
                           </widget>
                           <packing>
-                            <property name="right_attach">3</property>
+                            <property name="left_attach">1</property>
+                            <property name="right_attach">2</property>
+                            <property name="top_attach">4</property>
+                            <property name="bottom_attach">5</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <widget class="GtkCheckButton" id="ConfigEchoCancel">
+                            <property name="visible">True</property>
+                            <property name="can_focus">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="label" translatable="yes">Echo Cancelation</property>
+                            <property name="response_id">0</property>
+                            <property name="draw_indicator">True</property>
+                            <signal name="toggled" handler="ConfigEchoCancel_toggled_cb"/>
+                          </widget>
+                          <packing>
+                            <property name="top_attach">4</property>
+                            <property name="bottom_attach">5</property>
                             <property name="x_options">GTK_FILL</property>
                             <property name="y_options"></property>
                           </packing>
                         </child>
                         <child>
-                          <widget class="GtkLabel" id="label10">
+                          <widget class="GtkLabel" id="ConfigAutoGainLabel">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                             <property name="xalign">0</property>
-                            <property name="label" translatable="yes">Auto Gain</property>
+                            <property name="label" translatable="yes">0</property>
                           </widget>
                           <packing>
+                            <property name="left_attach">2</property>
+                            <property name="right_attach">3</property>
                             <property name="top_attach">1</property>
                             <property name="bottom_attach">2</property>
                             <property name="x_options">GTK_FILL</property>
-                            <property name="y_options"></property>
-                          </packing>
-                        </child>
-                        <child>
-                          <widget class="GtkCheckButton" id="ConfigDereverb">
-                            <property name="visible">True</property>
-                            <property name="can_focus">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">Dereverb</property>
-                            <property name="response_id">0</property>
-                            <property name="draw_indicator">True</property>
-                            <signal name="toggled" handler="ConfigDereverb_toggled_cb"/>
-                          </widget>
-                          <packing>
-                            <property name="top_attach">2</property>
-                            <property name="bottom_attach">4</property>
-                            <property name="x_options">GTK_FILL</property>
-                            <property name="y_options"></property>
-                          </packing>
-                        </child>
-                        <child>
-                          <widget class="GtkHScale" id="ConfigDereverbValue">
-                            <property name="visible">True</property>
-                            <property name="can_focus">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="adjustment">0 0 1 0.01 0.10000000000000001 0</property>
-                            <property name="digits">2</property>
-                            <property name="draw_value">False</property>
-                            <property name="value_pos">GTK_POS_RIGHT</property>
-                            <signal name="value_changed" handler="ConfigDereverbValue_value_changed_cb"/>
-                          </widget>
-                          <packing>
-                            <property name="left_attach">1</property>
-                            <property name="right_attach">2</property>
-                            <property name="top_attach">2</property>
-                            <property name="bottom_attach">3</property>
-                            <property name="y_options">GTK_FILL</property>
-                          </packing>
-                        </child>
-                        <child>
-                          <widget class="GtkHScale" id="ConfigDereverbDecay">
-                            <property name="visible">True</property>
-                            <property name="can_focus">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="adjustment">0 0 1 0.01 0.10000000000000001 0</property>
-                            <property name="digits">2</property>
-                            <property name="draw_value">False</property>
-                            <property name="value_pos">GTK_POS_RIGHT</property>
-                            <signal name="value_changed" handler="ConfigDereverbDecay_value_changed_cb"/>
-                          </widget>
-                          <packing>
-                            <property name="left_attach">1</property>
-                            <property name="right_attach">2</property>
-                            <property name="top_attach">3</property>
-                            <property name="bottom_attach">4</property>
                             <property name="y_options">GTK_FILL</property>
                           </packing>
                         </child>
@@ -1146,7 +1148,93 @@ abc</property>
                           </packing>
                         </child>
                         <child>
-                          <widget class="GtkLabel" id="ConfigAutoGainLabel">
+                          <widget class="GtkHScale" id="ConfigDereverbDecay">
+                            <property name="visible">True</property>
+                            <property name="can_focus">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="adjustment">0 0 1 0.01 0.10000000000000001 0</property>
+                            <property name="digits">2</property>
+                            <property name="draw_value">False</property>
+                            <property name="value_pos">GTK_POS_RIGHT</property>
+                            <signal name="value_changed" handler="ConfigDereverbDecay_value_changed_cb"/>
+                          </widget>
+                          <packing>
+                            <property name="left_attach">1</property>
+                            <property name="right_attach">2</property>
+                            <property name="top_attach">3</property>
+                            <property name="bottom_attach">4</property>
+                            <property name="y_options">GTK_FILL</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <widget class="GtkHScale" id="ConfigDereverbValue">
+                            <property name="visible">True</property>
+                            <property name="can_focus">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="adjustment">0 0 1 0.01 0.10000000000000001 0</property>
+                            <property name="digits">2</property>
+                            <property name="draw_value">False</property>
+                            <property name="value_pos">GTK_POS_RIGHT</property>
+                            <signal name="value_changed" handler="ConfigDereverbValue_value_changed_cb"/>
+                          </widget>
+                          <packing>
+                            <property name="left_attach">1</property>
+                            <property name="right_attach">2</property>
+                            <property name="top_attach">2</property>
+                            <property name="bottom_attach">3</property>
+                            <property name="y_options">GTK_FILL</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <widget class="GtkCheckButton" id="ConfigDereverb">
+                            <property name="visible">True</property>
+                            <property name="can_focus">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="label" translatable="yes">Dereverb</property>
+                            <property name="response_id">0</property>
+                            <property name="draw_indicator">True</property>
+                            <signal name="toggled" handler="ConfigDereverb_toggled_cb"/>
+                          </widget>
+                          <packing>
+                            <property name="top_attach">2</property>
+                            <property name="bottom_attach">4</property>
+                            <property name="x_options">GTK_FILL</property>
+                            <property name="y_options"></property>
+                          </packing>
+                        </child>
+                        <child>
+                          <widget class="GtkLabel" id="label10">
+                            <property name="visible">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="xalign">0</property>
+                            <property name="label" translatable="yes">Auto Gain</property>
+                          </widget>
+                          <packing>
+                            <property name="top_attach">1</property>
+                            <property name="bottom_attach">2</property>
+                            <property name="x_options">GTK_FILL</property>
+                            <property name="y_options"></property>
+                          </packing>
+                        </child>
+                        <child>
+                          <widget class="GtkCheckButton" id="ConfigDenoise">
+                            <property name="visible">True</property>
+                            <property name="can_focus">True</property>
+                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                            <property name="label" translatable="yes">Noise Reduction</property>
+                            <property name="xalign">0</property>
+                            <property name="response_id">0</property>
+                            <property name="draw_indicator">True</property>
+                            <signal name="toggled" handler="ConfigDenoise_toggled_cb"/>
+                          </widget>
+                          <packing>
+                            <property name="right_attach">3</property>
+                            <property name="x_options">GTK_FILL</property>
+                            <property name="y_options"></property>
+                          </packing>
+                        </child>
+                        <child>
+                          <widget class="GtkLabel" id="ConfigDereverbValueLabel">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                             <property name="xalign">0</property>
@@ -1155,58 +1243,24 @@ abc</property>
                           <packing>
                             <property name="left_attach">2</property>
                             <property name="right_attach">3</property>
-                            <property name="top_attach">1</property>
-                            <property name="bottom_attach">2</property>
+                            <property name="top_attach">2</property>
+                            <property name="bottom_attach">3</property>
                             <property name="x_options">GTK_FILL</property>
                             <property name="y_options">GTK_FILL</property>
                           </packing>
                         </child>
                         <child>
-                          <widget class="GtkCheckButton" id="ConfigEchoCancel">
-                            <property name="visible">True</property>
-                            <property name="can_focus">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="label" translatable="yes">Echo Cancelation</property>
-                            <property name="response_id">0</property>
-                            <property name="draw_indicator">True</property>
-                            <signal name="toggled" handler="ConfigEchoCancel_toggled_cb"/>
-                          </widget>
-                          <packing>
-                            <property name="top_attach">4</property>
-                            <property name="bottom_attach">5</property>
-                            <property name="x_options">GTK_FILL</property>
-                            <property name="y_options"></property>
-                          </packing>
-                        </child>
-                        <child>
-                          <widget class="GtkHScale" id="ConfigEchoCancelTail">
-                            <property name="visible">True</property>
-                            <property name="can_focus">True</property>
-                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                            <property name="adjustment">0 0 1 0.01 0.10000000000000001 0</property>
-                            <property name="draw_value">False</property>
-                            <signal name="value_changed" handler="ConfigEchoCancelTail_value_changed_cb"/>
-                          </widget>
-                          <packing>
-                            <property name="left_attach">1</property>
-                            <property name="right_attach">2</property>
-                            <property name="top_attach">4</property>
-                            <property name="bottom_attach">5</property>
-                          </packing>
-                        </child>
-                        <child>
-                          <widget class="GtkLabel" id="ConfigEchoCancelTailLabel">
-                            <property name="width_request">64</property>
+                          <widget class="GtkLabel" id="ConfigDereverbDecayLabel">
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                             <property name="xalign">0</property>
-                            <property name="label" translatable="yes">0ms</property>
+                            <property name="label" translatable="yes">0</property>
                           </widget>
                           <packing>
                             <property name="left_attach">2</property>
                             <property name="right_attach">3</property>
-                            <property name="top_attach">4</property>
-                            <property name="bottom_attach">5</property>
+                            <property name="top_attach">3</property>
+                            <property name="bottom_attach">4</property>
                             <property name="x_options">GTK_FILL</property>
                             <property name="y_options">GTK_FILL</property>
                           </packing>
@@ -1263,55 +1317,15 @@ abc</property>
                     <property name="column_spacing">5</property>
                     <property name="row_spacing">5</property>
                     <child>
-                      <widget class="GtkEntry" id="ConfigVoiceDetachCommand">
+                      <widget class="GtkFileChooserButton" id="ConfigRingerFile">
                         <property name="visible">True</property>
-                        <property name="can_focus">True</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <signal name="file_set" handler="ConfigRingerFile_file_set_cb"/>
                       </widget>
                       <packing>
                         <property name="left_attach">1</property>
                         <property name="right_attach">2</property>
-                        <property name="top_attach">2</property>
-                        <property name="bottom_attach">3</property>
                         <property name="y_options">GTK_FILL</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <widget class="GtkEntry" id="ConfigVoiceAttachCommand">
-                        <property name="visible">True</property>
-                        <property name="can_focus">True</property>
-                      </widget>
-                      <packing>
-                        <property name="left_attach">1</property>
-                        <property name="right_attach">2</property>
-                        <property name="top_attach">1</property>
-                        <property name="bottom_attach">2</property>
-                        <property name="y_options">GTK_FILL</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <widget class="GtkLabel" id="label35">
-                        <property name="visible">True</property>
-                        <property name="xalign">0</property>
-                        <property name="label" translatable="yes">Voice Detach Command:</property>
-                      </widget>
-                      <packing>
-                        <property name="top_attach">2</property>
-                        <property name="bottom_attach">3</property>
-                        <property name="x_options">GTK_FILL</property>
-                        <property name="y_options"></property>
-                      </packing>
-                    </child>
-                    <child>
-                      <widget class="GtkLabel" id="label34">
-                        <property name="visible">True</property>
-                        <property name="xalign">0</property>
-                        <property name="label" translatable="yes">Voice Attach Command:</property>
-                      </widget>
-                      <packing>
-                        <property name="top_attach">1</property>
-                        <property name="bottom_attach">2</property>
-                        <property name="x_options">GTK_FILL</property>
-                        <property name="y_options"></property>
                       </packing>
                     </child>
                     <child>
@@ -1327,14 +1341,54 @@ abc</property>
                       </packing>
                     </child>
                     <child>
-                      <widget class="GtkFileChooserButton" id="ConfigRingerFile">
+                      <widget class="GtkLabel" id="label34">
                         <property name="visible">True</property>
-                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-                        <signal name="file_set" handler="ConfigRingerFile_file_set_cb"/>
+                        <property name="xalign">0</property>
+                        <property name="label" translatable="yes">Audio Attach Command:</property>
+                      </widget>
+                      <packing>
+                        <property name="top_attach">1</property>
+                        <property name="bottom_attach">2</property>
+                        <property name="x_options">GTK_FILL</property>
+                        <property name="y_options"></property>
+                      </packing>
+                    </child>
+                    <child>
+                      <widget class="GtkLabel" id="label35">
+                        <property name="visible">True</property>
+                        <property name="xalign">0</property>
+                        <property name="label" translatable="yes">Audio Detach Command:</property>
+                      </widget>
+                      <packing>
+                        <property name="top_attach">2</property>
+                        <property name="bottom_attach">3</property>
+                        <property name="x_options">GTK_FILL</property>
+                        <property name="y_options"></property>
+                      </packing>
+                    </child>
+                    <child>
+                      <widget class="GtkEntry" id="ConfigAudioAttachCommand">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
                       </widget>
                       <packing>
                         <property name="left_attach">1</property>
                         <property name="right_attach">2</property>
+                        <property name="top_attach">1</property>
+                        <property name="bottom_attach">2</property>
+                        <property name="y_options">GTK_FILL</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <widget class="GtkEntry" id="ConfigAudioDetachCommand">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                      </widget>
+                      <packing>
+                        <property name="left_attach">1</property>
+                        <property name="right_attach">2</property>
+                        <property name="top_attach">2</property>
+                        <property name="bottom_attach">3</property>
                         <property name="y_options">GTK_FILL</property>
                       </packing>
                     </child>
@@ -1414,69 +1468,34 @@ abc</property>
         <property name="column_spacing">8</property>
         <property name="row_spacing">8</property>
         <child>
-          <widget class="GtkLabel" id="label24">
+          <widget class="GtkLabel" id="label14">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">The first step will begin when you click &lt;i&gt;Forward&lt;/i&gt;.</property>
+            <property name="label" translatable="yes">&lt;b&gt;1. Record a sound clip of spoken language
+	&lt;i&gt;Try to leave pauses and quiet moments during this clip.&lt;/i&gt;&lt;/b&gt;</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="top_attach">4</property>
-            <property name="bottom_attach">5</property>
+            <property name="top_attach">1</property>
+            <property name="bottom_attach">2</property>
             <property name="x_options">GTK_FILL</property>
             <property name="y_options"></property>
           </packing>
         </child>
         <child>
-          <widget class="GtkLabel" id="emptylabel2">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="top_attach">2</property>
-            <property name="bottom_attach">5</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="emptylabel">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkArrow" id="arrow1">
-            <property name="visible">True</property>
-            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-          </widget>
-          <packing>
-            <property name="top_attach">1</property>
-            <property name="bottom_attach">2</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="label18">
+          <widget class="GtkLabel" id="label11">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">&lt;b&gt;3.&lt;/b&gt; Play back the second clip
-	&lt;i&gt;This is what the remote party would hear for the
-	conversation as simulated in step two.&lt;/i&gt;</property>
+            <property name="label" translatable="yes">To test your signal processing settings, we will perform three steps:</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="top_attach">3</property>
-            <property name="bottom_attach">4</property>
             <property name="x_options">GTK_FILL</property>
             <property name="y_options"></property>
           </packing>
@@ -1501,34 +1520,69 @@ abc</property>
           </packing>
         </child>
         <child>
-          <widget class="GtkLabel" id="label11">
+          <widget class="GtkLabel" id="label18">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">To test your signal processing settings, we will perform three steps:</property>
+            <property name="label" translatable="yes">&lt;b&gt;3.&lt;/b&gt; Play back the second clip
+	&lt;i&gt;This is what the remote party would hear for the
+	conversation as simulated in step two.&lt;/i&gt;</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
+            <property name="top_attach">3</property>
+            <property name="bottom_attach">4</property>
             <property name="x_options">GTK_FILL</property>
             <property name="y_options"></property>
           </packing>
         </child>
         <child>
-          <widget class="GtkLabel" id="label14">
+          <widget class="GtkArrow" id="arrow1">
+            <property name="visible">True</property>
+            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+          </widget>
+          <packing>
+            <property name="top_attach">1</property>
+            <property name="bottom_attach">2</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel2">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="top_attach">2</property>
+            <property name="bottom_attach">5</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="label24">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">&lt;b&gt;1. Record a sound clip of spoken language
-	&lt;i&gt;Try to leave pauses and quiet moments during this clip.&lt;/i&gt;&lt;/b&gt;</property>
+            <property name="label" translatable="yes">The first step will begin when you click &lt;i&gt;Forward&lt;/i&gt;.</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="top_attach">1</property>
-            <property name="bottom_attach">2</property>
+            <property name="top_attach">4</property>
+            <property name="bottom_attach">5</property>
             <property name="x_options">GTK_FILL</property>
             <property name="y_options"></property>
           </packing>
@@ -1550,93 +1604,22 @@ abc</property>
         <property name="column_spacing">8</property>
         <property name="row_spacing">8</property>
         <child>
-          <widget class="GtkLabel" id="label8">
+          <widget class="GtkToggleButton" id="DspTestRecStart1">
             <property name="visible">True</property>
-            <property name="xalign">0</property>
-            <property name="label" translatable="yes">	Click &lt;i&gt;Record&lt;/i&gt; to begin</property>
-            <property name="use_markup">True</property>
-            <property name="ellipsize">PANGO_ELLIPSIZE_END</property>
+            <property name="can_focus">True</property>
+            <property name="receives_default">True</property>
+            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+            <property name="label" translatable="yes">gtk-media-record</property>
+            <property name="use_stock">True</property>
+            <property name="response_id">0</property>
+            <signal name="toggled" handler="DspTestRecStart1_toggled_cb"/>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="top_attach">2</property>
-            <property name="bottom_attach">3</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkProgressBar" id="DspTestRecPosition1">
-            <property name="visible">True</property>
-            <property name="show_text">True</property>
-            <property name="text" translatable="yes">Record Progress</property>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="top_attach">3</property>
-            <property name="bottom_attach">4</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="emptylabel4">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="top_attach">2</property>
+            <property name="top_attach">5</property>
             <property name="bottom_attach">6</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="emptylabel1">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkProgressBar" id="DspTestMicVolume1">
-            <property name="visible">True</property>
-            <property name="show_text">True</property>
-            <property name="text" translatable="yes">Mic Volume</property>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="top_attach">4</property>
-            <property name="bottom_attach">5</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkArrow" id="arrow2">
-            <property name="visible">True</property>
-            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-          </widget>
-          <packing>
-            <property name="top_attach">1</property>
-            <property name="bottom_attach">2</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="label22">
-            <property name="visible">True</property>
-            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-            <property name="xalign">0</property>
-            <property name="label" translatable="yes">To test your signal processing settings, we will perform three steps:</property>
-            <property name="use_markup">True</property>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="x_options">GTK_FILL</property>
+            <property name="x_options"></property>
             <property name="y_options"></property>
           </packing>
         </child>
@@ -1659,23 +1642,94 @@ abc</property>
           </packing>
         </child>
         <child>
-          <widget class="GtkToggleButton" id="DspTestRecStart1">
+          <widget class="GtkLabel" id="label22">
             <property name="visible">True</property>
-            <property name="can_focus">True</property>
-            <property name="receives_default">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-            <property name="label" translatable="yes">gtk-media-record</property>
-            <property name="use_stock">True</property>
-            <property name="response_id">0</property>
-            <signal name="toggled" handler="DspTestRecStart1_toggled_cb"/>
+            <property name="xalign">0</property>
+            <property name="label" translatable="yes">To test your signal processing settings, we will perform three steps:</property>
+            <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="top_attach">5</property>
-            <property name="bottom_attach">6</property>
-            <property name="x_options"></property>
+            <property name="x_options">GTK_FILL</property>
             <property name="y_options"></property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkArrow" id="arrow2">
+            <property name="visible">True</property>
+            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+          </widget>
+          <packing>
+            <property name="top_attach">1</property>
+            <property name="bottom_attach">2</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkProgressBar" id="DspTestMicVolume1">
+            <property name="visible">True</property>
+            <property name="show_text">True</property>
+            <property name="text" translatable="yes">Mic Volume</property>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">4</property>
+            <property name="bottom_attach">5</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel1">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel4">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="top_attach">2</property>
+            <property name="bottom_attach">6</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkProgressBar" id="DspTestRecPosition1">
+            <property name="visible">True</property>
+            <property name="show_text">True</property>
+            <property name="text" translatable="yes">Record Progress</property>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">3</property>
+            <property name="bottom_attach">4</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="label8">
+            <property name="visible">True</property>
+            <property name="xalign">0</property>
+            <property name="label" translatable="yes">	Click &lt;i&gt;Record&lt;/i&gt; to begin</property>
+            <property name="use_markup">True</property>
+            <property name="ellipsize">PANGO_ELLIPSIZE_END</property>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">2</property>
+            <property name="bottom_attach">3</property>
           </packing>
         </child>
       </widget>
@@ -1694,20 +1748,92 @@ abc</property>
         <property name="column_spacing">8</property>
         <property name="row_spacing">8</property>
         <child>
-          <widget class="GtkLabel" id="label9">
+          <widget class="GtkLabel" id="label26">
+            <property name="visible">True</property>
+            <property name="xalign">0</property>
+            <property name="label" translatable="yes">	Click &lt;i&gt;Record&lt;/i&gt; to begin</property>
+            <property name="use_markup">True</property>
+            <property name="ellipsize">PANGO_ELLIPSIZE_END</property>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">2</property>
+            <property name="bottom_attach">3</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkProgressBar" id="DspTestRecPosition2">
+            <property name="visible">True</property>
+            <property name="show_text">True</property>
+            <property name="text" translatable="yes">Record Progress</property>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">3</property>
+            <property name="bottom_attach">4</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel8">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="top_attach">2</property>
+            <property name="bottom_attach">6</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel7">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkProgressBar" id="DspTestMicVolume2">
+            <property name="visible">True</property>
+            <property name="show_text">True</property>
+            <property name="text" translatable="yes">Mic Volume</property>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">4</property>
+            <property name="bottom_attach">5</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkArrow" id="arrow4">
+            <property name="visible">True</property>
+            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+          </widget>
+          <packing>
+            <property name="top_attach">1</property>
+            <property name="bottom_attach">2</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="label25">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">&lt;b&gt;2. Play back the sound clip while recording a second clip
-	&lt;i&gt;This will simulate a full duplex conversation, with the clip
-	recorded in step one as coming from the remote party.&lt;/i&gt;&lt;/b&gt;</property>
+            <property name="label" translatable="yes">You are currently on Step 2 of the digital signal processing test:</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="top_attach">1</property>
-            <property name="bottom_attach">2</property>
             <property name="x_options">GTK_FILL</property>
             <property name="y_options"></property>
           </packing>
@@ -1733,94 +1859,22 @@ abc</property>
           </packing>
         </child>
         <child>
-          <widget class="GtkLabel" id="label25">
+          <widget class="GtkLabel" id="label9">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">You are currently on Step 2 of the digital signal processing test:</property>
+            <property name="label" translatable="yes">&lt;b&gt;2. Play back the sound clip while recording a second clip
+	&lt;i&gt;This will simulate a full duplex conversation, with the clip
+	recorded in step one as coming from the remote party.&lt;/i&gt;&lt;/b&gt;</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options"></property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkArrow" id="arrow4">
-            <property name="visible">True</property>
-            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-          </widget>
-          <packing>
             <property name="top_attach">1</property>
             <property name="bottom_attach">2</property>
             <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkProgressBar" id="DspTestMicVolume2">
-            <property name="visible">True</property>
-            <property name="show_text">True</property>
-            <property name="text" translatable="yes">Mic Volume</property>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="top_attach">4</property>
-            <property name="bottom_attach">5</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="emptylabel7">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="emptylabel8">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="top_attach">2</property>
-            <property name="bottom_attach">6</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkProgressBar" id="DspTestRecPosition2">
-            <property name="visible">True</property>
-            <property name="show_text">True</property>
-            <property name="text" translatable="yes">Record Progress</property>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="top_attach">3</property>
-            <property name="bottom_attach">4</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="label26">
-            <property name="visible">True</property>
-            <property name="xalign">0</property>
-            <property name="label" translatable="yes">	Click &lt;i&gt;Record&lt;/i&gt; to begin</property>
-            <property name="use_markup">True</property>
-            <property name="ellipsize">PANGO_ELLIPSIZE_END</property>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="top_attach">2</property>
-            <property name="bottom_attach">3</property>
+            <property name="y_options"></property>
           </packing>
         </child>
       </widget>
@@ -1839,85 +1893,22 @@ abc</property>
         <property name="column_spacing">8</property>
         <property name="row_spacing">8</property>
         <child>
-          <widget class="GtkToggleButton" id="DspTestPlayStart">
-            <property name="visible">True</property>
-            <property name="can_focus">True</property>
-            <property name="receives_default">True</property>
-            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-            <property name="label" translatable="yes">gtk-media-play</property>
-            <property name="use_stock">True</property>
-            <property name="response_id">0</property>
-            <signal name="toggled" handler="DspTestPlayStart_toggled_cb"/>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="top_attach">4</property>
-            <property name="bottom_attach">5</property>
-            <property name="x_options"></property>
-            <property name="y_options">GTK_EXPAND</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="label16">
+          <widget class="GtkLabel" id="label23">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">You are currently on Step 3 of the digital signal processing test:</property>
+            <property name="label" translatable="yes">&lt;b&gt;3. Play back the second clip
+	&lt;i&gt;This is what the remote party would hear for the
+	conversation as simulated in step two.&lt;/i&gt;&lt;/b&gt;</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options"></property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkArrow" id="arrow3">
-            <property name="visible">True</property>
-            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
-          </widget>
-          <packing>
             <property name="top_attach">1</property>
             <property name="bottom_attach">2</property>
             <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="emptylabel6">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkLabel" id="emptylabel5">
-            <property name="visible">True</property>
-          </widget>
-          <packing>
-            <property name="top_attach">2</property>
-            <property name="bottom_attach">5</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
-          </packing>
-        </child>
-        <child>
-          <widget class="GtkProgressBar" id="DspTestPlayPosition">
-            <property name="visible">True</property>
-            <property name="show_text">True</property>
-            <property name="text" translatable="yes">Playback Progress</property>
-          </widget>
-          <packing>
-            <property name="left_attach">1</property>
-            <property name="right_attach">2</property>
-            <property name="top_attach">3</property>
-            <property name="bottom_attach">4</property>
-            <property name="x_options">GTK_FILL</property>
-            <property name="y_options">GTK_FILL</property>
+            <property name="y_options"></property>
           </packing>
         </child>
         <child>
@@ -1936,22 +1927,85 @@ abc</property>
           </packing>
         </child>
         <child>
-          <widget class="GtkLabel" id="label23">
+          <widget class="GtkProgressBar" id="DspTestPlayPosition">
+            <property name="visible">True</property>
+            <property name="show_text">True</property>
+            <property name="text" translatable="yes">Playback Progress</property>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">3</property>
+            <property name="bottom_attach">4</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel5">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="top_attach">2</property>
+            <property name="bottom_attach">5</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="emptylabel6">
+            <property name="visible">True</property>
+          </widget>
+          <packing>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkArrow" id="arrow3">
+            <property name="visible">True</property>
+            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+          </widget>
+          <packing>
+            <property name="top_attach">1</property>
+            <property name="bottom_attach">2</property>
+            <property name="x_options">GTK_FILL</property>
+            <property name="y_options">GTK_FILL</property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="label16">
             <property name="visible">True</property>
             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
             <property name="xalign">0</property>
-            <property name="label" translatable="yes">&lt;b&gt;3. Play back the second clip
-	&lt;i&gt;This is what the remote party would hear for the
-	conversation as simulated in step two.&lt;/i&gt;&lt;/b&gt;</property>
+            <property name="label" translatable="yes">You are currently on Step 3 of the digital signal processing test:</property>
             <property name="use_markup">True</property>
           </widget>
           <packing>
             <property name="left_attach">1</property>
             <property name="right_attach">2</property>
-            <property name="top_attach">1</property>
-            <property name="bottom_attach">2</property>
             <property name="x_options">GTK_FILL</property>
             <property name="y_options"></property>
+          </packing>
+        </child>
+        <child>
+          <widget class="GtkToggleButton" id="DspTestPlayStart">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="receives_default">True</property>
+            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+            <property name="label" translatable="yes">gtk-media-play</property>
+            <property name="use_stock">True</property>
+            <property name="response_id">0</property>
+            <signal name="toggled" handler="DspTestPlayStart_toggled_cb"/>
+          </widget>
+          <packing>
+            <property name="left_attach">1</property>
+            <property name="right_attach">2</property>
+            <property name="top_attach">4</property>
+            <property name="bottom_attach">5</property>
+            <property name="x_options"></property>
+            <property name="y_options">GTK_EXPAND</property>
           </packing>
         </child>
       </widget>
@@ -2444,6 +2498,7 @@ Drop Active</property>
               </widget>
               <packing>
                 <property name="pack_type">GTK_PACK_END</property>
+                <property name="position">1</property>
               </packing>
             </child>
           </widget>

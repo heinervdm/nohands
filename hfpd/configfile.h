@@ -23,6 +23,7 @@
 #define __HFPD_CONFIGFILE_H__
 
 #include <libhfp/list.h>
+#include <libhfp/events.h>
 
 /*
  * Configuration file parser/writer for hfpd
@@ -79,7 +80,8 @@ public:
 
 	void Clear(void) { DeleteAll(); }
 	bool Load(const char *path, int layer);
-	bool Save(const char *path, int min_layer);
+	bool Save(const char *path, int min_layer,
+		  libhfp::ErrorInfo *error = 0);
 	bool Create(const char *path);
 
 	bool Get(const char *section, const char *key,
@@ -92,14 +94,20 @@ public:
 		 float &value, float defaultval);
 	bool Get(const char *section, const char *key,
 		 bool &value, bool defaultval);
-	bool Set(const char *section, const char *key, const char *value);
-	bool Set(const char *section, const char *key, int value);
-	bool Set(const char *section, const char *key, unsigned int value);
-	bool Set(const char *section, const char *key, float value);
-	bool Set(const char *section, const char *key, bool value);
+	bool Set(const char *section, const char *key, const char *value,
+		 libhfp::ErrorInfo *error = 0);
+	bool Set(const char *section, const char *key, int value,
+		 libhfp::ErrorInfo *error = 0);
+	bool Set(const char *section, const char *key, unsigned int value,
+		 libhfp::ErrorInfo *error = 0);
+	bool Set(const char *section, const char *key, float value,
+		 libhfp::ErrorInfo *error = 0);
+	bool Set(const char *section, const char *key, bool value,
+		 libhfp::ErrorInfo *error = 0);
 
-	bool Delete(const char *section, const char *key) {
-		return Set(section, key, (const char *) 0);
+	bool Delete(const char *section, const char *key,
+		    libhfp::ErrorInfo *error = 0) {
+		return Set(section, key, (const char *) 0, error);
 	}
 
 	class Iterator {

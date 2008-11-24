@@ -37,6 +37,46 @@ namespace libhfp {
  * This group contains facilities related to audio processing.
  */
 
+#define LIBHFP_ERROR_SUBSYS_SOUNDIO 3
+
+/**
+ * @brief Error values for subsystem LIBHFP_ERROR_SUBSYS_SOUNDIO
+ * @ingroup soundio
+ */
+enum {
+	LIBHFP_ERROR_SOUNDIO_INVALID = 0,
+	/** System call failure */
+	LIBHFP_ERROR_SOUNDIO_SYSCALL,
+	/** Error internal to audio module */
+	LIBHFP_ERROR_SOUNDIO_INTERNAL,
+	/** Device is already open */
+	LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
+	/** Function not supported because endpoint does not have a clock */
+	LIBHFP_ERROR_SOUNDIO_NO_CLOCK,
+	/** File format invalid */
+	LIBHFP_ERROR_SOUNDIO_BAD_FILE,
+	/** Inappropriate request for available duplexing */
+	LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+	/** Unrecognized sample format */
+	LIBHFP_ERROR_SOUNDIO_FORMAT_UNKNOWN,
+	/** Sample format does not match */
+	LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+	/** Invalid pump configuration */
+	LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+	/** Endpoint is unresponsive */
+	LIBHFP_ERROR_SOUNDIO_WATCHDOG_TIMEOUT,
+	/** Skew threshold exceeded */
+	LIBHFP_ERROR_SOUNDIO_EXCESSIVE_SKEW,
+	/** Data exhausted on static endpoint */
+	LIBHFP_ERROR_SOUNDIO_DATA_EXHAUSTED,
+	/** Driver is not present */
+	LIBHFP_ERROR_SOUNDIO_NO_DRIVER,
+	/** Cannot change parameters while streaming */
+	LIBHFP_ERROR_SOUNDIO_CANNOT_CHANGE_WHILE_STREAMING,
+	/** Sound card failed */
+	LIBHFP_ERROR_SOUNDIO_SOUNDCARD_FAILED,
+};
+
 /**
  * @brief Sample count value type
  * @ingroup soundio
@@ -127,8 +167,15 @@ struct SoundIoFormat {
 struct SoundIoQueueState {
 	/** @brief Number of sample records waiting in the input queue */
 	sio_sampnum_t	in_queued;
+
 	/** @brief Number of sample records waiting in the output queue */
 	sio_sampnum_t	out_queued;
+
+	/** @brief Set if input queue has overflowed since last dequeue */
+	bool		in_overflow;
+
+	/** @brief Set if output queue has underflowed since last append */
+	bool		out_underflow;
 };
 
 /**
@@ -172,11 +219,18 @@ public:
 	 * the device, e.g. SoundIoCreateAlsa().  Such details are not
 	 * provided to this method.
 	 *
-	 * @param sink Set to @c true to open the output side of the device
-	 * @param source Set to @c true to open the input side of the device
+	 * @param[in] sink Set to @c true to open the output side of the
+	 * device
+	 * @param[in] source Set to @c true to open the input side of the
+	 * device
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true Open Succeeded, SoundIo is now usable
-	 * @retval false Open Failed, possibly because:
+	 * @retval false Open Failed.  If the @em error parameter is not 0,
+	 * it will be filled out with specific information about the failure.
+	 * Typical reasons for failure include:
 	 * - Creation or opening of a necessary file (if applicable) failed.
 	 * - The underlying hardware device (if applicable) is in use.
 	 * - The underlying hardware device (if applicable) does not
@@ -188,7 +242,7 @@ public:
 	 *
 	 * @sa SndClose()
 	 */
-	virtual bool SndOpen(bool sink, bool source) = 0;
+	virtual bool SndOpen(bool sink, bool source, ErrorInfo *error = 0) = 0;
 
 	/**
 	 * @brief Request that an opened underlying device be closed
@@ -266,6 +320,9 @@ public:
 	 * @param[in,out] format Structure containing the new format
 	 * parameters to be applied to the object, which is filled with the
 	 * resulting effective parameters on return.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true Parameters accepted and applied.  Note that in
 	 * some cases, for objects in the closed state, this is a tentative
@@ -284,7 +341,8 @@ public:
 	 * contents of the @c format parameter will be updated to reflect
 	 * the effective values.
 	 */
-	virtual bool SndSetFormat(SoundIoFormat &format) = 0;
+	virtual bool SndSetFormat(SoundIoFormat &format,
+				  ErrorInfo *error = 0) = 0;
 
 	/**
 	 * @brief Request Input Buffer Access
@@ -319,8 +377,7 @@ public:
 	 * - All input samples returned through this method are dequeued
 	 * via SndDequeueIBuf().
 	 * - Asynchronous handling is halted via SndAsyncStop(), or a
-	 * SoundIo::cb_NotifyPacket callback is received with its second
-	 * parameter set to NULL.
+	 * SoundIo::cb_NotifyAsyncStop callback is received.
 	 * - The object is closed via SndClose().
 	 *
 	 * This method will only return useful results when invoked on
@@ -383,8 +440,7 @@ public:
 	 * Buffers returned through this method will remain valid until:
 	 * - Any number of output samples are queued via SndQueueOBuf().
 	 * - Asynchronous handling is halted via SndAsyncStop(), or a
-	 * SoundIo::cb_NotifyPacket callback is received with its second
-	 * parameter set to NULL.
+	 * SoundIo::cb_NotifyAsyncStop callback is received.
 	 * - The object is closed via SndClose().
 	 *
 	 * This method will only return useful results when invoked on
@@ -450,26 +506,45 @@ public:
 	 * sample records, or may have completed handling of part or all
 	 * of its output queue.
 	 *
-	 * @param SoundIoQueueState* Structure describing the state of the
-	 * queues for the device:
+	 * @param SoundIoQueueState& A SoundIoQueueState structure
+	 * describing the state of the sample buffers of the device:
 	 * - in_queued is the number of available, unprocessed input
-	 * samples, -1 if there was an overrun, or 0 if input is
-	 * disabled.
+	 * samples, or 0 if input is disabled.
 	 * - out_queued is the number of unplayed output samples
-	 * sitting in the hardware buffer, 0 if there was an
-	 * underrun, or -1 if output is disabled.
-	 *
-	 * If the second parameter is NULL, the notification indicates
-	 * a SoundIo data stream with an error condition that forced
-	 * asynchronous audio handling to be halted and disabled.  In
-	 * this case, because asynchronous audio handling has been halted,
-	 * no further invocations of the callback should be expected until
-	 * it is restarted via SndAsyncStart().
+	 * sitting in the hardware buffer, or -1 if output is disabled.
+	 * - in_overflow is @c true if the input queue overflowed since
+	 * the last SndDequeueIBuf() operation, @c false otherwise.
+	 * - out_underflow is @c true if the output queue underflowed
+	 * since the last SndQueueOBuf() operation, @c false otherwise
 	 *
 	 * A registered target method can be used to maintain the buffers
 	 * for data in both directions.
 	 */
-	Callback<void, SoundIo*, SoundIoQueueState*>	cb_NotifyPacket;
+	Callback<void, SoundIo*, SoundIoQueueState&>	cb_NotifyPacket;
+
+	/**
+	 * @brief Notification of Asynchronous Audio Processing Termination
+	 *
+	 * The cb_NotifyAsyncStop callback is invoked when a condition
+	 * internal to the SoundIo object occurs that forces asynchronous
+	 * audio processing to be halted.  This may include the
+	 * unplugging of a USB sound card, or the remote disconnection
+	 * of a Bluetooth SCO socket.
+	 *
+	 * This method will only be invoked when asynchronous audio
+	 * handling has been started with SndAsyncStart(), and has been
+	 * halted for a reason other than SndAsyncStop() or
+	 * SndClose() being invoked.  Once this callback has been
+	 * invoked, no further calls to SoundIo::cb_NotifyPacket should
+	 * be expected until asynchronous processing is resumed with
+	 * SndAsyncStart().
+	 *
+	 * @param SoundIo* Pointer to the SoundIo-derived object
+	 * that initiated the call.
+	 * @param ErrorInfo& Error code describing why processing has
+	 * been halted.
+	 */
+	Callback<void, SoundIo*, ErrorInfo&>		cb_NotifyAsyncStop;
 
 	/**
 	 * @brief Request start of asynchronous audio handling
@@ -477,8 +552,11 @@ public:
 	 * For SoundIo objects that support asynchronous operation, this
 	 * method can be used to initiate it.
 	 *
-	 * @param sink Set to @c true to start asynchronous output
-	 * @param source Set to @c true to start asynchronous input
+	 * @param[in] sink Set to @c true to start asynchronous output
+	 * @param[in] source Set to @c true to start asynchronous input
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true Asynchronous audio handling mode has been started
 	 * @retval false Error enabling asynchronous data mode
@@ -492,12 +570,14 @@ public:
 	 * condition, such as a sound card catching on fire.  In this case,
 	 * the SoundIo object will automatically halt asynchronous audio
 	 * handling, and will inform its client of this by making a
-	 * single call to SoundIo::cb_NotifyPacket with the second
-	 * parameter set to 0.
+	 * call to SoundIo::cb_NotifyAsyncStop with the second
+	 * parameter set to describe the reason for stopping.
 	 *
-	 * @sa SoundIo::cb_NotifyPacket, SndAsyncStop()
+	 * @sa SoundIo::cb_NotifyPacket, SoundIo::cb_NotifyAsyncStop,
+	 * SndAsyncStop()
 	 */
-	virtual bool SndAsyncStart(bool sink, bool source) = 0;
+	virtual bool SndAsyncStart(bool sink, bool source,
+				   ErrorInfo *error = 0) = 0;
 
 	/**
 	 * @brief Request halting of asynchronous audio handling
@@ -578,9 +658,9 @@ public:
  * @ingroup soundio
  */
 extern SoundIo *SoundIoCreateOss(DispatchInterface *dip,
-				 const char *driveropts);
+				 const char *driveropts, ErrorInfo *error);
 
-extern SoundIoDeviceList *SoundIoGetDeviceListOss(void);
+extern SoundIoDeviceList *SoundIoGetDeviceListOss(ErrorInfo *error);
 
 
 /**
@@ -591,9 +671,9 @@ extern SoundIoDeviceList *SoundIoGetDeviceListOss(void);
  * to an ALSA driver.  The device specifier must be specified at
  * construction time to this function.
  *
- * @param dip Dispatcher interface object adapted to the environment in
+ * @param[in] dip Dispatcher interface object adapted to the environment in
  * which the SoundIo object is to run.
- * @param driveropts Driver options string for the ALSA driver.  This
+ * @param[in] driveropts Driver options string for the ALSA driver.  This
  * can be empty, in which case the default devices will be selected.
  * It can be a simple devspec, in which case that devspec will be used
  * for both input and output.  It can also be a concatenation of
@@ -606,6 +686,9 @@ extern SoundIoDeviceList *SoundIoGetDeviceListOss(void);
  * - @c in @c = @em devspec (sets input device)
  * - @c out @c = @em devspec (sets output device)
  * - @c mmap @c = @em on|off (enables or disables mmap mode -- default off)
+ * @param[out] error Error information structure.  If this method
+ * fails and returns 0, and @em error is not 0, @em error will be filled
+ * out with information on the cause of the failure.
  *
  * @return A newly constructed SoundIo object interfacing with ALSA, or
  * NULL on failure.
@@ -621,9 +704,9 @@ extern SoundIoDeviceList *SoundIoGetDeviceListOss(void);
  * @endcode
  */
 extern SoundIo *SoundIoCreateAlsa(DispatchInterface *dip,
-				  const char *driveropts);
+				  const char *driveropts, ErrorInfo *error);
 
-extern SoundIoDeviceList *SoundIoGetDeviceListAlsa(void);
+extern SoundIoDeviceList *SoundIoGetDeviceListAlsa(ErrorInfo *error);
 
 
 /**
@@ -700,11 +783,14 @@ public:
 	 * As part of starting stream processing, SoundIoPump will invoke
 	 * this method on all registered filters.
 	 *
-	 * @param fmt PCM audio format to be used in the stream
-	 * @param up @c true if samples will move up through this filter,
+	 * @param[in] fmt PCM audio format to be used in the stream
+	 * @param[in] up @c true if samples will move up through this filter,
 	 * @c false otherwise.
-	 * @param dn @c true if samples will move down through this filter,
+	 * @param[in] dn @c true if samples will move down through this filter,
 	 * @c false otherwise.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true Filter is prepared and ready to process samples.
 	 * @retval false Filter is not prepared, effectively vetoing
@@ -720,7 +806,7 @@ public:
 	 * corresponding call to FltCleanup().
 	 */
 	virtual bool FltPrepare(SoundIoFormat const &fmt,
-				bool up, bool dn) = 0;
+				bool up, bool dn, ErrorInfo *error = 0) = 0;
 
 	/**
 	 * @brief Release filter from stream processing
@@ -788,7 +874,8 @@ public:
 	/**
 	 * @brief Set signal processing configuration
 	 */
-	virtual bool Configure(SoundIoSpeexProps const &props) = 0;
+	virtual bool Configure(SoundIoSpeexProps const &props,
+			       ErrorInfo *error = 0) = 0;
 };
 
 /**
@@ -835,6 +922,36 @@ SoundIoFltSpeex *SoundIoFltCreateSpeex(DispatchInterface *ei);
 
 
 /**
+ * @brief Statistics structure for SoundIoPump
+ *
+ * This structure provides information on an incremental action taken
+ * by SoundIoPump.  This data is raw, but can be refined a bit to produce
+ * diagnostic information useful for identifying specific problems
+ * with the overall configuration, or either configured endpoint of a
+ * SoundIoPump.
+ */
+struct SoundIoPumpStatistics {
+	struct SubEp {
+		int		xrun;
+		sio_sampnum_t	process;
+		sio_sampnum_t	level;
+		sio_sampnum_t	drop;
+		sio_sampnum_t	pad;
+		sio_sampnum_t	fail;
+	};
+
+	struct Endpoint {
+		SubEp		out;
+		SubEp		in;
+	};
+
+	sio_sampnum_t		process_count;
+	Endpoint		bottom;
+	Endpoint		top;
+};
+
+
+/**
  * @brief Audio Data Pump
  * @ingroup soundio
  *
@@ -871,6 +988,16 @@ SoundIoFltSpeex *SoundIoFltCreateSpeex(DispatchInterface *ei);
  * support the filter packet size that was selected when the pump was
  * started.  If the replacement endpoint has a smaller packet size or
  * output buffer size, it may not satisfy constraints.
+ *
+ * The endpoints are required to implement the SoundIo::SndAsyncStart()
+ * and SoundIo::cb_NotifyPacket interfaces in order to work with
+ * SoundIoPump.  Invocations of SoundIo::cb_NotifyPacket must occur on
+ * the packet interval with little divergence in order for SoudIoPump
+ * to maintain its fill levels and avoid a buffer underrun situation.
+ * SoundIoPump employs a watchdog timeout mechanism that attempts to
+ * verify that each clocked endpoint is making packet callbacks, and that
+ * the rate of sample processing is within some reasonable bound of the
+ * system clock.
  *
  * Stackable signal processing filters can be configured into SoundIoPump.
  * Filter objects must implement the SoundIoFilter interface.  A list of
@@ -918,17 +1045,21 @@ private:
 	struct SoundIoPumpConfig {
 		SoundIoFormat		fmt;
 		sio_sampnum_t		filter_packet_samps;
+		sio_sampnum_t		bottom_in_max;
 		sio_sampnum_t		bottom_out_min;
 		sio_sampnum_t		bottom_out_max;
+		sio_sampnum_t		top_in_max;
 		sio_sampnum_t		top_out_min;
 		sio_sampnum_t		top_out_max;
-		sio_sampnum_t		in_max;
 		bool			bottom_async, top_async;
 		bool			bottom_loop, top_loop;
 		bool			bottom_roe, top_roe;
 		bool			pump_down, pump_up;
 		bool			warn_loss;
+		char			watchdog_strikes;
 		unsigned int		watchdog_to;
+		sio_sampnum_t		watchdog_min_progress;
+		sio_sampnum_t		watchdog_max_progress;
 	};
 
 	DispatchInterface	*m_ei;
@@ -940,7 +1071,14 @@ private:
 	SoundIoFilter		*m_bottom_flt, *m_top_flt;
 
 	bool			m_bottom_async_started, m_top_async_started;
+	bool			m_bottom_loss_tolerate, m_top_loss_tolerate;
+
+	/* For the watchdog */
 	char			m_bottom_strikes, m_top_strikes;
+	sio_sampnum_t		m_bottom_in_count, m_top_in_count;
+	sio_sampnum_t	      	m_bottom_out_count, m_top_out_count;
+	char			m_bottom_in_strikes, m_top_in_strikes;
+	char			m_bottom_out_strikes, m_top_out_strikes;
 	bool			m_async_entered;
 
 	uint8_t			m_bo_last[c_sampsize], m_bi_last[c_sampsize];
@@ -951,9 +1089,15 @@ private:
 	unsigned int		m_config_out_min_ms;
 	unsigned int		m_config_out_window_ms;
 
-	void AsyncProcess(SoundIo *subp, SoundIoQueueState *statep);
+	SoundIoPumpStatistics	*m_stat;
+
+	void DumpQueueState(bool start, bool top) const;
+	void AsyncProcess(SoundIo *subp, SoundIoQueueState &statep);
+	void AsyncStopped(SoundIo *subp, ErrorInfo &error);
+	bool WatchdogThreshold(sio_sampnum_t &count, char &strikes,
+			      const char *name, ErrorInfo &error);
 	void Watchdog(TimerNotifier *notp);
-	void __Stop(bool notify = false, SoundIo *offender = 0);
+	void __Stop(ErrorInfo *reason = 0, SoundIo *offender = 0);
 
 	static void FillSilence(SoundIoFormat &fmt, uint8_t *dest);
 
@@ -978,9 +1122,10 @@ private:
 			   unsigned int npackets);
 
 	bool ConfigureEndpoints(SoundIo *bottom, SoundIo *top,
-				SoundIoPumpConfig &cfg);
+				SoundIoPumpConfig &cfg, ErrorInfo *error);
 
-	static bool PrepareFilter(SoundIoFilter *fltp, SoundIoPumpConfig &cfg);
+	static bool PrepareFilter(SoundIoFilter *fltp, SoundIoPumpConfig &cfg,
+				  ErrorInfo *error);
 
 public:
 	/** @brief Standard destructor */
@@ -1011,8 +1156,27 @@ public:
 	 * @param SoundIoPump* Pointer to the SoundIoPump object 
 	 * @param SoundIo* Pointer to the SoundIo object that caused
 	 * the pump to stop, if known.
+	 * @param ErrorInfo& ErrorInfo structure with information
+	 * identifying the reason for the halt.
 	 */
-	Callback<void, SoundIoPump*, SoundIo*> cb_NotifyAsyncState;
+	Callback<void, SoundIoPump*, SoundIo*, ErrorInfo&> cb_NotifyAsyncState;
+
+	/**
+	 * @brief Notification of updated pump statistics
+	 *
+	 * This notification informs the client of SoundIoPump of an
+	 * update to its registered statistics structure.  The information
+	 * is raw, but can be used to diagnose specific problems.
+	 *
+	 * @param SoundIoPump* The subject pump object
+	 * @param SoundIoPumpStatistics& The SoundIoPumpStatistics
+	 * structure that was registered with SoundIoPump, and has
+	 * been updated to reflect the result of a recent data transfer.
+	 * @param bool Set to @c true if any data losses (or padding)
+	 * occurred.
+	 */
+	Callback<void, SoundIoPump*, SoundIoPumpStatistics&, bool>
+		cb_NotifyStatistics;
 
 	DispatchInterface *GetDi(void) const { return m_ei; }
 
@@ -1029,9 +1193,12 @@ public:
 	 *
 	 * Configures a SoundIo object as the bottom endpoint of the pump.
 	 *
-	 * @param bottom SoundIo object to set as the bottom endpoint, or
+	 * @param[in] bottom SoundIo object to set as the bottom endpoint, or
 	 * 0 to clear the bottom endpoint.  If the pump is started, and
 	 * the bottom endpoint is cleared, the pump will be stopped.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true @em bottom was set as the bottom endpoint.
 	 * @retval false @em bottom could not be set as the bottom endpoint.
@@ -1044,7 +1211,7 @@ public:
 	 * ensure that the SoundIo objects set as endpoints to the pump
 	 * remain valid as long as they are associated with the pump.
 	 */
-	bool SetBottom(SoundIo *bottom);
+	bool SetBottom(SoundIo *bottom, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query the top endpoint
@@ -1059,9 +1226,12 @@ public:
 	 *
 	 * Configures a SoundIo object as the top endpoint of the pump.
 	 *
-	 * @param top SoundIo object to set as the top endpoint, or
+	 * @param[in] top SoundIo object to set as the top endpoint, or
 	 * 0 to clear the top endpoint.  If the pump is started, and
 	 * the top endpoint is cleared, the pump will be stopped.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true @em top was set as the top endpoint.
 	 * @retval false @em top could not be set as the top endpoint.
@@ -1074,7 +1244,7 @@ public:
 	 * ensure that the SoundIo objects set as endpoints to the pump
 	 * remain valid as long as they are associated with the pump.
 	 */
-	bool SetTop(SoundIo *top);
+	bool SetTop(SoundIo *top, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request pump to start
@@ -1089,6 +1259,10 @@ public:
 	 * configured for input only, the bottom endpoint must at least be
 	 * configured for output.
 	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 *
 	 * @retval true Pump has been prepared and asynchronous operation
 	 * enabled at the endpoints.
 	 * @retval false Pump could not be started.  Possible reasons:
@@ -1101,7 +1275,7 @@ public:
 	 * data formats
 	 * - One of the configured filters failed to prepare itself
 	 */
-	bool Start(void);
+	bool Start(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request pump to stop
@@ -1129,6 +1303,12 @@ public:
 	 * @sa Start(), Stop()
 	 */
 	bool IsStarted(void) const { return m_running; }
+
+	/**
+	 * @brief Set the structure to receive pump statistics
+	 */
+	void SetStatistics(SoundIoPumpStatistics *statp)
+		{ m_stat = statp; }
 
 	/**
 	 * @brief Query the topmost filter installed in the stack
@@ -1159,32 +1339,41 @@ public:
 	/**
 	 * @brief Install a filter above an already installed filter
 	 *
-	 * @param fltp Filter to be added to the stack.
-	 * @param targp Filter already in the stack to sit directly
+	 * @param[in] fltp Filter to be added to the stack.
+	 * @param[in] targp Filter already in the stack to sit directly
 	 * below the given filter, or @c 0 to install the filter at the
 	 * bottom of the stack.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @retval true Filter successfully added to the stack
 	 * @retval false Filter could not be added.  This may only
 	 * occur if the pump is currently active, and the filter
 	 * rejects the active configuration of the pump.
 	 */
-	bool AddAbove(SoundIoFilter *fltp, SoundIoFilter *targp) {
-		return AddBelow(fltp, targp ? targp->m_up : m_bottom_flt);
+	bool AddAbove(SoundIoFilter *fltp, SoundIoFilter *targp,
+		      ErrorInfo *error = 0) {
+		return AddBelow(fltp, targp ? targp->m_up : m_bottom_flt,
+				error);
 	}
 
 	/**
 	 * @brief Install a filter below an already installed filter
 	 *
-	 * @param fltp Filter to be added to the stack.
-	 * @param targp Filter already in the stack to sit directly
+	 * @param[in] fltp Filter to be added to the stack.
+	 * @param[in] targp Filter already in the stack to sit directly
 	 * above the given filter, or @c 0 to install the filter at the
 	 * top of the stack.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @retval true Filter successfully added to the stack
 	 * @retval false Filter could not be added.  This may only
 	 * occur if the pump is currently active, and the filter
 	 * rejects the active configuration of the pump.
 	 */
-	bool AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp);
+	bool AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp,
+		      ErrorInfo *error = 0);
 
 	/**
 	 * @brief Remove a filter from the stack
@@ -1198,14 +1387,14 @@ public:
 	/**
 	 * @brief Install a filter at the topmost position
 	 */
-	bool AddTop(SoundIoFilter *fltp)
-		{ return AddBelow(fltp, 0); }
+	bool AddTop(SoundIoFilter *fltp, ErrorInfo *error = 0)
+		{ return AddBelow(fltp, 0, error); }
 
 	/**
 	 * @brief Install a filter at the bottommost position
 	 */
-	bool AddBottom(SoundIoFilter *fltp)
-		{ return AddAbove(fltp, 0); }
+	bool AddBottom(SoundIoFilter *fltp, ErrorInfo *error = 0)
+		{ return AddAbove(fltp, 0, error); }
 
 	/**
 	 * @brief Remove the topmost filter
@@ -1226,6 +1415,38 @@ public:
 			RemoveFilter(fltp);
 		return fltp;
 	}
+
+	/**
+	 * @brief Set the acceptable data loss mode
+	 *
+	 * When buffer fill level constraints cannot be fulfilled, some
+	 * audio data must be lost, or padded with silence, in order to
+	 * resolve the situation.  Loss behavior can occur at either
+	 * endpoint, before or after the filters are run on the data
+	 * destined to and from the endpoint.  Sometimes it is desirable to
+	 * avoid loss behavior at one endpoint of the system, so that all
+	 * data going to and coming from the endpoint is processed by the
+	 * filters.
+	 *
+	 * For example, an acoustic echo canceler based on a Normalized
+	 * Least Mean Squares algorithm is intolerant of loss, and works
+	 * best when all data from the target endpoint runs through the
+	 * filters, and loss is isolated at the other endpoint.
+	 *
+	 * @param loss_at_bottom Tolerate loss at the bottom endpoint
+	 * @param loss_at_top Tolerate loss at the top endpoint
+	 *
+	 * By default, loss is tolerated at both endpoints.
+	 *
+	 * Setting both @em loss_at_bottom and @em loss_at_top to @c false
+	 * will cause an assertion failure.
+	 *
+	 * @note This setting only attempts to isolate loss to one endpoint
+	 * over another.  Loss will still occur at an endpoint where it is
+	 * not tolerated if there is a rate mismatch between the input and
+	 * output sides of the endpoint.
+	 */
+	void SetLossMode(bool loss_at_bottom, bool loss_at_top);
 
 	/**
 	 * @brief Query the active minimum output buffer fill level of the
@@ -1346,6 +1567,14 @@ public:
 };
 
 
+enum sio_stream_skewinfo_t {
+	SIO_STREAM_SKEW_INVALID = 0,
+	SIO_STREAM_SKEW_XRUN,
+	SIO_STREAM_SKEW_PRI_DUPLEX,
+	SIO_STREAM_SKEW_SEC_DUPLEX,
+	SIO_STREAM_SKEW_ENDPOINT,
+};
+
 /**
  * @brief Streaming Audio Configuration Manager
  * @ingroup soundio
@@ -1396,10 +1625,45 @@ private:
 
 	bool			m_stream_up, m_stream_dn;
 
-	void PumpStopped(SoundIoPump *pumpp, SoundIo *offender);
-	bool OpenPrimary(bool sink, bool source);
+	SoundIoPumpStatistics	m_pump_stat;
+
+	sio_sampnum_t		m_stat_interval;
+	sio_sampnum_t		m_stat_cur_count;
+	bool			m_use_process_values;
+
+	struct Stats {
+		int		pri_max_nsamples;
+		int	       	sec_max_nsamples;
+		int		pri_duplex_skew;
+		int		sec_duplex_skew;
+		int		endpoint_skew;
+	};
+
+	Stats			*m_history;
+	int			m_history_count, m_history_pos;
+	char			m_pri_skew_strikes, m_sec_skew_strikes,
+				m_endpoint_skew_strikes;
+
+	int			m_stat_min_pri_duplex_skew;
+	int			m_stat_min_sec_duplex_skew;
+	int			m_stat_min_endpoint_skew;
+
+	void PumpStopped(SoundIoPump *pumpp, SoundIo *offender,
+			 ErrorInfo &reason);
+
+	bool StartStats(SoundIoFormat &fmt, SoundIoProps &secprops,
+			ErrorInfo *error);
+	void StopStats(void);
+	void DoStatistics(SoundIoPump *pumpp, SoundIoPumpStatistics &stat,
+			  bool loss);
+
+	bool OpenPrimary(bool sink, bool source, ErrorInfo *error);
 	void ClosePrimary(void);
-	SoundIo *CreatePrimary(const char *name, const char *opts);
+	SoundIo *CreatePrimary(const char *name, const char *opts,
+			       ErrorInfo *error);
+
+	bool DspInstall(ErrorInfo *error);
+	void DspRemove(void);
 
 public:
 	/**
@@ -1422,22 +1686,58 @@ public:
 	 * endpoints, this callback is invoked.
 	 *
 	 * @param SoundIoManager* Pointer to the SoundIoManager object 
+	 * @param ErrorInfo& ErrorInfo structure with information
+	 * identifying the reason for the halt.
 	 */
-	Callback<void, SoundIoManager*>		cb_NotifyAsyncState;
+	Callback<void, SoundIoManager*, ErrorInfo&>	cb_NotifyAsyncState;
+
+	/**
+	 * @brief Notification of clock skew
+	 *
+	 * SoundIoManager uses the statistics interface of SoundIoPump
+	 * to monitor streaming activity.  Specifically, it keeps track
+	 * of clock divergences between the duplex sides of each endpoint,
+	 * and between the two endpoints overall.  If significant
+	 * clock skew is detected, events will be generated through
+	 * this callback method approximately every second.
+	 *
+	 * @param SoundIoManager* SoundIoManager object originating the
+	 * skew notification.
+	 * @param sio_stream_skewinfo_t Describes the type of skew
+	 * that has been detected.
+	 * @param double Degree of the skew.
+	 * - For SIO_STREAM_SKEW_XRUN, this is the number of overruns
+	 * and underruns that occurred since the last sample period.
+	 * - For SIO_STREAM_SKEW_PRI_DUPLEX and SIO_STREAM_SKEW_SEC_DUPLEX,
+	 * the value is positive if the input clock is faster than the
+	 * output clock, and negative if vice-versa.  The magnitude of this
+	 * value is the percentage difference of the sample rate of the
+	 * slower clock relative to the faster clock.
+	 * - For SIO_STREAM_SKEW_ENDPOINT, the value is positive if the
+	 * secondary endpoint clock is faster than the primary, and
+	 * negative if vice-versa.  The magnitude of this
+	 * value is the percentage difference of the sample rate of the
+	 * slower clock relative to the faster clock.
+	 */
+	Callback<void, SoundIoManager*, sio_stream_skewinfo_t, double>
+							cb_NotifySkew;
 
 	/**
 	 * @brief Get descriptive information about a configured audio
 	 * driver
 	 *
-	 * @param index Driver index number to retrieve information
+	 * @param[in] index Driver index number to retrieve information
 	 * about.
-	 * @param name Address of pointer to receive the name of the
+	 * @param[out] name Address of pointer to receive the name of the
 	 * driver, or NULL if the name is not desired.
-	 * @param desc Address of pointer to receive descriptive text
+	 * @param[out] desc Address of pointer to receive descriptive text
 	 * about the driver, or NULL if descriptive text is not desired.
-	 * @param devlist Address of pointer to receive the detected
+	 * @param[out] devlist Address of pointer to receive the detected
 	 * device list associated with the driver, or NULL of the
 	 * detected device list is not desired.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @note If @em devlist is specified, and the returned
 	 * pointer value is 0, this indicates a failed enumeration.
@@ -1445,16 +1745,20 @@ public:
 	 * SoundIoDeviceList object rather than a null pointer.
 	 *
 	 * @retval true Driver info retrieved.
-	 * @retval false Driver index is invalid.
+	 * @retval false Driver index is invalid, or enumerating devices
+	 * failed.  If @em error is not 0, @em error will be filled with the
+	 * reason for the failure.
 	 */
 	static bool GetDriverInfo(int index, const char **name,
 				  const char **desc,
-				  SoundIoDeviceList **devlist);
+				  SoundIoDeviceList **devlist,
+				  ErrorInfo *error = 0);
 
 	/**
 	 * @brief Set the audio driver parameters
 	 */
-	bool SetDriver(const char *drivername, const char *driveropts);
+	bool SetDriver(const char *drivername, const char *driveropts,
+		       ErrorInfo *error = 0);
 
 	const char *GetDriverName(void) const { return m_driver_name; }
 	const char *GetDriverOpts(void) const { return m_driver_opts; }
@@ -1467,7 +1771,8 @@ public:
 	/**
 	 * @brief Test whether the primary endpoint can be opened
 	 */
-	bool TestOpen(bool up = false, bool down = false);
+	bool TestOpen(bool up = false, bool down = false,
+		      ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query the secondary endpoint
@@ -1479,12 +1784,12 @@ public:
 	/**
 	 * @brief Set the secondary endpoint
 	 */
-	bool SetSecondary(SoundIo *secp);
+	bool SetSecondary(SoundIo *secp, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Configure the secondary endpoint for loopback
 	 */
-	bool Loopback(void);
+	bool Loopback(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query whether the primary endpoint is disabled
@@ -1501,18 +1806,21 @@ public:
 	 * This is not recommended for most use cases.  Instead, use the
 	 * soft mute feature, SetMute().
 	 *
-	 * @param state Set to @c true to enable streaming mute mode,
+	 * @param[in] state Set to @c true to enable streaming mute mode,
 	 * @c false to turn it off.
-	 * @param closepri Set to @c true when muting (@em state = @c true)
+	 * @param[in] closepri Set to @c true when muting (@em state = @c true)
 	 * to cause the primary endpoint to be closed, @c false otherwise.
 	 * If the primary endpoint is closed, it will be reopened the next
 	 * time the device is unmuted, or started after being stopped and
 	 * unmuted.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true The streaming mute state has been changed.
 	 * @retval false The streaming mute state could not be changed.
-	 * If the primary endpoint was closed, this could indicate an
-	 * error attempting to reopen it.
+	 * If hard mute is being disabled, and the primary endpoint had
+	 * been closed, this could indicate an error attempting to reopen it.
 	 *
 	 * @note Stopping and restarting the primary endpoint, and
 	 * frequently opening and closing the primary endpoint can be
@@ -1521,8 +1829,8 @@ public:
 	 * 115ms in its open function, and as much as 40ms in its close
 	 * function.
 	 */
-	bool SetHardMute(bool state, bool closepri = false);
-
+	bool SetHardMute(bool state, bool closepri = false,
+			 ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query soft mute feature state
@@ -1539,30 +1847,94 @@ public:
 	 * as it requires no potential hardware operations, and incurs
 	 * only minor CPU overhead.
 	 *
-	 * @param up Set to @c true to enable mute in the upward
+	 * @param[in] up Set to @c true to enable mute in the upward
 	 * direction, i.e. microphone input from the sound card.
-	 * @param dn Set to @c true to enable mute in the downward
+	 * @param[in] dn Set to @c true to enable mute in the downward
 	 * direction, i.e. speaker output to the sound card.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true Soft mute successfully configured
-	 * @retval false Soft mute not configured -- memory allocation failure
+	 * @retval false Soft mute not configured.  See @em error
+	 * for the reason, but the expected reason is memory allocation
+	 * failure.
 	 *
 	 * @sa GetMute(), SetHardMute()
 	 */
-	bool SetMute(bool up, bool dn = false);
+	bool SetMute(bool up, bool dn = false, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Set the signal processing filter object
+	 *
+	 * The SoundIoManager makes a special effort to support one
+	 * digital signal processing filter object.  The filter
+	 * is always installed directly above the primary endpoint,
+	 * which will be below any bottom-most filter that the client
+	 * has installed.  This supports the role of an acoustic
+	 * echo canceler using an NLMS algorithm.
+	 *
+	 * Besides being configured as the bottom-most filter, when
+	 * the DSP filter is enabled, the pump is configured to be
+	 * intolerant of loss on the primary endpoint using
+	 * SoundIoPump::SetLossMode().  This way, samples will only be
+	 * inserted or removed between the DSP filter and the primary
+	 * endpoint if the primary endpoint exhibits a significant clock
+	 * skew between its capture and playback halves.
+	 *
+	 * The installed filter must also be enabled in order for it
+	 * to be used.  See SetDspEnabled() and IsDspEnabled().
+	 *
+	 * Any configured DSP filter is automatically disabled when
+	 * loopback mode is configured, and when hard mute mode is
+	 * configured.
+	 *
+	 * @param[in] dspp Signal processing filter to configure as the
+	 * DSP object for this SoundIoManager.  Any existing DSP filter
+	 * will be cleared.  Setting to @c 0 will configure the
+	 * SoundIoManager to not use a DSP filter.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 *
+	 * @retval true DSP successfully installed.  If streaming
+	 * is in progress, the filter has been installed and is now
+	 * operating.
+	 * @retval false DSP filter could not be installed.  This
+	 * can be caused by streaming in progress with parameters
+	 * that are rejected by the filter.  If @em error is provided,
+	 * it will be filled in with information about the failure.
 	 */
-	bool SetDsp(SoundIoFilter *dspp);
+	bool SetDsp(SoundIoFilter *dspp, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Enable/disable the DSP filter
+	 *
+	 * This method allows a configured DSP filter to be temporarily
+	 * disabled and removed, or re-enabled if previously disabled.
+	 *
+	 * @param[in] enabled Set to @c true to enable the DSP filter,
+	 * @c false to disable the DSP filter.  If streaming is in progress,
+	 * the DSP filter will be inserted into or removed from the filter
+	 * stack.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 *
+	 * @retval true DSP successfully enabled or disabled.
+	 * @retval false DSP filter was being enabled, but could not be
+	 * installed in the filter stack.  This can be caused by streaming
+	 * in progress with parameters that are rejected by the filter.
+	 * If @em error is provided, it will be filled in with
+	 * information about the failure.
 	 */
-	bool SetDspEnabled(bool enabled = true);
+	bool SetDspEnabled(bool enabled = true, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query whether the DSP filter is enabled
+	 *
+	 * @retval true DSP filter is enabled
+	 * @retval true DSP filter is disabled
 	 */
 	bool IsDspEnabled(void) { return m_dsp_enabled; }
 
@@ -1589,23 +1961,29 @@ public:
 	 * - Prepare filters that have been configured.
 	 * - Enable asynchronous streaming on the endpoints.
 	 *
-	 * @param up Set to @c true to enable streaming from primary to
+	 * @param[in] up Set to @c true to enable streaming from primary to
 	 * secondary, @c false to disable.
-	 * @param down Set to @c true to enable streaming from secondary to
+	 * @param[in] down Set to @c true to enable streaming from secondary to
 	 * primary, @c false to disable.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @note If both @em up and @em down are set to @c false, the
 	 * stream directions will be inferred from the capabilities of the
 	 * secondary endpoint.
 	 *
 	 * @retval true Streaming has been started
-	 * @retval false Streaming start failed.  This can be caused by:
+	 * @retval false Streaming start failed.  If @em error is not 0,
+	 * it will be filled out with information on the failure.  Typical
+	 * reasons include:
 	 * - A failure of any of the steps listed above
 	 * - The secondary endpoint not being open or properly configured
 	 * - Streaming mute mode enabled with an unclocked secondary endpoint
 	 * - Streaming already having been started
 	 */
-	bool Start(bool up = false, bool down = false);
+	bool Start(bool up = false, bool down = false,
+		   ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request stream to stop
@@ -1648,13 +2026,15 @@ public:
 	 * @copydoc SoundIoPump::AddAbove()
 	 * @brief Install a filter above an already installed filter
 	 */
-	bool AddAbove(SoundIoFilter *fltp, SoundIoFilter *targp);
+	bool AddAbove(SoundIoFilter *fltp, SoundIoFilter *targp,
+		      ErrorInfo *error = 0);
 
 	/**
 	 * @copydoc SoundIoPump::AddBelow()
 	 * @brief Install a filter below an already installed filter
 	 */
-	bool AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp);
+	bool AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp,
+		      ErrorInfo *error = 0);
 
 	/**
 	 * @copydoc SoundIoPump::RemoveFilter()
@@ -1666,14 +2046,14 @@ public:
 	/**
 	 * @brief Install a filter at the topmost position
 	 */
-	bool AddTop(SoundIoFilter *fltp)
-		{ return AddBelow(fltp, 0); }
+	bool AddTop(SoundIoFilter *fltp, ErrorInfo *error = 0)
+		{ return AddBelow(fltp, 0, error); }
 
 	/**
 	 * @brief Install a filter at the bottommost position
 	 */
-	bool AddBottom(SoundIoFilter *fltp)
-		{ return AddAbove(fltp, 0); }
+	bool AddBottom(SoundIoFilter *fltp, ErrorInfo *error = 0)
+		{ return AddAbove(fltp, 0, error); }
 
 	SoundIoFilter *RemoveTop(void) {
 		SoundIoFilter *fltp = GetTopFilter();

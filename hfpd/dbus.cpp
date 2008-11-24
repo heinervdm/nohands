@@ -28,6 +28,17 @@
 using namespace libhfp;
 
 /*
+ * libdbus does not provide a way to programmatically access the installed
+ * version number of the header files.  So, we use autoconf to read
+ * the version number out of pkgconfig, and compare it ourselves.
+ */
+#define VERSION_CODE(A,B,C) (((A)<<16)|((B)<<8)|(C))
+#define CURRENT_DBUS_VERSION 			\
+	VERSION_CODE(DBUS_VERSION_MAJOR,	\
+		     DBUS_VERSION_MINOR,	\
+		     DBUS_VERSION_MICRO)
+
+/*
  * DbusTimerBridge and DbusWatchBridge are private, local classes that
  * connect the D-Bus notification mechanism to libhfp::DispatchInterface.
  */
@@ -147,11 +158,18 @@ struct DbusWatchBridge {
 		DbusWatchBridge *bridgep;
 		libhfp::DispatchInterface *di =
 			(libhfp::DispatchInterface *) ptr;
+		int fd;
 
-		rnotp = di->NewSocket(dbus_watch_get_unix_fd(dbw), false);
+#if CURRENT_DBUS_VERSION >= VERSION_CODE(1,1,1)
+		fd = dbus_watch_get_unix_fd(dbw);
+#else
+		fd = dbus_watch_get_fd(dbw);
+#endif
+
+		rnotp = di->NewSocket(fd, false);
 		if (!rnotp)
 			return FALSE;
-		wnotp = di->NewSocket(dbus_watch_get_unix_fd(dbw), true);
+		wnotp = di->NewSocket(fd, true);
 		if (!rnotp) {
 			delete rnotp;
 			return FALSE;
@@ -459,7 +477,7 @@ ParseMatchExpression(const char *filter_arg, ListItem &nodes,
 		ftype = FieldTypeSymbol(rule, argnum);
 		if (ftype == DBUS_MFIELD_INVALID) {
 			di->LogError("DbusMatch: Unknown field "
-				     "\"%s\"\n", rule);
+				     "\"%s\"", rule);
 			goto no_mem;
 		}
 
@@ -468,7 +486,7 @@ ParseMatchExpression(const char *filter_arg, ListItem &nodes,
 			argnum = MessageTypeSymbol(part);
 			if (argnum < 0) {
 				di->LogError("DbusMatch: Invalid message "
-					     "type \"%s\"\n", part);
+					     "type \"%s\"", part);
 				goto no_mem;
 			}
 		}
@@ -504,7 +522,7 @@ ParseMatchExpression(const char *filter_arg, ListItem &nodes,
 				di->LogError("DbusMatch: "
 					     "Multiple rules for a "
 					     "single field in expr "
-					     "\"%s\"\n",
+					     "\"%s\"",
 					     filter_arg);
 				goto no_mem;
 			}
@@ -514,7 +532,7 @@ ParseMatchExpression(const char *filter_arg, ListItem &nodes,
 	return true;
 
 malformed_filter:
-	di->LogError("DbusMatch: Malformed expression \"%s\"\n",
+	di->LogError("DbusMatch: Malformed expression \"%s\"",
 		     filter_arg);
 no_mem:
 	if (filter)
@@ -920,7 +938,7 @@ public:
 		DbusCompletion *cplp = 0;
 		DbusMatchNotifier *matchp = 0;
 		const char *client;
-		StringBuffer sb;
+		libhfp::StringBuffer sb;
 
 		client = GetName();
 		if (!sb.AppendFmt("type='signal',"
@@ -1098,7 +1116,7 @@ SetupDispatchOwner(void)
 		m_dodispatch = GetDi()->NewTimer();
 		if (!m_dodispatch) {
 			GetDi()->LogWarn("D-Bus: Could not allocate "
-					 "dispatch timer\n");
+					 "dispatch timer");
 			return false;
 		}
 		m_dodispatch->Register(this, &DbusSession::Dispatch);
@@ -1108,7 +1126,7 @@ SetupDispatchOwner(void)
 		m_local = new DbusObjectLocal;
 		if (!m_local) {
 			GetDi()->LogWarn("D-Bus: Could not allocate "
-					 "local message handler\n");
+					 "local message handler");
 			return false;
 		}
 	}
@@ -1127,13 +1145,13 @@ SetupEventsOwner(void)
 
 	if (!ExportObject(m_local)) {
 		GetDi()->LogWarn("D-Bus: Could not configure local "
-				 "message handler\n");
+				 "message handler");
 		return false;
 	}
 
 	if (!DbusTimerBridge::ConfigureConnection(m_conn, GetDi()) ||
 	    !DbusWatchBridge::ConfigureConnection(m_conn, GetDi())) {
-		GetDi()->LogWarn("D-Bus: Could not configure events\n");
+		GetDi()->LogWarn("D-Bus: Could not configure events");
 		return false;
 	}
 
@@ -1178,14 +1196,14 @@ Connect(DBusBusType bustype)
 	conn = dbus_bus_get_private(bustype, &err);
 	if (!conn) {
 		GetDi()->LogWarn("D-Bus: Could not create private "
-				 "connection: %s\n", err.message);
+				 "connection: %s", err.message);
 		return false;
 	}
 
 	m_conn = conn;
 	m_owner = true;
 
-	GetDi()->LogDebug("D-Bus: connected\n");
+	GetDi()->LogDebug("D-Bus: connected");
 
 	if (!SetupEventsOwner() || !SetupEventsCommon()) {
 		__Disconnect(false);
@@ -1210,7 +1228,7 @@ __Disconnect(bool notify)
 
 		m_conn = 0;
 
-		GetDi()->LogDebug("D-Bus: disconnected\n");
+		GetDi()->LogDebug("D-Bus: disconnected");
 
 		if (notify && cb_NotifyDisconnect.Registered())
 			cb_NotifyDisconnect(this);
@@ -1263,7 +1281,7 @@ AddUniqueName(const char *name)
 				    &err);
 
 	if (res < 0) {
-		GetDi()->LogWarn("D-Bus: Could not request name \"%s\": %s\n",
+		GetDi()->LogWarn("D-Bus: Could not request name \"%s\": %s",
 				 name, err.message);
 		return false;
 	}
@@ -1289,14 +1307,14 @@ RemoveUniqueName(const char *name)
 	res = dbus_bus_release_name(m_conn, name, &err);
 
 	if (res < 0) {
-		GetDi()->LogWarn("D-Bus: Could not release name \"%s\": %s\n",
+		GetDi()->LogWarn("D-Bus: Could not release name \"%s\": %s",
 				 name, err.message);
 		return false;
 	}
 
 	if (res != DBUS_RELEASE_NAME_REPLY_RELEASED) {
 		GetDi()->LogWarn("D-Bus: Attempted to release unacquired "
-				 "name \"%s\"\n", name);
+				 "name \"%s\"", name);
 	}
 	return true;
 }
@@ -1491,7 +1509,8 @@ DbusDispatch(DBusMessage *msgp)
 }
 
 static bool
-IntrospectMethod(StringBuffer &sb, const DbusMethod *methp, bool is_signal)
+IntrospectMethod(libhfp::StringBuffer &sb, const DbusMethod *methp,
+		 bool is_signal)
 {
 	DBusSignatureIter si;
 	char *argsig;
@@ -1559,7 +1578,7 @@ DbusIntrospect(DBusMessage *msgp)
 	const DbusInterface *ifp;
 	const DbusMethod *methp;
 	const DbusProperty *propp;
-	StringBuffer sb;
+	libhfp::StringBuffer sb;
 	const char *bufptr;
 	char **childnames = 0;
 	int i;
@@ -1963,7 +1982,7 @@ do_local:
 		return false;
 
 	m_session = sessp;
-	m_session->GetDi()->LogDebug("D-Bus: Exported \"%s\"\n", m_path);
+	m_session->GetDi()->LogDebug("D-Bus: Exported \"%s\"", m_path);
 	return true;
 }
 
@@ -1978,12 +1997,12 @@ DbusUnregister(void)
 	if (!dbus_connection_unregister_object_path(m_session->GetConn(),
 						    m_path)) {
 		m_session->GetDi()->LogWarn("D-Bus: Unregistration of "
-					    "path \"%s\" failed\n", m_path);
+					    "path \"%s\" failed", m_path);
 		return;
 	}
 	assert(!m_session);
 
-	dip->LogDebug("D-Bus: Unexported \"%s\"\n", m_path);
+	dip->LogDebug("D-Bus: Unexported \"%s\"", m_path);
 }
 
 DBusMessage *DbusExportObject::
@@ -2064,7 +2083,7 @@ bool DbusExportObject::
 SendReplyError(DBusMessage *src, const char *name, const char *msg, ...)
 {
 	va_list ap;
-	StringBuffer sb;
+	libhfp::StringBuffer sb;
 	DBusMessage *repl;
 	bool res;
 

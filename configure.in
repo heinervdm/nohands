@@ -195,13 +195,28 @@ fi
 dnl Find the D-Bus service path from pkgconfig
 dnl This may be a different directory than we would expect
 dnl based on our chosen prefix!
-if test $use_dbus = "yes" -a $do_dbus_service = "yes"; then
-	AC_ARG_VAR([DBUS_SERVICE_PATH],
-	           [Path for D-Bus .service fiels, overriding pkg-config])
-	_PKG_CONFIG([DBUS_SERVICE_PATH], [variable=session_bus_services_dir],
-		    [dbus-1])
-	DBUS_SERVICE_PATH=$pkg_cv_DBUS_SERVICE_PATH
-	AC_SUBST(DBUS_SERVICE_PATH)
+if test $use_dbus = "yes"; then
+	if test $do_dbus_service = "yes"; then
+		AC_ARG_VAR([DBUS_SERVICE_PATH],
+	           [Path for D-Bus .service files, overriding pkg-config])
+		_PKG_CONFIG([DBUS_SERVICE_PATH],
+			    [variable=session_bus_services_dir],
+			    [dbus-1])
+		DBUS_SERVICE_PATH=$pkg_cv_DBUS_SERVICE_PATH
+		AC_SUBST(DBUS_SERVICE_PATH)
+	fi
+
+	DBUS_VERSION=`$PKG_CONFIG --modversion dbus-1`
+	DBUS_VERSION_MAJOR=`echo $DBUS_VERSION | cut -d. -f 1`
+	DBUS_VERSION_MINOR=`echo $DBUS_VERSION | cut -d. -f 2`
+	DBUS_VERSION_MICRO=`echo $DBUS_VERSION | cut -d. -f 3`
+
+	AC_DEFINE_UNQUOTED(DBUS_VERSION_MAJOR, $DBUS_VERSION_MAJOR,
+			   [D-BUS major version.])
+	AC_DEFINE_UNQUOTED(DBUS_VERSION_MINOR, $DBUS_VERSION_MINOR,
+			   [D-BUS minor version.])
+	AC_DEFINE_UNQUOTED(DBUS_VERSION_MICRO, $DBUS_VERSION_MICRO,
+			   [D-BUS micro version.])
 fi
 
 

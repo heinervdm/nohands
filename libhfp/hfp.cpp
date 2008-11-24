@@ -55,7 +55,9 @@ HfpService(int caps)
 	  m_sco_listen(-1), m_sco_listen_not(0),
 	  m_brsf_my_caps(caps), m_svc_name(0), m_svc_desc(0),
 	  m_sdp_rec(0), m_timer(0),
-	  m_autoreconnect_timeout(15000), m_autoreconnect_set(false)
+	  m_autoreconnect_timeout(15000), m_autoreconnect_set(false),
+	  m_complaint_sco_mtu(false), m_complaint_sco_vs(false),
+	  m_complaint_sco_listen(false)
 {
 }
 
@@ -124,7 +126,7 @@ RemoveAutoReconnect(HfpSession *sessp)
 }
 
 bool HfpService::
-ScoListen(void)
+ScoListen(ErrorInfo *error)
 {
 	struct sockaddr_sco saddr;
 	int sock = -1, res;
@@ -144,20 +146,28 @@ ScoListen(void)
 	 * packets and more buffering, and we will refuse to listen
 	 * if it is not available.
 	 */
-	res = hcip->GetScoMtu(mtu, pkts);
-	if (res) {
-		GetDi()->LogWarn("Get SCO MTU: %s\n",
-				 strerror(-res));
+	if (!hcip->GetScoMtu(mtu, pkts, error))
 		return false;
-	}
 
 	if ((mtu < 48) || (pkts < 8)) {
-		if (hcip->SetScoMtu(64, 8) < 0) {
-			GetDi()->LogError("Unsuitable SCO MTU values %u:%u "
-					  "detected\n", mtu, pkts);
-			GetDi()->LogError("To fix this, run, as superuser, "
-					  "\"hciconfig hci0 scomtu 64:8\"\n");
-			GetHub()->SetAutoRestart(false);
+		if (!hcip->SetScoMtu(64, 8)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_BT,
+					   LIBHFP_ERROR_BT_BAD_SCO_CONFIG,
+					   "Unsuitable SCO MTU values %u:%u "
+					   "detected\n"
+					   "To fix this, run, as superuser, "
+					   "\"hciconfig hci0 scomtu 64:8\"",
+					   mtu, pkts);
+			if (!m_complaint_sco_mtu) {
+				GetDi()->LogError(
+					"Unsuitable SCO MTU values %u:%u "
+					"detected\n"
+					"To fix this, run, as superuser, "
+					"\"hciconfig hci0 scomtu 64:8\"",
+					mtu, pkts);
+				m_complaint_sco_mtu = true;
+			}
 			return false;
 		}
 
@@ -169,21 +179,29 @@ ScoListen(void)
 	 * Verify that the voice setting is suitable for our ends.
 	 * We expect 2's complement, 16-bit linear coding.
 	 */
-	res = hcip->GetScoVoiceSetting(vs);
-	if (res) {
-		GetDi()->LogWarn("Get SCO voice setting: %s\n",
-				 strerror(-res));
+	if (!hcip->GetScoVoiceSetting(vs, error))
 		return false;
-	}
 
 	if (vs != 0x0060) {
 		nvs = 0x0060;
-		if (hcip->SetScoVoiceSetting(vs) < 0) {
-			GetDi()->LogError("Unsuitable SCO voice setting "
-					  "0x%04x detected\n", vs);
-			GetDi()->LogError("To fix this, run, as superuser, "
-					  "\"hciconfig hci0 voice 0x0060\"\n");
-			GetHub()->SetAutoRestart(false);
+		if (!hcip->SetScoVoiceSetting(nvs)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_BT,
+					   LIBHFP_ERROR_BT_BAD_SCO_CONFIG,
+					   "Unsuitable SCO voice setting "
+					   "0x%04x detected\n"
+					   "To fix this, run, as superuser, "
+					   "\"hciconfig hci0 voice 0x0060\"",
+					   vs);
+			if (!m_complaint_sco_vs) {
+				GetDi()->LogError(
+					"Unsuitable SCO voice setting "
+					"0x%04x detected\n"
+					"To fix this, run, as superuser, "
+					"\"hciconfig hci0 voice 0x0060\"",
+					vs);
+				m_complaint_sco_vs = true;
+			}
 			return false;
 		}
 
@@ -198,17 +216,20 @@ ScoListen(void)
 	if (sock < 0) {
 		sock = errno;
 		if (sock == EPROTONOSUPPORT) {
-			GetDi()->LogError("Your kernel is not configured with "
-					  "support for SCO sockets.\n");
+			GetDi()->LogError(error,
+					  LIBHFP_ERROR_SUBSYS_BT,
+					  LIBHFP_ERROR_BT_NO_SUPPORT,
+					  "Your kernel is not configured with "
+					  "support for SCO sockets.");
 			GetHub()->SetAutoRestart(false);
 			return false;
 		}
-		GetDi()->LogWarn("Create SCO socket: %s\n",
+		GetDi()->LogWarn(error, LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Create SCO socket: %s",
 				 strerror(errno));
 		return false;
 	}
-
-	GetDi()->LogDebug("SCO MTU: %u:%u Voice: 0x%04x\n", mtu, pkts, vs);
 
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sco_family = AF_BLUETOOTH;
@@ -217,38 +238,65 @@ ScoListen(void)
 	if (bind(sock, (struct sockaddr*)&saddr, sizeof(saddr)) < 0) {
 		res = -errno;
 		if (res == -EADDRINUSE) {
-			GetDi()->LogError("Another service has claimed your "
-					  "system's Bluetooth audio socket.\n");
-			GetDi()->LogError("Please disable it before "
-					  "attempting to use HFP for Linux\n");
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_BT,
+					   LIBHFP_ERROR_BT_SERVICE_CONFLICT,
+					   "Another service has claimed your "
+					   "system's Bluetooth audio socket.\n"
+					   "Please disable it before "
+					   "attempting to use HFP for "
+					   "Linux");
+
+			if (!m_complaint_sco_listen) {
+				GetDi()->LogError(
+					"Another service has claimed your "
+					"system's Bluetooth audio socket.\n"
+					"Please disable it before "
+					"attempting to use HFP for Linux");
+				m_complaint_sco_listen = true;
+			}
 		} else {
-			GetDi()->LogWarn("Bind SCO socket: %s\n",
+			GetDi()->LogWarn(error,
+					 LIBHFP_ERROR_SUBSYS_BT,
+					 LIBHFP_ERROR_BT_SYSCALL,
+					 "Bind SCO socket: %s",
 					 strerror(-res));
 		}
 		goto failed;
 	}
 
 	if (listen(sock, 1) < 0) {
-		GetDi()->LogWarn("Set SCO socket to listen: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Set SCO socket to listen: %s",
 				 strerror(errno));
 		goto failed;
 	}
 
 	if (!SetNonBlock(sock, true)) {
-		GetDi()->LogWarn("Set SCO listener nonblocking: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Set SCO listener nonblocking: %s",
 				 strerror(errno));
 		goto failed;
 	}
 
 	m_sco_listen_not = GetDi()->NewSocket(sock, false);
 	if (!m_sco_listen_not) {
-		GetDi()->LogWarn("Could not create SCO listening "
-				 "socket notifier\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Could not create SCO listening "
+				 "socket notifier");
 		goto failed;
 	}
 
 	m_sco_listen_not->Register(this, &HfpService::ScoListenNotify);
 	m_sco_listen = sock;
+
+	GetDi()->LogDebug("SCO MTU: %u:%u Voice: 0x%04x", mtu, pkts, vs);
 	return true;
 
 failed:
@@ -288,7 +336,7 @@ ScoListenNotify(SocketNotifier *notp, int fh)
 		close(ssock);
 		ba2str(&saddr.sco_bdaddr, bdstr);
 		GetDi()->LogDebug("Got SCO connect request from %s with "
-				  "no existing session\n", bdstr);
+				  "no existing session", bdstr);
 		return;
 	}
 
@@ -310,6 +358,10 @@ ScoCleanup(void)
 	if (m_sco_listen >= 0) {
 		close(m_sco_listen);
 		m_sco_listen = -1;
+
+		m_complaint_sco_mtu = false;
+		m_complaint_sco_vs = false;
+		m_complaint_sco_listen = false;
 	}
 }
 
@@ -318,7 +370,7 @@ ScoCleanup(void)
  * It doesn't have to be this hard, guys!
  */
 bool HfpService::
-SdpRegister(void)
+SdpRegister(ErrorInfo *error)
 {
 	uuid_t root_uuid, hfsc_uuid, gasc_uuid;
 	sdp_list_t *root_list = 0;
@@ -327,7 +379,7 @@ SdpRegister(void)
 	uint16_t caps;
 
 	if (!(svcrec = sdp_record_alloc()))
-		goto failed;
+		goto nomem;
 
 	/* No failure reporting path here! */
 	sdp_set_info_attr(svcrec,
@@ -337,35 +389,35 @@ SdpRegister(void)
 
 	sdp_uuid16_create(&hfsc_uuid, HANDSFREE_SVCLASS_ID);
 	if (!(root_list = sdp_list_append(0, &hfsc_uuid)))
-		goto failed;
+		goto nomem;
 	sdp_uuid16_create(&gasc_uuid, GENERIC_AUDIO_SVCLASS_ID);
 	if (!(root_list = sdp_list_append(root_list, &gasc_uuid)))
-		goto failed;
+		goto nomem;
 	if (sdp_set_service_classes(svcrec, root_list) < 0)
-		goto failed;
+		goto nomem;
 
 	sdp_list_free(root_list, 0);
 	root_list = 0;
 
 	sdp_uuid16_create(&root_uuid, PUBLIC_BROWSE_GROUP);
 	if (!(root_list = sdp_list_append(NULL, &root_uuid)))
-		goto failed;
+		goto nomem;
 	if (sdp_set_browse_groups(svcrec, root_list) < 0)
-		goto failed;
+		goto nomem;
 
 	sdp_list_free(root_list, 0);
 	root_list = 0;
 
 	if (!RfcommSdpSetAccessProto(svcrec, RfcommGetListenChannel()))
-		goto failed;
+		goto nomem;
 
 	// Profiles
 	sdp_uuid16_create(&hfp_pdesc.uuid, HANDSFREE_PROFILE_ID);
 	hfp_pdesc.version = 0x0105;
 	if (!(root_list = sdp_list_append(NULL, &hfp_pdesc)))
-		goto failed;
+		goto nomem;
 	if (sdp_set_profile_descs(svcrec, root_list) < 0)
-		goto failed;
+		goto nomem;
 
 	sdp_list_free(root_list, 0);
 	root_list = 0;
@@ -374,13 +426,17 @@ SdpRegister(void)
 	caps = m_brsf_my_caps;
 	if (sdp_attr_add_new(svcrec, SDP_ATTR_SUPPORTED_FEATURES,
 			     SDP_UINT16, &caps) < 0)
-		goto failed;
+		goto nomem;
 
-	if (GetHub()->SdpRecordRegister(svcrec) < 0)
+	if (!GetHub()->SdpRecordRegister(svcrec, error))
 		goto failed;
 
 	m_sdp_rec = svcrec;
 	return true;
+
+nomem:
+	if (error)
+		error->SetNoMem();
 
 failed:
 	if (root_list)
@@ -394,29 +450,33 @@ void HfpService::
 SdpUnregister(void)
 {
 	if (m_sdp_rec) {
+		/* FIXME: Can this leak the SDP record? */
 		GetHub()->SdpRecordUnregister(m_sdp_rec);
 		m_sdp_rec = 0;
 	}
 }
 
 bool HfpService::
-Start(void)
+Start(ErrorInfo *error)
 {
 	assert(GetHub());
 	assert(!m_timer);
 	m_timer = GetDi()->NewTimer();
-	if (!m_timer)
+	if (!m_timer) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	m_timer->Register(this, &HfpService::Timeout);
 
-	if (!RfcommListen())
+	if (!RfcommListen(error))
 		goto failed;
 
-	if (!ScoListen())
+	if (!ScoListen(error))
 		goto failed;
 
-	if (!SdpRegister())
+	if (!SdpRegister(error))
 		goto failed;
 
 	if (!m_autoreconnect_list.Empty() && !m_autoreconnect_set) {
@@ -500,7 +560,7 @@ Connect(const char *addrstr)
 }
 
 bool HfpService::
-SetServiceName(const char *val)
+SetServiceName(const char *val, ErrorInfo *error)
 {
 	char *oldval, *newval = 0;
 
@@ -512,17 +572,19 @@ SetServiceName(const char *val)
 		m_svc_name = newval = strdup(val);
 		if (!m_svc_name) {
 			m_svc_name = oldval;
+			if (error)
+				error->SetNoMem();
 			return false;
 		}
 	}
 
 	SdpUnregister();
-	if ((m_sco_listen >= 0) && !SdpRegister()) {
+	if ((m_sco_listen >= 0) && !SdpRegister(error)) {
 		/* Now we're just screwed! */
 		m_svc_name = oldval;
 		if (newval)
 			free(newval);
-		(void) SdpRegister();
+		(void) SdpRegister(0);
 		return false;
 	}
 
@@ -532,7 +594,7 @@ SetServiceName(const char *val)
 }
 
 bool HfpService::
-SetServiceDesc(const char *val)
+SetServiceDesc(const char *val, ErrorInfo *error)
 {
 	char *oldval, *newval = 0;
 
@@ -544,16 +606,18 @@ SetServiceDesc(const char *val)
 		m_svc_desc = newval = strdup(val);
 		if (!m_svc_desc) {
 			m_svc_desc = oldval;
+			if (error)
+				error->SetNoMem();
 			return false;
 		}
 	}
 
 	SdpUnregister();
-	if ((m_sco_listen >= 0) && !SdpRegister()) {
+	if ((m_sco_listen >= 0) && !SdpRegister(error)) {
 		m_svc_desc = oldval;
 		if (newval)
 			free(newval);
-		(void) SdpRegister();
+		(void) SdpRegister(0);
 		return false;
 	}
 
@@ -596,8 +660,10 @@ HfpSession::
 }
 
 void HfpSession::
-NotifyConnectionState(bool ext_notify)
+NotifyConnectionState(ErrorInfo *async_error)
 {
+	ErrorInfo local_error;
+
 	if (IsRfcommConnecting()) {
 		assert(m_conn_state == BTS_Disconnected);
 		m_conn_state = BTS_RfcommConnecting;
@@ -608,38 +674,46 @@ NotifyConnectionState(bool ext_notify)
 		 * BTS_Disconnected would indicate an inbound connection.
 		 * BTS_RfcommConnecting would indicate outbound.
 		 */
+		assert(!async_error);
 		assert((m_conn_state == BTS_RfcommConnecting) ||
 		       (m_conn_state == BTS_Disconnected));
 		m_conn_state = BTS_Handshaking;
 
-		if (!HfpHandshake())
-			__Disconnect(true, false);
+		if (!HfpHandshake(&local_error))
+			__Disconnect(&local_error, false);
 	}
 
 	else {
 		/* This is all handled by __Disconnect */
 		assert(m_conn_state == BTS_Disconnected);
-		assert(!IsConnectingVoice());
-		assert(!IsConnectedVoice());
+		assert(!IsConnectingAudio());
+		assert(!IsConnectedAudio());
 	}
 
-	if (ext_notify && cb_NotifyConnection.Registered())
-		cb_NotifyConnection(this);
+	if (async_error && cb_NotifyConnection.Registered())
+		cb_NotifyConnection(this, async_error);
 }
 
 void HfpSession::
-__Disconnect(bool notify, bool voluntary)
+__Disconnect(ErrorInfo *reason, bool voluntary)
 {
+	ErrorInfo dfl_error;
+
 	/* Trash the command list */
 	while (!m_commands.Empty()) {
-		DeleteFirstCommand();
+		DeleteFirstCommand(false);
 	}
 
+	dfl_error.Set(LIBHFP_ERROR_SUBSYS_BT,
+		      LIBHFP_ERROR_BT_USER_DISCONNECT,
+		      "User initiated disconnection");
+
 	/*
-	 * notify = true: Do both VoiceState/Packet callbacks synchronously,
+	 * notify = true: Do both AudioState/Packet callbacks synchronously,
 	 * notify = false: Do only the SoundIo callback asynchronously.
 	 */
-	__DisconnectSco(notify, true, !notify);
+	__DisconnectSco(reason != 0, true, reason == 0,
+			reason ? *reason : dfl_error);
 
 	CleanupIndicators();
 
@@ -665,11 +739,11 @@ __Disconnect(bool notify, bool voluntary)
 		m_state_incomplete_clip = 0;
 	}
 
-	RfcommSession::__Disconnect(notify, voluntary);
+	RfcommSession::__Disconnect(reason, voluntary);
 }
 
 bool HfpSession::
-Connect(void)
+Connect(ErrorInfo *error)
 {
 	if (m_conn_state != BTS_Disconnected)
 		return true;
@@ -677,7 +751,7 @@ Connect(void)
 	m_conn_state = BTS_RfcommConnecting;
 	if (m_conn_autoreconnect)
 		GetService()->RemoveAutoReconnect(this);
-	if (RfcommConnect())
+	if (RfcommConnect(error))
 		return true;
 
 	m_conn_state = BTS_Disconnected;
@@ -731,7 +805,7 @@ SdpSupportedFeatures(uint16_t features)
 
 
 bool HfpSession::
-ScoGetParams(int ssock)
+ScoGetParams(int ssock, ErrorInfo *error)
 {
 	struct sco_conninfo sci;
 	struct sco_options sopts;
@@ -741,14 +815,20 @@ ScoGetParams(int ssock)
 	outq = 0;
 	size = sizeof(sci);
 	if (getsockopt(ssock, SOL_SCO, SCO_CONNINFO, &sci, &size) < 0) {
-		GetDi()->LogWarn("Query SCO_CONNINFO: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Query SCO_CONNINFO: %s",
 				 strerror(errno));
 		return false;
 	}
 
 	size = sizeof(sopts);
 	if (getsockopt(ssock, SOL_SCO, SCO_OPTIONS, &sopts, &size) < 0) {
-		GetDi()->LogWarn("Query SCO_OPTIONS: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Query SCO_OPTIONS: %s",
 				 strerror(errno));
 		return false;
 	}
@@ -759,7 +839,7 @@ ScoGetParams(int ssock)
 	if (!ioctl(m_sco_sock, TIOCOUTQ, &outq)) {
 		m_sco_use_tiocoutq = true;
 	} else if (errno != EOPNOTSUPP) {
-		GetDi()->LogWarn("SCO TIOCOUTQ: unexpected errno %d\n", errno);
+		GetDi()->LogWarn("SCO TIOCOUTQ: unexpected errno %d", errno);
 	}
 #endif
 
@@ -770,22 +850,36 @@ ScoGetParams(int ssock)
 }
 
 bool HfpSession::
-ScoConnect(void)
+ScoConnect(ErrorInfo *error)
 {
 	struct sockaddr_sco src, dest;
 	int ssock, err;
 	BtHci *hcip;
 
 	if (!IsConnected()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_NOT_CONNECTED,
+				   "No service-level connection for device");
 		return false;
 	}
-	if (IsConnectedVoice() || IsConnectingVoice()) {
+	if (IsConnectedAudio() || IsConnectingAudio()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
+				   "Audio connection already present "
+				   "or in progress");
 		return false;
 	}
 
 	hcip = GetHub()->GetHci();
-	if (!hcip)
+	if (!hcip) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
 		return false;
+	}
 
 	memset(&src, 0, sizeof(src));
 	src.sco_family = AF_BLUETOOTH;
@@ -799,21 +893,30 @@ ScoConnect(void)
 
 	ssock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_SCO);
 	if (ssock < 0) {
-		GetDi()->LogWarn("Create SCO socket: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Create SCO socket: %s",
 				 strerror(errno));
 		return false;
 	}
 
 	if (bind(ssock, (struct sockaddr*)&src, sizeof(src)) < 0) {
 		close(ssock);
-		GetDi()->LogWarn("Bind SCO socket: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Bind SCO socket: %s",
 				 strerror(errno));
 		return false;
 	}
 
 	if (!SetNonBlock(ssock, true)) {
 		close(ssock);
-		GetDi()->LogWarn("Set SCO socket nonblocking: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Set SCO socket nonblocking: %s",
 				 strerror(errno));
 		return false;
 	}
@@ -822,7 +925,10 @@ ScoConnect(void)
 		if ((errno != EINPROGRESS) && (errno != EAGAIN)) {
 			err = errno;
 			close(ssock);
-			GetDi()->LogWarn("Connect SCO socket: %s\n",
+			GetDi()->LogWarn(error,
+					 LIBHFP_ERROR_SUBSYS_BT,
+					 LIBHFP_ERROR_BT_SYSCALL,
+					 "Connect SCO socket: %s",
 					 strerror(err));
 			return false;
 		}
@@ -845,7 +951,7 @@ ScoAccept(int ssock)
 	if (!IsConnected()) {
 		return false;
 	}
-	if (IsConnectedVoice() || IsConnectingVoice()) {
+	if (IsConnectedAudio() || IsConnectingAudio()) {
 		return false;
 	}
 	m_sco_state = BVS_SocketConnecting;
@@ -860,6 +966,7 @@ ScoConnectNotify(SocketNotifier *notp, int fh)
 {
 	int sockerr;
 	socklen_t sl;
+	ErrorInfo error;
 
 	assert(m_sco_state == BVS_SocketConnecting);
 
@@ -876,30 +983,35 @@ ScoConnectNotify(SocketNotifier *notp, int fh)
 	sl = sizeof(sockerr);
 	if (getsockopt(m_sco_sock, SOL_SOCKET, SO_ERROR,
 		       &sockerr, &sl) < 0) {
-		GetDi()->LogWarn("Retrieve status of SCO connect: %s\n",
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Retrieve status of SCO connect: %s",
 				 strerror(errno));
-		__DisconnectSco(true, true, false);
+		__DisconnectSco(true, true, false, error);
 		return;
 	}
 
 	if (sockerr) {
-		GetDi()->LogWarn("SCO connect: %s\n", strerror(sockerr));
-		__DisconnectSco(true, true, false);
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "SCO connect: %s", strerror(sockerr));
+		__DisconnectSco(true, true, false, error);
 		return;
 	}
 
 	/* Retrieve the connection parameters */
-	if (!ScoGetParams(m_sco_sock)) {
+	if (!ScoGetParams(m_sco_sock, &error)) {
 		/* Both callbacks synchronous */
-		__DisconnectSco(true, true, false);
+		__DisconnectSco(true, true, false, error);
 		return;
 	}
 
 	BufOpen(m_sco_packet_samps, 2);
 
-	if (cb_NotifyVoiceConnection.Registered())
-		cb_NotifyVoiceConnection(this);
-
+	if (cb_NotifyAudioConnection.Registered())
+		cb_NotifyAudioConnection(this, 0);
 }
 
 void HfpSession::
@@ -908,16 +1020,16 @@ ScoDataNotify(SocketNotifier *notp, int fh)
 	int outq = 0;
 	assert(fh == m_sco_sock);
 	assert(notp == m_sco_not);
-	assert(IsConnectedVoice());
+	assert(IsConnectedAudio());
 
 	SndPushInput(true);
 
-	if (!IsConnectedVoice())
+	if (!IsConnectedAudio())
 		return;
 
 	if (m_sco_use_tiocoutq) {
 		if (ioctl(m_sco_sock, TIOCOUTQ, &outq)) {
-			GetDi()->LogWarn("SCO TIOCOUTQ: %s\n",
+			GetDi()->LogWarn("SCO TIOCOUTQ: %s",
 					 strerror(errno));
 			outq = m_hw_outq;
 		} else {
@@ -953,42 +1065,49 @@ ScoDataNotify(SocketNotifier *notp, int fh)
  */
 
 void HfpSession::
-SndHandleAbort(void)
+SndHandleAbort(ErrorInfo reason)
 {
+	ErrorInfo copy, *usenvs;
 	assert(m_sco_sock < 0);
 
+	usenvs = &reason;
+	if (m_sco_nas_pending && m_sco_nvs_pending) {
+		copy = reason;
+		usenvs = &copy;
+	}
+
 	BufClose();
-	if (m_sco_np_pending) {
-		m_sco_np_pending = false;
-		if (cb_NotifyPacket.Registered())
-			cb_NotifyPacket(this, NULL);
+	if (m_sco_nas_pending) {
+		m_sco_nas_pending = false;
+		if (cb_NotifyAsyncStop.Registered())
+			cb_NotifyAsyncStop(this, reason);
 	}
 	if (m_sco_nvs_pending) {
 		m_sco_nvs_pending = false;
-		if (cb_NotifyVoiceConnection.Registered())
-			cb_NotifyVoiceConnection(this);
+		if (cb_NotifyAudioConnection.Registered())
+			cb_NotifyAudioConnection(this, usenvs);
 	}
 }
 
 void HfpSession::
-__DisconnectSco(bool notifyvs, bool notifyp, bool async)
+__DisconnectSco(bool notifyvs, bool notifyp, bool async, ErrorInfo &error)
 {
 	bool new_abort = false;
 
 	if (m_sco_sock >= 0) {
-		assert(!m_abort);
-		assert(IsConnectingVoice() || IsConnectedVoice());
+		assert(!m_abort.IsSet());
+		assert(IsConnectingAudio() || IsConnectedAudio());
 		new_abort = true;
 
 		m_sco_nvs_pending = true;
-		m_sco_np_pending = true;
+		m_sco_nas_pending = true;
 
 		/*
-		 * Skip cb_NotifyPacket() if async audio handling
+		 * Skip cb_NotifyAsyncStop() if async audio handling
 		 * isn't enabled
 		 */
 		if (!SndIsAsyncStarted())
-			m_sco_np_pending = false;
+			m_sco_nas_pending = false;
 
 		SndAsyncStop();
 		assert(!m_sco_not);
@@ -1002,18 +1121,18 @@ __DisconnectSco(bool notifyvs, bool notifyp, bool async)
 	 * m_abort   -> Call to SndHandleAbort() is pending
 	 * new_abort -> State transition effected in this call
 	 */
-	if (m_abort || new_abort) {
+	if (m_abort.IsSet() || new_abort) {
 		if (!notifyvs)
 			m_sco_nvs_pending = false;
 		if (!notifyp)
-			m_sco_np_pending = false;
+			m_sco_nas_pending = false;
 
 		if (async)
 			/* This will set m_abort and schedule */
-			BufAbort(GetDi());
+			BufAbort(GetDi(), error);
 		else
 			/* This will invoke methods directly */
-			SndHandleAbort();
+			SndHandleAbort(error);
 	}
 }
 
@@ -1023,28 +1142,35 @@ __DisconnectSco(bool notifyvs, bool notifyp, bool async)
  */
 
 bool HfpSession::
-SndOpen(bool play, bool capture)
+SndOpen(bool play, bool capture, ErrorInfo *error)
 {
 	/* We only support full duplex operation */
-	if (!play || !capture)
-		return false;
-	return ScoConnect();
+	if (!play || !capture) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+				   "Device must stream in full duplex mode");
+	}
+	return ScoConnect(error);
 }
 
 void HfpSession::
 SndClose(void)
 {
+	ErrorInfo error;
+
 	/* No callbacks from this path */
-	__DisconnectSco(false, false, false);
+	__DisconnectSco(false, false, false, error);
 }
 
 void HfpSession::
 SndGetProps(SoundIoProps &props) const
 {
 	props.has_clock = true;
-	props.does_source = IsConnectedVoice();
-	props.does_sink = IsConnectedVoice();
+	props.does_source = IsConnectedAudio();
+	props.does_sink = IsConnectedAudio();
 	props.does_loop = false;
+	props.remove_on_exhaust = false;
 	props.outbuf_size = 0;
 }
 
@@ -1060,13 +1186,17 @@ SndGetFormat(SoundIoFormat &format) const
 }
 
 bool HfpSession::
-SndSetFormat(SoundIoFormat &format)
+SndSetFormat(SoundIoFormat &format, ErrorInfo *error)
 {
-	if (!IsConnectedVoice() ||
+	if (!IsConnectedAudio() ||
 	    (format.samplerate != 8000) ||
 	    (format.sampletype != SIO_PCM_S16_LE) ||
 	    (format.nchannels != 1) ||
 	    (format.packet_samps != m_sco_packet_samps)) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+				   "Device requires 8KHz, S16_LE, 1ch");
 		return false;
 	}
 	return true;
@@ -1080,11 +1210,11 @@ SndPushInput(bool nonblock)
 	ssize_t res;
 	int err;
 
-	if (!IsConnectedVoice()) { return; }
+	if (!IsConnectedAudio()) { return; }
 
 	if (m_sco_nonblock != nonblock) {
 		if (!SetNonBlock(m_sco_sock, nonblock)) {
-			GetDi()->LogWarn("SCO set nonblock failed\n");
+			GetDi()->LogWarn("SCO set nonblock failed");
 		}
 		m_sco_nonblock = nonblock;
 	}
@@ -1093,7 +1223,7 @@ SndPushInput(bool nonblock)
 		nsamples = 0;
 		m_input.GetUnfilled(buf, nsamples);
 		if (!nsamples) {
-			GetDi()->LogWarn("SCO input buffer is zero-length?\n");
+			GetDi()->LogWarn("SCO input buffer is zero-length?");
 			return;
 		}
 		res = read(m_sco_sock, buf, nsamples * 2);
@@ -1101,7 +1231,7 @@ SndPushInput(bool nonblock)
 			err = errno;
 			if ((err != EAGAIN) &&
 			    (err != ECONNRESET)) {
-				GetDi()->LogWarn("Read SCO data: %s\n",
+				GetDi()->LogWarn("Read SCO data: %s",
 						 strerror(err));
 			}
 			if (ReadErrorFatal(err)) {
@@ -1113,12 +1243,18 @@ SndPushInput(bool nonblock)
 			}
 		}
 		if (res == 0) {
+			ErrorInfo error;
+
+			error.Set(LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "SCO Connection reset");
+
 			/* Connection lost: both callbacks asynchronous */
-			__DisconnectSco(true, true, true);
+			__DisconnectSco(true, true, true, error);
 			return;
 		} else if (res != (ssize_t) (nsamples * 2)) {
 			GetDi()->LogWarn("SCO short read: expected:%d "
-					 "got:%zd\n", (nsamples*2), res);
+					 "got:%zd", (nsamples*2), res);
 		}
 
 		m_input.PutUnfilled(res / 2);
@@ -1149,11 +1285,11 @@ SndPushOutput(bool nonblock)
 	ssize_t res;
 	int err;
 
-	if (!IsConnectedVoice()) { return; }
+	if (!IsConnectedAudio()) { return; }
 
 	if (m_sco_nonblock != nonblock) {
 		if (!SetNonBlock(m_sco_sock, nonblock)) {
-			GetDi()->LogWarn("SCO set nonblock failed\n");
+			GetDi()->LogWarn("SCO set nonblock failed");
 		}
 		m_sco_nonblock = nonblock;
 	}
@@ -1168,18 +1304,25 @@ SndPushOutput(bool nonblock)
 		if (res < 0) {
 			err = errno;
 			if (err != EAGAIN) {
-				GetDi()->LogWarn("Write SCO data: %s\n",
+				GetDi()->LogWarn("Write SCO data: %s",
 						 strerror(err));
 			}
 			if (WriteErrorFatal(err)) {
+				ErrorInfo error;
+
+				error.Set(LIBHFP_ERROR_SUBSYS_BT,
+					  LIBHFP_ERROR_BT_SYSCALL,
+					  "Fatal SCO write error: %s",
+					  strerror(err));
+
 				/* Connection lost: both cbs asynchronous */
-				__DisconnectSco(true, true, true);
+				__DisconnectSco(true, true, true, error);
 			}
 			return;
 		}
 		if (res != (ssize_t) (nsamples * 2)) {
 			GetDi()->LogWarn("SCO short write: expected:%d "
-					 "got:%zd\n", (nsamples*2), res);
+					 "got:%zd", (nsamples*2), res);
 		}
 		m_output.Dequeue(res / 2);
 		if (!m_sco_use_tiocoutq)
@@ -1188,14 +1331,29 @@ SndPushOutput(bool nonblock)
 }
 
 bool HfpSession::
-SndAsyncStart(bool play, bool capture)
+SndAsyncStart(bool play, bool capture, ErrorInfo *error)
 {
-	if (!play || !capture) { return false; }
-	if (!IsConnectedVoice()) { return false; }
+	if (!play || !capture) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+				   "Device must stream in full duplex mode");
+		return false;
+	}
+	if (!IsConnectedAudio()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+				   "Not connected to audio gateway");
+		return false;
+	}
 	if (m_sco_not != NULL) { return true; }
 	m_sco_not = GetDi()->NewSocket(m_sco_sock, false);
-	if (!m_sco_not)
+	if (!m_sco_not) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	m_sco_not->Register(this, &HfpSession::ScoDataNotify);
 	m_hw_outq = 0;
@@ -1212,8 +1370,8 @@ SndAsyncStop(void)
 	BufStop();
 
 	/* Cancel a potential pending SoundIo abort notification */
-	if (m_abort)
-		m_sco_np_pending = false;
+	if (m_abort.IsSet())
+		m_sco_nas_pending = false;
 }
 
 
@@ -1249,11 +1407,11 @@ class AtCommand {
 protected:
 	HfpSession *GetSession(void) const { return m_sess; }
 	DispatchInterface *GetDi(void) const { return m_sess->GetDi(); }
-	void CompletePending(bool success, const char *info) {
-		HfpPendingCommand *cmdp =  m_pend;
+	void CompletePending(ErrorInfo *error, const char *info) {
+		HfpPendingCommand *cmdp = m_pend;
 		if (cmdp) {
 			m_pend = 0;
-			(*cmdp)(cmdp, success, info);
+			(*cmdp)(cmdp, error, info);
 		}
 	}
 public:
@@ -1261,10 +1419,14 @@ public:
 	virtual bool Response(const char *buf)
 		{ return false; };
 	virtual void OK(void) {
-		CompletePending(true, "Command Succeeded");
+		CompletePending(0, 0);
 	}
 	virtual void ERROR(void) {
-		CompletePending(false, "Command Failed");
+		ErrorInfo simple_error;
+		simple_error.Set(LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_COMMAND_REJECTED,
+				 "Command rejected by device");
+		CompletePending(&simple_error, 0);
 	}
 
 	void SetText(const char *cmd) {
@@ -1280,14 +1442,24 @@ public:
 		}
 	}
 
-	AtCommand(HfpSession *sessp, const char *cmd = NULL)
+	AtCommand(HfpSession *sessp, char *cmd = NULL)
 		: m_sess(sessp), m_pend(0), m_dynamic_cmdtext(false),
 		  m_command_text(NULL) {
 		if (cmd) { SetText(cmd); }
 	}
+	AtCommand(HfpSession *sessp, const char *cmd)
+		: m_sess(sessp), m_pend(0), m_dynamic_cmdtext(false),
+		  m_command_text(cmd) {
+	}
 	virtual ~AtCommand() {
+		ErrorInfo simple_error;
 		assert(m_links.Empty());
-		CompletePending(false, "Command Canceled");
+		if (m_pend) {
+			simple_error.Set(LIBHFP_ERROR_SUBSYS_BT,
+					 LIBHFP_ERROR_BT_COMMAND_ABORTED,
+					 "Command aborted");
+			CompletePending(&simple_error, 0);
+		}
 		SetText(NULL);
 	}
 };
@@ -1330,6 +1502,7 @@ HfpDataReady(SocketNotifier *notp, int fh)
 	size_t cons;
 	ssize_t ret;
 	int err;
+	ErrorInfo error;
 
 	assert(fh == m_rfcomm_sock);
 	assert(notp == m_rfcomm_not);
@@ -1347,7 +1520,10 @@ HfpDataReady(SocketNotifier *notp, int fh)
 
 	if (ret < 0) {
 		err = errno;
-		GetDi()->LogWarn("Read from RFCOMM socket: %s\n",
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Read from RFCOMM socket: %s",
 				 strerror(err));
 
 		/*
@@ -1355,14 +1531,17 @@ HfpDataReady(SocketNotifier *notp, int fh)
 		 * Others do not indicate voluntary loss of connection
 		 */
 		if (ReadErrorFatal(err)) {
-			__Disconnect(true, ReadErrorVoluntary(err));
+			__Disconnect(&error, ReadErrorVoluntary(err));
 		}
 		return;
 	}
 
 	if (ret == 0) {
 		/* Voluntary disconnection? */
-		__Disconnect(true, true);
+		error.Set(LIBHFP_ERROR_SUBSYS_BT,
+			  LIBHFP_ERROR_BT_SYSCALL,
+			  "Connection closed by device");
+		__Disconnect(&error, true);
 		return;
 	}
 
@@ -1381,8 +1560,12 @@ HfpDataReady(SocketNotifier *notp, int fh)
 			/* Don't tolerate lines that are too long */
 			if ((m_rsp_start + m_rsp_len) == sizeof(m_rsp_buf)) {
 				if (m_rsp_start == 0) {
-					GetDi()->LogWarn("Line is too long\n");
-					__Disconnect(true);
+					GetDi()->LogWarn(&error,
+					 LIBHFP_ERROR_SUBSYS_BT,
+					 LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
+							 "Device sent line "
+							 "that is too long");
+					__Disconnect(&error);
 					return;
 				}
 
@@ -1432,7 +1615,7 @@ HfpConsume(char *buf, size_t len)
 		if (IsNL(buf[pos])) {
 			buf[pos] = '\0';
 
-			GetDi()->LogDebug(">> %s\n", buf);
+			GetDi()->LogDebug(">> %s", buf);
 
 			/* Do we have a waiting command? */
 			if (!m_commands.Empty()) {
@@ -1709,7 +1892,7 @@ ResponseDefault(char *buf)
 		while (buf[0] && IsWS(buf[0])) { buf++; }
 		if (!buf[0]) {
 			/* Unparseable output? */
-			GetDi()->LogWarn("Parse error on CIEV code\n");
+			GetDi()->LogWarn("Parse error on CIEV code");
 			return;
 		}
 
@@ -1717,7 +1900,7 @@ ResponseDefault(char *buf)
 		while (buf[0] && (buf[0] != ',')) { buf++; }
 		if (!buf[0] || !buf[1]) {
 			/* Unparseable output? */
-			GetDi()->LogWarn("Parse error on CIEV code\n");
+			GetDi()->LogWarn("Parse error on CIEV code");
 			return;
 		}
 		buf++;
@@ -1734,7 +1917,7 @@ ResponseDefault(char *buf)
 		/* Line identification for incoming call */
 		phnum = GsmClipPhoneNumber::Parse(buf + 6);
 		if (!phnum)
-			GetDi()->LogWarn("Parse error on CLIP\n");
+			GetDi()->LogWarn("Parse error on CLIP");
 		UpdateCallSetup(1, 1, phnum, m_timeout_ring);
 		delete phnum;
 	}
@@ -1743,7 +1926,7 @@ ResponseDefault(char *buf)
 		/* Call waiting + line identification for call waiting */
 		phnum = GsmClipPhoneNumber::ParseCcwa(buf + 6);
 		if (!phnum)
-			GetDi()->LogWarn("Parse error on CCWA\n");
+			GetDi()->LogWarn("Parse error on CCWA");
 		UpdateCallSetup(1, 2, phnum, m_timeout_ring_ccwa);
 	}
 }
@@ -1758,7 +1941,7 @@ ResponseDefault(char *buf)
  */
 
 void HfpSession::
-DeleteFirstCommand(void)
+DeleteFirstCommand(bool do_start)
 {
 	AtCommand *cmd;
 
@@ -1767,82 +1950,141 @@ DeleteFirstCommand(void)
 	cmd->m_links.Unlink();
 	delete cmd;
 
-	if (!m_commands.Empty())
-		StartCommand();
+	if (do_start && !m_commands.Empty())
+		(void) StartCommand(0);
 }
 
-void HfpSession::
-AppendCommand(AtCommand *cmdp)
+bool HfpSession::
+AppendCommand(AtCommand *cmdp, ErrorInfo *error)
 {
 	bool was_empty;
 
+	if (!cmdp) {
+		GetDi()->LogWarn("Error allocating AT command(s)");
+		if (error)
+			error->SetNoMem();
+		return false;
+	}
+
 	if (!IsRfcommConnected()) {
 		delete cmdp;
-		return;
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_NOT_CONNECTED,
+				   "Device is not connected");
+		return false;
 	}
 
 	was_empty = m_commands.Empty();
 	m_commands.AppendItem(cmdp->m_links);
 
-	if (was_empty)
-		StartCommand();
+	if (!was_empty)
+		return true;
+	return StartCommand(error);
 }
 
 HfpPendingCommand *HfpSession::
-PendingCommand(AtCommand *cmdp)
+PendingCommand(AtCommand *cmdp, ErrorInfo *error)
 {
 	HfpPendingCommand *pendp;
 
-	if (!IsConnected()) {
-		delete cmdp;
+	if (!cmdp) {
+		if (error)
+			error->SetNoMem();
 		return 0;
 	}
 
-	if (!cmdp)
+	if (!IsConnected()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_NOT_CONNECTED,
+				   "Device is not connected");
+		delete cmdp;
 		return 0;
+	}
 
 	pendp = new HfpPendingCommandImpl(cmdp);
 	if (!pendp) {
 		delete cmdp;
+		if (error)
+			error->SetNoMem();
 		return 0;
 	}
 
-	AppendCommand(cmdp);
+	if (!AppendCommand(cmdp, error)) {
+		delete pendp;
+		return 0;
+	}
+
 	return pendp;
 }
 
-void HfpSession::
-StartCommand(void)
+bool HfpSession::
+StartCommand(ErrorInfo *error)
 {
 	AtCommand *cmdp;
 	int cl, rl;
 	int err;
+	ErrorInfo local_error;
+	char stackbuf[64];
+	StringBuffer sb(stackbuf, sizeof(stackbuf));
 
-	if (!IsRfcommConnected() || m_commands.Empty())
-		return;
+	if (!IsRfcommConnected()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_NOT_CONNECTED,
+				   "Device is not connected");
+		return false;
+	}
+
+	if (m_commands.Empty())
+		return true;
 
 	cmdp = GetContainer(m_commands.next, AtCommand, m_links);
 
 	GetDi()->LogDebug("<< %s", cmdp->m_command_text);
 
-	cl = strlen(cmdp->m_command_text);
-	rl = send(m_rfcomm_sock, cmdp->m_command_text, cl, MSG_NOSIGNAL);
+	if (!sb.AppendFmt("%s\r\n", cmdp->m_command_text)) {
+		if (error)
+			error->SetNoMem();
+		return false;
+	}
+
+	cl = strlen(sb.Contents());
+	rl = send(m_rfcomm_sock, sb.Contents(), cl, MSG_NOSIGNAL);
 
 	if (rl < 0) {
 		err = errno;
 		/* Problems!! */
-		GetDi()->LogDebug("Write to RFCOMM socket: %s\n",
+		GetDi()->LogDebug(&local_error,
+				  LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "Write to RFCOMM socket: %s",
 				  strerror(err));
-		__Disconnect(true, ReadErrorVoluntary(err));
+		if (error)
+			*error = local_error;
+
+		__Disconnect(&local_error, ReadErrorVoluntary(err));
+
+		return false;
 	}
 
-	else if (rl != cl) {
+	if (rl != cl) {
 		/* Short write!? */
-		GetDi()->LogWarn("Short write: expected:%d sent:%d, "
-				 "command \"%s\"\n",
+		GetDi()->LogWarn(&local_error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Short write: expected:%d sent:%d, "
+				 "command \"%s\"",
 				 cl, rl, cmdp->m_command_text);
-		__Disconnect(true);
+		if (error)
+			*error = local_error;
+
+		__Disconnect(&local_error);
+		return false;
 	}
+
+	return true;
 }
 
 bool HfpSession::
@@ -1883,14 +2125,16 @@ SetSupportedHoldModes(const char *hold_mode_list)
 {
 	char *alloc, *modes, *tok, *rend, *rex, *save;
 	int st, end;
+	ErrorInfo error;
 
 	m_chld_0 = m_chld_1 = m_chld_1x = m_chld_2 = m_chld_2x = m_chld_3 =
 		m_chld_4 = false;
 
 	alloc = strdup(hold_mode_list);
 	if (!alloc) {
-		GetDi()->LogWarn("Allocation failure in %s\n", __FUNCTION__);
-		__Disconnect(true, false);
+		GetDi()->LogWarn("Allocation failure in %s", __FUNCTION__);
+		error.SetNoMem();
+		__Disconnect(&error, false);
 		return;
 	}
 
@@ -1936,7 +2180,7 @@ SetSupportedHoldModes(const char *hold_mode_list)
 		tok = strtok_r(0, ",", &save);
 	}
 
-	GetDi()->LogDebug("Hold modes:%s%s%s%s%s%s%s\n",
+	GetDi()->LogDebug("Hold modes:%s%s%s%s%s%s%s",
 			  m_chld_0 ? " 0" : "",
 			  m_chld_1 ? " 1" : "",
 			  m_chld_1x ? " 1x" : "",
@@ -1949,7 +2193,7 @@ SetSupportedHoldModes(const char *hold_mode_list)
 	return;
 
 parsefailed:
-	GetDi()->LogWarn("AG sent unrecognized response to CHLD=?: \"%s\"\n",
+	GetDi()->LogWarn("AG sent unrecognized response to CHLD=?: \"%s\"",
 			 hold_mode_list);
 	free(alloc);
 }
@@ -1957,7 +2201,7 @@ parsefailed:
 /* Cellular Hold Command Test */
 class ChldTCommand : public AtCommand {
 public:
-	ChldTCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CHLD=?\r\n") {}
+	ChldTCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CHLD=?") {}
 	bool Response(const char *buf) {
 		if (!strncmp("+CHLD:", buf, 6)) {
 			int pos = 6;
@@ -1976,7 +2220,7 @@ public:
 	BrsfCommand(HfpSession *sessp, int caps)
 		: AtCommand(sessp), m_brsf(0) {
 		char tmpbuf[32];
-		sprintf(tmpbuf, "AT+BRSF=%d\r\n", caps);
+		sprintf(tmpbuf, "AT+BRSF=%d", caps);
 		SetText(tmpbuf);
 	}
 
@@ -1994,14 +2238,8 @@ public:
 	void OK(void) {
 		GetSession()->SetSupportedFeatures(m_brsf);
 		if (GetSession()->FeatureThreeWayCalling()) {
-			AtCommand *cmdp;
-			cmdp = new ChldTCommand(GetSession());
-			if (!cmdp) {
-				GetDi()->LogWarn("Could not allocate "
-						 "ChldTCommand\n");
-			} else {
-				GetSession()->AppendCommand(cmdp);
-			}
+			(void) GetSession()->AppendCommand(
+				new ChldTCommand(GetSession()), 0);
 		}
 		AtCommand::OK();
 	}
@@ -2019,7 +2257,7 @@ public:
 /* Cellular Indicator Test */
 class CindTCommand : public AtCommand {
 public:
-	CindTCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CIND=?\r\n") {}
+	CindTCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CIND=?") {}
 
 	bool Response(const char *buf) {
 		if (!strncmp(buf, "+CIND:", 6)) {
@@ -2077,7 +2315,7 @@ public:
 
 class CindRCommand : public AtCommand {
 public:
-	CindRCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CIND?\r\n") {}
+	CindRCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CIND?") {}
 
 	bool Response(const char *buf) {
 		if (!strncmp(buf, "+CIND:", 6)) {
@@ -2219,7 +2457,7 @@ UpdateIndicator(int indnum, const char *buf)
 
 	if (!indnum) {
 		/* We don't know what to do with indicator 0 */
-		GetDi()->LogWarn("Got update for indicator 0: \"%s\"\n", buf);
+		GetDi()->LogWarn("Got update for indicator 0: \"%s\"", buf);
 		return;
 	}
 
@@ -2276,7 +2514,7 @@ UpdateIndicator(int indnum, const char *buf)
 
 	if ((indnum >= m_inum_names_len) ||
 	    (m_inum_names[indnum] == NULL)) {
-		GetDi()->LogWarn("Undefined indicator %d\n", indnum);
+		GetDi()->LogWarn("Undefined indicator %d", indnum);
 		return;
 	}
 	if (cb_NotifyIndicator.Registered())
@@ -2310,7 +2548,7 @@ UpdateCallSetup(int val, int ring, GsmClipPhoneNumber *clip, int timeout_ms)
 	GsmClipPhoneNumber *cpy = 0;
 
 /*
-	GetDi()->LogDebug("UpdateCallSetup: v:%d r:%d clip:\"%s\", to:%d\n",
+	GetDi()->LogDebug("UpdateCallSetup: v:%d r:%d clip:\"%s\", to:%d",
 			  val, ring, clip
 			  ? (clip->number ? clip->number : "[PRIV]")
 			  : "[NONE]", timeout_ms);
@@ -2377,9 +2615,9 @@ UpdateCallSetup(int val, int ring, GsmClipPhoneNumber *clip, int timeout_ms)
 class CmerCommand : public AtCommand {
 public:
 	CmerCommand(HfpSession *sessp)
-		: AtCommand(sessp, "AT+CMER=3,0,0,1\r\n") {}
+		: AtCommand(sessp, "AT+CMER=3,0,0,1") {}
 	void ERROR(void) {
-		GetDi()->LogWarn("Could not enable AG event reporting\n");
+		GetDi()->LogWarn("Could not enable AG event reporting");
 		AtCommand::ERROR();
 	}
 };
@@ -2387,7 +2625,7 @@ public:
 /* Cellular Line Identification */
 class ClipCommand : public AtCommand {
 public:
-	ClipCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CLIP=1\r\n") {}
+	ClipCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CLIP=1") {}
 	void OK(void) {
 		GetSession()->m_clip_enabled = true;
 		AtCommand::OK();
@@ -2397,7 +2635,7 @@ public:
 /* Cellular Call Waiting */
 class CcwaCommand : public AtCommand {
 public:
-	CcwaCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CCWA=1\r\n") {}
+	CcwaCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CCWA=1") {}
 	void OK(void) {
 		GetSession()->m_ccwa_enabled = true;
 		AtCommand::OK();
@@ -2406,9 +2644,8 @@ public:
 
 
 bool HfpSession::
-HfpHandshake(void)
+HfpHandshake(ErrorInfo *error)
 {
-	AtCommand *cmdp;
 	assert(m_conn_state == BTS_Handshaking);
 
 	/* This gets cleaned up by RfcommSession */
@@ -2416,45 +2653,37 @@ HfpHandshake(void)
 	m_rfcomm_not = GetDi()->NewSocket(m_rfcomm_sock, false);
 	m_rfcomm_not->Register(this, &HfpSession::HfpDataReady);
 
-	/*
-	 * Throw in the basic set of handshaking commands,
-	 * with absolutely no regard for memory allocation failures!
-	 */
-	if (!(cmdp = new BrsfCommand(this, GetService()->m_brsf_my_caps)))
-		goto failed;
-	AppendCommand(cmdp);
-	if (!(cmdp = new CindTCommand(this)))
-		goto failed;
-	AppendCommand(cmdp);
-	if (!(cmdp = new CmerCommand(this)))
-		goto failed;
-	AppendCommand(cmdp);
-	if (!(cmdp = new ClipCommand(this)))
-		goto failed;
-	AppendCommand(cmdp);
-	if (!(cmdp = new CcwaCommand(this)))
-		goto failed;
-	AppendCommand(cmdp);
-	return true;
+	if (!AppendCommand(new BrsfCommand(this, GetService()->m_brsf_my_caps),
+			   error) ||
+	    !AppendCommand(new CindTCommand(this), error) ||
+	    !AppendCommand(new CmerCommand(this), error) ||
+	    !AppendCommand(new ClipCommand(this), error) ||
+	    !AppendCommand(new CcwaCommand(this), error))
+		return false;
 
-failed:
-	GetDi()->LogWarn("Error allocating AT command(s)\n");
-	return false;
+	return true;
 }
 
 void HfpSession::
 HfpHandshakeDone(void)
 {
+	ErrorInfo error;
+
 	assert(m_conn_state == BTS_Handshaking);
 
 	/* Finished exclusive handshaking */
 	m_conn_state = BTS_Connected;
 
 	/* Query current state */
-	AppendCommand(new CindRCommand(this));
+	if (!AppendCommand(new CindRCommand(this), &error)) {
+		__Disconnect(&error, false);
+		return;
+	}
+
+	assert(IsConnected());
 
 	if (cb_NotifyConnection.Registered())
-		cb_NotifyConnection(this);
+		cb_NotifyConnection(this, 0);
 }
 
 
@@ -2463,30 +2692,30 @@ HfpHandshakeDone(void)
  */
 
 HfpPendingCommand *HfpSession::
-CmdSetVoiceRecog(bool enabled)
+CmdSetVoiceRecog(bool enabled, ErrorInfo *error)
 {
 	char buf[32];
-	sprintf(buf, "AT+BVRA=%d\r\n", enabled ? 1 : 0);
-	return PendingCommand(new AtCommand(this, buf));
+	sprintf(buf, "AT+BVRA=%d", enabled ? 1 : 0);
+	return PendingCommand(new AtCommand(this, buf), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdSetEcnr(bool enabled)
+CmdSetEcnr(bool enabled, ErrorInfo *error)
 {
 	char buf[32];
-	sprintf(buf, "AT+NREC=%d\r\n", enabled ? 1 : 0);
-	return PendingCommand(new AtCommand(this, buf));
+	sprintf(buf, "AT+NREC=%d", enabled ? 1 : 0);
+	return PendingCommand(new AtCommand(this, buf), error);
 }
 
 class AtdCommand : public AtCommand {
 public:
 	AtdCommand(HfpSession *sessp, const char *phnum) : AtCommand(sessp) {
 		char buf[64];
-		sprintf(buf, "ATD%s;\r\n", phnum);
+		sprintf(buf, "ATD%s;", phnum);
 		SetText(buf);
 	}
 	/* Redial mode - Bluetooth Last Dialed Number */
-	AtdCommand(HfpSession *sessp) : AtCommand(sessp, "AT+BLDN\r\n") {
+	AtdCommand(HfpSession *sessp) : AtCommand(sessp, "AT+BLDN") {
 	}
 	void OK(void) {
 		if (!GetSession()->FeatureIndCallSetup() &&
@@ -2500,6 +2729,8 @@ public:
 
 class AtCommandClearCallSetup : public AtCommand {
 public:
+	AtCommandClearCallSetup(HfpSession *sessp, char *cmd)
+		: AtCommand(sessp, cmd) {}
 	AtCommandClearCallSetup(HfpSession *sessp, const char *cmd)
 		: AtCommand(sessp, cmd) {}
 	void OK(void) {
@@ -2512,141 +2743,160 @@ public:
 };
 
 HfpPendingCommand *HfpSession::
-CmdAnswer(void)
+CmdAnswer(ErrorInfo *error)
 {
-	return PendingCommand(new AtCommandClearCallSetup(this, "ATA\r\n"));
+	return PendingCommand(new AtCommandClearCallSetup(this, "ATA"),
+			      error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdHangUp(void)
+CmdHangUp(ErrorInfo *error)
 {
-	return PendingCommand(new AtCommandClearCallSetup(this,"AT+CHUP\r\n"));
+	return PendingCommand(new AtCommandClearCallSetup(this,"AT+CHUP"),
+			      error);
 }
 
 bool HfpSession::
-ValidPhoneNumChar(char c)
+ValidPhoneNumChar(char c, ErrorInfo *error)
 {
-	return (isdigit(c) || (c == '#') || (c == '*') ||
-		(c == 'w') || (c == 'W'));
+	if (isdigit(c) || (c == '#') || (c == '*') ||
+	    (c == 'w') || (c == 'W'))
+		return true;
+
+	if (error)
+		error->Set(LIBHFP_ERROR_SUBSYS_EVENTS,
+			   LIBHFP_ERROR_EVENTS_BAD_PARAMETER,
+			   "Invalid char in phone number");
+	return false;
 }
 
 bool HfpSession::
-ValidPhoneNum(const char *ph)
+ValidPhoneNum(const char *ph, ErrorInfo *error)
 {
 	int len = 0;
 	if (!ph)
 		return false;
+	if (*ph == '+') {
+		ph++;
+		len++;
+	}
 	while (*ph) {
-		if (!ValidPhoneNumChar(*ph))
+		if (!ValidPhoneNumChar(*ph, error))
 			return false;
 		ph++;
-		if (++len > PHONENUM_MAX_LEN)
+		if (++len > PHONENUM_MAX_LEN) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_EVENTS,
+					   LIBHFP_ERROR_EVENTS_BAD_PARAMETER,
+					   "Phone number is too long");
 			return false;
+		}
 	}
 	return true;
 }
 
 HfpPendingCommand *HfpSession::
-CmdDial(const char *phnum)
+CmdDial(const char *phnum, ErrorInfo *error)
 {
-	if (!ValidPhoneNum(phnum)) { return 0; }
-	return PendingCommand(new AtdCommand(this, phnum));
+	if (!ValidPhoneNum(phnum, error)) { return 0; }
+	return PendingCommand(new AtdCommand(this, phnum), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdRedial(void)
+CmdRedial(ErrorInfo *error)
 {
-	return PendingCommand(new AtdCommand(this));
+	return PendingCommand(new AtdCommand(this), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdSendDtmf(char code)
+CmdSendDtmf(char code, ErrorInfo *error)
 {
 	char buf[32];
 
-	if (!ValidPhoneNumChar(code)) {
-		GetDi()->LogWarn("CmdSendDtmf: Invalid DTMF code %d\n", code);
+	if (!ValidPhoneNumChar(code, error)) {
+		GetDi()->LogWarn("CmdSendDtmf: Invalid DTMF code %d", code);
 		return 0;
 	}
-	sprintf(buf, "AT+VTS=%c\r\n", code);
-	return PendingCommand(new AtCommand(this, buf));
+	sprintf(buf, "AT+VTS=%c", code);
+	return PendingCommand(new AtCommand(this, buf), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallDropHeldUdub(void)
+CmdCallDropHeldUdub(ErrorInfo *error)
 {
 	if (!m_chld_0) {
 		GetDi()->LogWarn("Requested CmdCallDropHeldUdub, "
-				 "but AG does not claim support\n");
+				 "but AG does not claim support");
 	}
 	return PendingCommand(new AtCommandClearCallSetup(this,
-							  "AT+CHLD=0\r\n"));
+							  "AT+CHLD=0"),
+			      error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallSwapDropActive(void)
+CmdCallSwapDropActive(ErrorInfo *error)
 {
 	if (!m_chld_1) {
 		GetDi()->LogWarn("Requested CmdCallSwapDropActive, "
-				 "but AG does not claim support\n");
+				 "but AG does not claim support");
 	}
-	return PendingCommand(new AtCommand(this, "AT+CHLD=1\r\n"));
+	return PendingCommand(new AtCommand(this, "AT+CHLD=1"), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallDropActive(unsigned int actnum)
+CmdCallDropActive(unsigned int actnum, ErrorInfo *error)
 {
 	char buf[32];
 
 	if (!m_chld_1x) {
 		GetDi()->LogWarn("Requested CmdCallDropActive(%d), "
-				 "but AG does not claim support\n", actnum);
+				 "but AG does not claim support", actnum);
 	}
-	sprintf(buf, "AT+CHLD=1%d\r\n", actnum);
-	return PendingCommand(new AtCommand(this, buf));
+	sprintf(buf, "AT+CHLD=1%d", actnum);
+	return PendingCommand(new AtCommand(this, buf), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallSwapHoldActive(void)
+CmdCallSwapHoldActive(ErrorInfo *error)
 {
 	if (!m_chld_2) {
 		GetDi()->LogWarn("Requested CmdCallSwapHoldActive, "
-				 "but AG does not claim support\n");
+				 "but AG does not claim support");
 	}
-	return PendingCommand(new AtCommand(this, "AT+CHLD=2\r\n"));
+	return PendingCommand(new AtCommand(this, "AT+CHLD=2"), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallPrivateConsult(unsigned int callnum)
+CmdCallPrivateConsult(unsigned int callnum, ErrorInfo *error)
 {
 	char buf[32];
 
 	if (!m_chld_2x) {
 		GetDi()->LogWarn("Requested CmdCallPrivateConsult(%d), "
-				 "but AG does not claim support\n", callnum);
+				 "but AG does not claim support", callnum);
 	}
-	sprintf(buf, "AT+CHLD=2%d\r\n", callnum);
-	return PendingCommand(new AtCommand(this, buf));
+	sprintf(buf, "AT+CHLD=2%d", callnum);
+	return PendingCommand(new AtCommand(this, buf), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallLink(void)
+CmdCallLink(ErrorInfo *error)
 {
 	if (!m_chld_3) {
 		GetDi()->LogWarn("Requested CmdCallLink, "
-				 "but AG does not claim support\n");
+				 "but AG does not claim support");
 	}
-	return PendingCommand(new AtCommand(this, "AT+CHLD=3\r\n"));
+	return PendingCommand(new AtCommand(this, "AT+CHLD=3"), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallTransfer(void)
+CmdCallTransfer(ErrorInfo *error)
 {
 	if (!m_chld_4) {
 		GetDi()->LogWarn("Requested CmdCallTransfer, "
-				 "but AG does not claim support\n");
+				 "but AG does not claim support");
 	}
-	return PendingCommand(new AtCommand(this, "AT+CHLD=4\r\n"));
+	return PendingCommand(new AtCommand(this, "AT+CHLD=4"), error);
 }
 
 } /* namespace libhfp */

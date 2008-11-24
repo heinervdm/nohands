@@ -36,11 +36,20 @@ class SoundIoObj;
 class ConfigHandler;
 
 
+class HfpdExportObject : public DbusExportObject {
+public:
+	HfpdExportObject(const char *name, const DbusInterface *iface_tbl)
+		: DbusExportObject(name, iface_tbl) {}
+
+	const char *DbusErrorName(libhfp::ErrorInfo &error) const;
+	bool SendReplyErrorInfo(DBusMessage *msgp, libhfp::ErrorInfo &error);
+};
+
 /*
  * AudioGateway is the underlying class to /net/sf/nohands/hfpd/<bdaddr>
  */
 
-class AudioGateway : public DbusExportObject {
+class AudioGateway : public HfpdExportObject {
 	friend class HandsFree;
 	friend class SoundIoObj;
 
@@ -48,15 +57,15 @@ class AudioGateway : public DbusExportObject {
 	libhfp::HfpSession		*m_sess;
 	char				*m_name_free;
 	bool				m_known;
-	bool				m_unbind_on_voice_close;
+	bool				m_unbind_on_audio_close;
 
 	AudioGatewayState		m_state;
 	AudioGatewayCallState		m_call_state;
-	AudioGatewayVoiceState		m_voice_state;
+	AudioGatewayAudioState		m_audio_state;
 
 	HandsFree			*m_hf;
 	DbusPeerDisconnectNotifier	*m_owner;
-	SoundIoObj			*m_voice_bind;
+	SoundIoObj			*m_audio_bind;
 
 	void OwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp);
 
@@ -64,11 +73,14 @@ class AudioGateway : public DbusExportObject {
 
 	bool UpdateState(AudioGatewayState st);
 	bool UpdateCallState(AudioGatewayCallState st);
-	bool UpdateVoiceState(AudioGatewayVoiceState st);
+	bool UpdateAudioState(AudioGatewayAudioState st);
 
 	void DoDisconnect(void);
 
-	bool DoPendingCommand(DBusMessage *msgp,
+	bool CreatePendingCommand(DBusMessage *msgp,
+				  class AgPendingCommand *&agpendp);
+	bool DoPendingCommand(class AgPendingCommand *agpendp,
+			      libhfp::ErrorInfo &error,
 			      libhfp::HfpPendingCommand *cmdp);
 
 public:
@@ -77,7 +89,7 @@ public:
 
 	AudioGatewayState State(void);
 	AudioGatewayCallState CallState(void);
-	AudioGatewayVoiceState VoiceState(void);
+	AudioGatewayAudioState AudioState(void);
 
 	libhfp::SoundIo *GetSoundIo(void) const { return m_sess; }
 	void Get(void) { m_sess->Get(); }
@@ -92,19 +104,21 @@ public:
 	 * NotifyXxx are callbacks invoked by HfpSession
 	 * in response to Bluetooth events.
 	 */
-	void NotifyConnection(libhfp::HfpSession *sessp);
+	void NotifyConnection(libhfp::HfpSession *sessp,
+			      libhfp::ErrorInfo *reason);
 	void NotifyCall(libhfp::HfpSession *sessp, bool act, bool waiting,
 			bool ring);
 	void NotifyIndicator(libhfp::HfpSession *sessp, const char *indname,
 			     int val);
-	void NotifyVoiceConnection(libhfp::HfpSession *sessp);
+	void NotifyAudioConnection(libhfp::HfpSession *sessp,
+				   libhfp::ErrorInfo *reason);
 	void NotifyDestroy(libhfp::BtManaged *sessp);
 	void NameResolved(void);
 
 	/* D-Bus method handler methods */
 	bool Connect(DBusMessage *msgp);
 	bool Disconnect(DBusMessage *msgp);
-	bool CloseVoice(DBusMessage *msgp);
+	bool CloseAudio(DBusMessage *msgp);
 	bool Dial(DBusMessage *msgp);
 	bool Redial(DBusMessage *msgp);
 	bool HangUp(DBusMessage *msgp);
@@ -119,7 +133,7 @@ public:
 	/* D-Bus Property related methods */
 	bool GetState(DBusMessage *msgp, unsigned char &val);
 	bool GetCallState(DBusMessage *msgp, unsigned char &val);
-	bool GetVoiceState(DBusMessage *msgp, unsigned char &val);
+	bool GetAudioState(DBusMessage *msgp, unsigned char &val);
 	bool GetClaimed(DBusMessage *msgp, bool &val);
 	bool GetVoluntaryDisconnect(DBusMessage *msgp, bool &val);
 	bool GetAddress(DBusMessage *msgp, const DbusProperty *propp,
@@ -139,7 +153,7 @@ public:
 static const DbusMethod g_AudioGateway_methods[] = {
 	DbusMethodEntry(AudioGateway, Connect, "", ""),
 	DbusMethodEntry(AudioGateway, Disconnect, "", ""),
-	DbusMethodEntry(AudioGateway, CloseVoice, "", ""),
+	DbusMethodEntry(AudioGateway, CloseAudio, "", ""),
 	DbusMethodEntry(AudioGateway, Dial, "s", ""),
 	DbusMethodEntry(AudioGateway, Redial, "", ""),
 	DbusMethodEntry(AudioGateway, HangUp, "", ""),
@@ -156,7 +170,7 @@ static const DbusMethod g_AudioGateway_methods[] = {
 static const DbusMethod g_AudioGateway_signals[] = {
 	DbusSignalEntry(StateChanged, "yb"),
 	DbusSignalEntry(CallStateChanged, "y"),
-	DbusSignalEntry(VoiceStateChanged, "y"),
+	DbusSignalEntry(AudioStateChanged, "y"),
 	DbusSignalEntry(ClaimStateChanged, "b"),
 	DbusSignalEntry(Ring, "ss"),
 	DbusSignalEntry(IndicatorChanged, "si"),
@@ -173,8 +187,8 @@ static const DbusProperty g_AudioGateway_properties[] = {
 				      GetState),
 	DbusPropertyMarshallImmutable(unsigned char, CallState, AudioGateway,
 				      GetCallState),
-	DbusPropertyMarshallImmutable(unsigned char, VoiceState, AudioGateway,
-				      GetVoiceState),
+	DbusPropertyMarshallImmutable(unsigned char, AudioState, AudioGateway,
+				      GetAudioState),
 	DbusPropertyMarshallImmutable(bool, Claimed, AudioGateway,
 				      GetClaimed),
 	DbusPropertyMarshallImmutable(bool, VoluntaryDisconnect, AudioGateway,
@@ -206,7 +220,7 @@ const DbusInterface AudioGateway::s_ifaces[] = {
  * HandsFree is the underlying class to /net/sf/nohands/hfpd
  */
 
-class HandsFree : public DbusExportObject {
+class HandsFree : public HfpdExportObject {
 public:
 	static const DbusInterface	s_ifaces[];
 
@@ -218,14 +232,12 @@ public:
 	libhfp::HfpService		*m_hfp;
 
 	SoundIoObj			*m_sound;
+	bool				m_inquiry_state;
 	bool				m_accept_unknown;
 	bool				m_voice_persist;
 	bool				m_voice_autoconnect;
 
 	ConfigHandler			*m_config;
-
-	class StringBuffer		*m_error_alt;
-	bool				m_error_fatal;
 
 	HandsFree(libhfp::DispatchInterface *dip, DbusSession *dbusp);
 	~HandsFree();
@@ -234,7 +246,7 @@ public:
 
 	bool Init(const char *cfgfile);
 	void Cleanup(void);
-	bool SaveConfig(bool force = false);
+	bool SaveConfig(libhfp::ErrorInfo *error = 0, bool force = false);
 	void LoadDeviceConfig(void);
 
 	void LogMessage(libhfp::DispatchInterface::logtype_t lt,
@@ -255,9 +267,11 @@ public:
 	void DoStarted(void);
 	void DoStopped(void);
 
-	void NotifySystemState(void);
-	void NotifyInquiryResult(libhfp::BtDevice *devp, int error);
-	void NotifyNameResolved(libhfp::BtDevice *devp, const char *name);
+	void NotifySystemState(libhfp::ErrorInfo *reason);
+	void NotifyInquiryResult(libhfp::BtDevice *devp,
+				 libhfp::ErrorInfo *error);
+	void NotifyNameResolved(libhfp::BtDevice *devp, const char *name,
+				libhfp::ErrorInfo *reason);
 
 	/* D-Bus method handler methods */
 	bool SaveSettings(DBusMessage *msgp);
@@ -371,7 +385,7 @@ const DbusInterface HandsFree::s_ifaces[] = {
  * SoundIoObj is the underlying class to /net/sf/nohands/hfpd/soundio
  */
 
-class SoundIoObj : public DbusExportObject {
+class SoundIoObj : public HfpdExportObject {
 public:
 	static const DbusInterface	s_ifaces[];
 
@@ -396,23 +410,31 @@ public:
 	SoundIoObj(HandsFree *hfp);
 	~SoundIoObj();
 
-	bool SaveConfig(bool force = false);
+	bool SaveConfig(libhfp::ErrorInfo *error = 0, bool force = false)
+		{ return m_hf->SaveConfig(error, force); }
 
 	bool Init(DbusSession *dbusp);
 	void Cleanup(void);
-	bool UpdateState(SoundIoState st);
+	bool UpdateState(SoundIoState st, libhfp::ErrorInfo *reason = 0);
 
 	/*
 	 * These internal methods connect the SoundIoManager to a
 	 * secondary endpoint and start it.
 	 */
-	void EpRelease(SoundIoState st = HFPD_SIO_INVALID);
-	bool EpAudioGateway(AudioGateway *agp, bool can_connect);
-	bool EpAudioGatewayComplete(AudioGateway *agp);
-	bool EpLoopback(void);
-	bool EpMembuf(bool in, bool out, libhfp::SoundIoFilter *fltp);
+	void EpRelease(SoundIoState st = HFPD_SIO_INVALID,
+		       libhfp::ErrorInfo *reason = 0);
+	bool EpAudioGateway(AudioGateway *agp, bool can_connect,
+			    libhfp::ErrorInfo *error);
+	bool EpAudioGatewayComplete(AudioGateway *agp,
+				    libhfp::ErrorInfo *error);
+	bool EpLoopback(libhfp::ErrorInfo *error);
+	bool EpMembuf(bool in, bool out, libhfp::SoundIoFilter *fltp,
+		      libhfp::ErrorInfo *error);
 
-	void NotifySoundStop(libhfp::SoundIoManager *mgrp);
+	void NotifySoundStop(libhfp::SoundIoManager *mgrp,
+			     libhfp::ErrorInfo &error);
+	void NotifySkew(libhfp::SoundIoManager *mgrp,
+			libhfp::sio_stream_skewinfo_t reason, double value);
 
 	/* D-Bus SoundIo interface related methods */
 	bool SetDriver(DBusMessage *msgp);
@@ -481,7 +503,9 @@ static const DbusMethod g_SoundIo_methods[] = {
 static const DbusMethod g_SoundIo_signals[] = {
 	DbusSignalEntry(AudioGatewaySet, "o"),
 	DbusSignalEntry(StateChanged, "y"),
+	DbusSignalEntry(StreamAborted, "ss"),
 	DbusSignalEntry(MuteChanged, "b"),
+	DbusSignalEntry(SkewNotify, "yd"),
 	DbusSignalEntry(MonitorNotify, "uq"),
 	{ 0, }
 };

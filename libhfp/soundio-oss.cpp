@@ -106,7 +106,7 @@ public:
 			free(m_rec_path);
 	}
 
-	bool InitOss(int fh, SoundIoFormat &format) {
+	bool InitOss(int fh, SoundIoFormat &format, ErrorInfo *error) {
 		long data;
 		int p2 = 0, target;
 
@@ -126,13 +126,17 @@ public:
 
 		for (p2 = 0; (1 << p2) < target; p2++) {}
 
-		m_ei->LogDebug("OSS: using fragment order %d (%d)\n",
+		m_ei->LogDebug("OSS: using fragment order %d (%d)",
 			       p2, (1 << p2));
 
 		data = (2048 << 16) | p2;
 
 		if (ioctl(fh, SNDCTL_DSP_SETFRAGMENT, &data) < 0) {
-			m_ei->LogWarn("OSS set fragment params: %d\n", errno);
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "OSS set fragment params: %s",
+				      strerror(errno));
 			return false;
 		}
 
@@ -140,9 +144,8 @@ public:
 		return true;
 	}
 
-	bool SetupOss(int fh, SoundIoFormat &format) {
+	bool SetupOss(int fh, SoundIoFormat &format, ErrorInfo *error) {
 		long data;
-		audio_buf_info bi;
 
 		switch (format.sampletype) {
 		case SIO_PCM_U8:
@@ -158,34 +161,64 @@ public:
 			data = AFMT_MU_LAW;
 			break;
 		default:
-			m_ei->LogWarn("Unrecognized sample format %d\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_FORMAT_UNKNOWN,
+				      "Unrecognized sample format %d",
 				      format.sampletype);
 			return false;
 		}
 
 		if (ioctl(fh, SNDCTL_DSP_RESET, 0) < 0) {
-			m_ei->LogWarn("OSS reset device: %d\n", errno);
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "OSS reset device: %s",
+				      strerror(errno));
 			return false;
 		}
 
 		if (ioctl(fh, SNDCTL_DSP_SETFMT, &data) < 0) {
-			m_ei->LogWarn("OSS set sample format: %d\n", errno);
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "OSS set sample format: %s",
+				      strerror(errno));
 			return false;
 		}
 
 		data = format.nchannels;
 		if (ioctl(fh, SNDCTL_DSP_CHANNELS, &data) < 0) {
-			m_ei->LogWarn("OSS set channels: %d\n", errno);
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "OSS set channels: %s",
+				      strerror(errno));
 			return false;
 		}
 
 		data = format.samplerate;
 		if (ioctl(fh, SNDCTL_DSP_SPEED, &data) < 0) {
-			m_ei->LogWarn("OSS set sample rate: %d\n", errno);
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "OSS set sample rate: %s",
+				      strerror(errno));
 			return false;
 		}
+
+		return true;
+	}
+
+	bool SetupOssPlayback(int fh, SoundIoFormat &format,
+			      ErrorInfo *error) {
+		audio_buf_info bi;
 		if (ioctl(fh, SNDCTL_DSP_GETOSPACE, &bi) < 0) {
-			m_ei->LogWarn("OSS get output space: %d\n", errno);
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "OSS get output space: %s",
+				      strerror(errno));
 			return false;
 		}
 		m_obuf_size = (bi.fragstotal * bi.fragsize) /
@@ -193,12 +226,30 @@ public:
 		return true;
 	}
 
-	virtual bool SndOpen(bool play, bool capture) {
+	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
 		bool same_fh = false;;
 
-		if ((m_play_fh >= 0) || (m_rec_fh >= 0)) { return false; }
-		if (play && !m_play_path) { return false; }
-		if (capture && !m_rec_path) { return false; }
+		if ((m_play_fh >= 0) || (m_rec_fh >= 0)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					   LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
+					   "Device already open");
+			return false;
+		}
+		if (play && !m_play_path) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "No playback device configured");
+			return false;
+		}
+		if (capture && !m_rec_path) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "No capture device configured");
+			return false;
+		}
 
 		if (play && capture && !strcmp(m_play_path, m_rec_path))
 			same_fh = true;
@@ -207,15 +258,19 @@ public:
 			m_play_fh = open(m_play_path,
 					 same_fh ? O_RDWR : O_WRONLY);
 			if (m_play_fh < 0) {
-				m_ei->LogWarn("Open playback device: %d\n",
-					      errno);
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "Open playback device: %s",
+					      strerror(errno));
 				return false;
 			}
 
-			if (!InitOss(m_play_fh, m_format) ||
-			    !SetupOss(m_play_fh, m_format)) {
-				m_ei->LogWarn("Configure playback device: "
-					      "%d\n", errno);
+			if (!InitOss(m_play_fh, m_format, error) ||
+			    !SetupOss(m_play_fh, m_format, error) ||
+			    !SetupOssPlayback(m_play_fh, m_format, error)) {
+				m_ei->LogWarn("OSS: could not configure "
+					      "playback device");
 				SndClose();
 				return false;
 			}
@@ -228,16 +283,19 @@ public:
 		else if (capture) {
 			m_rec_fh = open(m_rec_path, O_RDONLY);
 			if (m_rec_fh < 0) {
-				m_ei->LogWarn("Open record device: %d\n",
-					      errno);
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "Open capture device: %s",
+					      strerror(errno));
 				SndClose();
 				return false;
 			}
 
-			if (!InitOss(m_rec_fh, m_format) ||
-			    !SetupOss(m_rec_fh, m_format)) {
-				m_ei->LogWarn("Configure record device: %d\n",
-					      errno);
+			if (!InitOss(m_rec_fh, m_format, error) ||
+			    !SetupOss(m_rec_fh, m_format, error)) {
+				m_ei->LogWarn("OSS: could not configure "
+					      "capture device");
 				SndClose();
 				return false;
 			}
@@ -280,17 +338,22 @@ public:
 		format = m_format;
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
 		if (m_play_fh >= 0) {
 			SndAsyncStop();
-			if (!SetupOss(m_play_fh, format)) {
+			if (!SetupOss(m_play_fh, format, error))
+				return false;
+			if (!SetupOssPlayback(m_play_fh, format, error)) {
+				(void) SetupOss(m_play_fh, m_format, 0);
 				return false;
 			}
 			if ((m_rec_fh != m_play_fh) &&
-			    !SetupOss(m_rec_fh, format)) {
-				(void) SetupOss(m_play_fh, m_format);
+			    !SetupOss(m_rec_fh, format, error)) {
+				(void) SetupOss(m_play_fh, m_format, 0);
+				(void) SetupOssPlayback(m_play_fh, m_format,0);
 				return false;
 			}
+
 			BufOpen(format.packet_samps,
 				format.bytes_per_record);
 		}
@@ -302,11 +365,13 @@ public:
 		unsigned int nsamples;
 		uint8_t *buf;
 		ssize_t err;
+		int res;
+		ErrorInfo error;
 
 		if (m_rec_nonblock != nonblock) {
 			if (!SetNonBlock(m_rec_fh, nonblock)) {
-				m_ei->LogWarn("OSS set rec nonblock: %d\n",
-					      errno);
+				m_ei->LogWarn("OSS set rec nonblock: %s",
+					      strerror(errno));
 			}
 			m_rec_nonblock = nonblock;
 			if (m_play_fh == m_rec_fh)
@@ -320,9 +385,13 @@ public:
 				   nsamples * m_format.bytes_per_record);
 			if (err < 0) {
 				if (errno == EAGAIN) { break; }
-				m_ei->LogWarn("OSS capture failed: %d\n",
-					      errno);
-				BufAbort(m_ei);
+				res = errno;
+				m_ei->LogWarn(&error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "OSS capture failed: %s",
+					      strerror(res));
+				BufAbort(m_ei, error);
 				break;
 			}
 			if (!err) { break; }
@@ -334,11 +403,13 @@ public:
 		unsigned int nsamples;
 		uint8_t *buf;
 		ssize_t err;
+		int res;
+		ErrorInfo error;
 
 		if (m_play_nonblock != nonblock) {
 			if (!SetNonBlock(m_play_fh, nonblock)) {
 				m_ei->LogWarn("OSS set play nonblock "
-					      "failed\n");
+					      "failed");
 			}
 			m_play_nonblock = nonblock;
 			if (m_play_fh == m_rec_fh)
@@ -355,12 +426,16 @@ public:
 			if (err < 0) {
 				if (errno == EAGAIN) {
 					m_ei->LogWarn("OSS: playback buffer "
-						      "full\n");
+						      "full");
 					break;
 				}
-				m_ei->LogWarn("OSS playback failed: %d\n",
-					      errno);
-				BufAbort(m_ei);
+				res = errno;
+				m_ei->LogWarn(&error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "OSS playback failed: %s",
+					      strerror(res));
+				BufAbort(m_ei, error);
 				break;
 			}
 			if (!err) { break; }
@@ -374,7 +449,8 @@ public:
 		if (m_play_fh >= 0) {
 			if (ioctl(m_play_fh, SNDCTL_DSP_GETODELAY,
 				  &delay) < 0) {
-				m_ei->LogWarn("OSS GETOSPACE: %d\n", errno);
+				m_ei->LogWarn("OSS GETOSPACE: %s",
+					      strerror(errno));
 				delay = m_hw_outq;
 			} else {
 				delay /= m_format.bytes_per_record;
@@ -385,17 +461,48 @@ public:
 		BufProcess(delay, false, false);
 	}
 
-	virtual bool SndAsyncStart(bool playback, bool capture) {
-		if (m_not) { return false; }
-		if (!playback && !capture) { return false; }
-		if (playback && (m_play_fh < 0)) { return false; }
-		if (capture && (m_rec_fh < 0)) { return false; }
+	virtual bool SndAsyncStart(bool playback, bool capture,
+				   ErrorInfo *error) {
+		if (m_not) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					   LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
+					   "Streaming already in progress");
+			return false;
+		}
+		if (!playback && !capture) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "Neither source nor sink mode "
+					   "requested");
+			return false;
+		}
+		if (playback && (m_play_fh < 0)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "Device not open for playback");
+			return false;
+		}
+		if (capture && (m_rec_fh < 0)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "Device not open for capture");
+			return false;
+		}
 		if (playback && capture) { playback = false; }
 
 		if (!m_not) {
 			m_not = m_ei->NewSocket(capture
 						    ? m_rec_fh
 						    : m_play_fh, false);
+			if (!m_not) {
+				if (error)
+					error->SetNoMem();
+				return false;
+			}
 			m_not->Register(this, &OssSoundIo::AsyncProcess);
 		}
 		return true;
@@ -427,7 +534,8 @@ public:
 		} } while(0)
 
 SoundIo *
-SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
+SoundIoCreateOss(DispatchInterface *dip, const char *driveropts,
+		 ErrorInfo *error)
 {
 	char *opts = 0, *tok, *save = 0, *tmp;
 	const char *ind = "/dev/dsp", *outd = "/dev/dsp";
@@ -435,8 +543,11 @@ SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
 
 	if (driveropts && driveropts[0]) {
 		opts = strdup(driveropts);
-		if (!opts)
+		if (!opts) {
+			if (error)
+				error->SetNoMem();
 			return 0;
+		}
 	}
 
 	tok = strtok_r(opts, "&", &save);
@@ -461,7 +572,7 @@ SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
 			ind = outd = tmp;
 		}
 		else if (strchr(tok, '=')) {
-			dip->LogWarn("OSS: unrecognized option \"%s\"\n",
+			dip->LogWarn("OSS: unrecognized option \"%s\"",
 				     tok);
 		}
 		else {
@@ -476,13 +587,19 @@ SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
 
 	ossp = new OssSoundIo(dip, outd, ind);
 
+	if (!ossp) {
+		if (error)
+			error->SetNoMem();
+		return 0;
+	}
+
 	if (opts)
 		free(opts);
 	return ossp;
 }
 
 SoundIoDeviceList *
-SoundIoGetDeviceListOss(void)
+SoundIoGetDeviceListOss(ErrorInfo *error)
 {
 	SoundIoDeviceList *infop;
 	mixer_info mi;
@@ -490,8 +607,11 @@ SoundIoGetDeviceListOss(void)
 	char buf[16];
 
 	infop = new SoundIoDeviceList;
-	if (!infop)
+	if (!infop) {
+		if (error)
+			error->SetNoMem();
 		return 0;
+	}
 
 	/* Probe for devices the hard way */
 	for (i = 0; i < 16; i++) {
@@ -511,6 +631,8 @@ SoundIoGetDeviceListOss(void)
 		mi.name[sizeof(mi.name) - 1] = '\0';
 		if ((res >= 0) && !infop->Add(buf, mi.name)) {
 			delete infop;
+			if (error)
+				error->SetNoMem();
 			return 0;
 		}
 	}

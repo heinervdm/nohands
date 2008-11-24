@@ -264,19 +264,19 @@ class HfConsole:
 		self.soundmonitor = False
 		self.autoreconnect = True
 		self.selected_ag = None
-		self.command_voice_attach_state = False
+		self.command_audio_attach_state = False
 
 		self.alerter_factory = (lambda x:
 					GtkAlerter(self.gladefile, x))
 
-	def command_voice_attach(self, state):
-		if state == self.command_voice_attach_state:
+	def command_audio_attach(self, state):
+		if state == self.command_audio_attach_state:
 			return
-		self.command_voice_attach_state = state
+		self.command_audio_attach_state = state
 		if state:
-			exc = self.command_voice_attach_acmd
+			exc = self.command_audio_attach_acmd
 		else:
-			exc = self.command_voice_attach_dcmd
+			exc = self.command_audio_attach_dcmd
 
 		if exc:
 			p = subprocess.Popen(exc, shell=True)
@@ -300,6 +300,11 @@ class HfConsole:
 				self.dbus.get_object('org.freedesktop.DBus',
 						     '/org/freedesktop/DBus'),
 				dbus_interface='org.freedesktop.DBus')
+		except dbus.exceptions.DBusException, (ex):
+			self.fatal('Could not connect to D-Bus:\n' +
+				   str(ex))
+
+		try:
 			self.hfpd = dbus.Interface(
 				self.dbus.get_object('net.sf.nohands.hfpd',
 						     '/net/sf/nohands/hfpd'),
@@ -316,15 +321,38 @@ class HfConsole:
 				self.dbus.get_object('net.sf.nohands.hfpd',
 					     '/net/sf/nohands/hfpd/soundio'),
 			      dbus_interface='org.freedesktop.DBus.Properties')
-		except:
-			self.fatal('Could not connect to hfpd')
+		except dbus.exceptions.DBusException, (ex):
+			self.fatal('Could not connect to hfpd:\n' +
+				   str(ex) + '\n\n' +
+				   'Ensure that hfpd and its D-Bus service ' +
+				   'file are installed correctly.\n' +
+				   'If the problem persists, try starting '
+				   'hfpd manually, e.g. \"hfpd\", or out ' +
+				   ' of your build directory, e.g. ' +
+				    '\"hfpd/hfpd\"')
 
 		try:
 			v = self.getprop_hfpd('Version')
-			if v != 1:
-				raise DBusException
 		except:
-			self.fatal('Version mismatch with hfpd')
+			v = 0
+
+		my_version = 2
+		if v < my_version:
+			self.fatal(('Version mismatch with hfpd!\n'
+				    'hfpd version: %d\n' +
+				    'hfconsole version: %d\n\n'
+			    'Ensure that hfpd is installed correctly.\n' +
+			    'If the problem persists, try \"killall hfpd\"') %
+				   (v, my_version))
+		elif v != my_version:
+			self.fatal(('Version mismatch with hfpd!\n'
+				    'hfpd version: %d\n' +
+				    'hfconsole version: %d\n\n'
+		    'Ensure that hfconsole is installed correctly.\n' +
+		    'If the problem persists, try running hfconsole ' +
+		    'out of your build directory, e.g. ' +
+				    '\"data/hfconsole\"') %
+				   (v, my_version))
 
 		self.configfile_name = os.path.expanduser('~/.hfconsolerc')
 		self.configfile = ConfigParser.ConfigParser()
@@ -338,11 +366,11 @@ class HfConsole:
 		cmd = None
 		if self.configfile.has_option('options', 'attach_command'):
 			cmd = self.configfile.get('options', 'attach_command')
-		self.command_voice_attach_acmd = cmd
+		self.command_audio_attach_acmd = cmd
 		cmd = None
-		if self.configfile.has_option('options', 'attach_command'):
+		if self.configfile.has_option('options', 'detach_command'):
 			cmd = self.configfile.get('options', 'detach_command')
-		self.command_voice_attach_dcmd = cmd
+		self.command_audio_attach_dcmd = cmd
 		loadags = self.configfile.items('devices')
 		for x in loadags:
 			x = self.addr_untransform(x[0])
@@ -364,26 +392,30 @@ class HfConsole:
 					    self.hfpd_log_message)
 		self.soundio.connect_to_signal("StateChanged",
 					       self.soundio_state_changed)
+		self.soundio.connect_to_signal("StreamAborted",
+					       self.soundio_stream_aborted)
 		self.soundio.connect_to_signal("MuteChanged",
 					       self.soundio_mute_changed)
+		self.soundio.connect_to_signal("SkewNotify",
+					       self.soundio_skew_notify)
 
 		self['Mute'].set_active(self.getprop_soundio('Mute'))
 
 		self.ag_select_changed(None)
 		self.system_ctx = self['StatusBar'].get_context_id(
 			'SystemState')
-		self.system_msg = None
+		self.soundio_status_ctx = self['StatusBar'].get_context_id(
+			'SoundIoStatus')
+		self.soundio_skew_monitor = None
 		st = self.getprop_hfpd('SystemState')
 		self.hfpd_system_state(st)
 		if not st:
 			try:
 				self.hfpd.Start()
 			except dbus.exceptions.DBusException, (ex):
-				if (ex.get_dbus_name() ==
-				    'net.sf.nohands.hfpd.FatalStartError'):
-					text = str(ex)
-					text = text[37:]
-					self.fatal(text)
+				if (ex.get_dbus_name() !=
+				    'net.sf.nohands.hfpd.Error'):
+					self.fatal(ex.get_dbus_message())
 			self.setprop_hfpd('AutoRestart', True)
 		ags = self.getprop_hfpd('AudioGateways')
 		for x in ags:
@@ -423,7 +455,10 @@ class HfConsole:
 			but.add(img)
 			img.show()
 			but.set_no_show_all(True)
-			but.set_tooltip_text(tip)
+
+			# Fail gracefully if not available
+			try: but.set_tooltip_text(tip)
+			except: pass
 			return but
 			
 		def __init__(self, hfc, sbus, hfpd, agpath, box):
@@ -467,7 +502,7 @@ class HfConsole:
 			self.frame = frame
 			self.state = 0
 			self.callstate = 0
-			self.voicestate = 0
+			self.audiostate = 0
 			self.noservice = False
 
 			self.dbusobj = sbus.get_object('net.sf.nohands.hfpd',
@@ -489,8 +524,8 @@ class HfConsole:
 			sig = self.ag.connect_to_signal("CallStateChanged",
 						self.call_state_changed)
 			self.sigs.append(sig)
-			sig = self.ag.connect_to_signal("VoiceStateChanged",
-						self.voice_state_changed)
+			sig = self.ag.connect_to_signal("AudioStateChanged",
+						self.audio_state_changed)
 			self.sigs.append(sig)
 			sig = self.ag.connect_to_signal("IndicatorChanged",
 						self.indicator_changed)
@@ -504,8 +539,10 @@ class HfConsole:
 			self.frame.set_label(name)
 			self.state = self.getprop('State')
 			self.callstate = self.getprop('CallState')
-			self.voicestate = self.getprop('VoiceState')
-			self.set_state_labels()
+			self.audiostate = self.getprop('AudioState')
+			self.state_changed(self.state, False)
+			self.call_state_changed(self.callstate)
+			self.audio_state_changed(self.audiostate)
 			self.frame.show_all()
 			self.hfc.ag_update_history(self.addr, None)
 
@@ -543,8 +580,8 @@ class HfConsole:
 				lab = 'Ringing\n'
 			if callstate == 5:
 				lab = 'Waiting Call\n'
-			if self.has_voice():
-				lab += 'Voice Open'
+			if self.has_audio():
+				lab += 'Audio Open'
 			self.statelab.set_markup(lab)
 			self.hfc.ag_state_changed(self)
 
@@ -565,9 +602,9 @@ class HfConsole:
 			return self.has_feature('DropHeldUdub')
 		def selectable(self):
 			return self.state == 4
-		def has_voice(self):
-			return self.voicestate == 3
-		def wants_voice(self):
+		def has_audio(self):
+			return self.audiostate == 3
+		def wants_audio(self):
 			return (self.callstate == 2 or
 				self.callstate == 3 or
 				self.callstate == 5)
@@ -586,14 +623,18 @@ class HfConsole:
 			self.state = int(state)
 			if self.state == 4:
 				self.features = self.getprop('Features')
+			else:
+				self.call_state_changed(1)
+				if hasattr(self, 'features'):
+					del self.features
 			self.set_state_labels()
 		def call_state_changed(self, state):
 			self.callstate = int(state)
 			self.set_state_labels()
 			if (self.callstate != 4 and self.callstate != 5):
 				self.alert_close()
-		def voice_state_changed(self, state):
-			self.voicestate = int(state)
+		def audio_state_changed(self, state):
+			self.audiostate = int(state)
 			self.set_state_labels()
 		def indicator_changed(self, name, val):
 			if name == 'service':
@@ -631,8 +672,8 @@ class HfConsole:
 
 		def command_failed(self, reason):
 			print "Command failed: %s" % reason
-		def close_voice(self):
-			self.ag.CloseVoice()
+		def close_audio(self):
+			self.ag.CloseAudio()
 		def dial(self, number):
 			self.ag.Dial(number,
 				     reply_handler=lambda : None,
@@ -708,38 +749,41 @@ class HfConsole:
 			del self.ags[agpath]
 	def ag_select_search(self):
 		for xag in self.ags.values():
-			if xag.has_voice() and xag.select(True):
+			if xag.has_audio() and xag.select(True):
 				self.ag_select_changed(xag)
 				return
 		for xag in self.ags.values():
 			if xag.select(True):
 				self.ag_select_changed(xag)
 				return
-	def ag_stop_voice_unselected(self):
+	def ag_stop_audio_unselected(self):
 		for xag in self.ags.values():
-			if xag != self.selected_ag and xag.has_voice():
-				xag.close_voice()
-	def ag_push_voice(self):
+			if xag != self.selected_ag and xag.has_audio():
+				xag.close_audio()
+	def ag_push_audio(self):
 		# This process is messy
 		# We let the audio gateway connect to us, then
 		# we configure the pipe.  Passing False as the
 		# second parameter to AudioGatewayStart ensures that
 		# we don't initiate audio connections.
 		if (self.selected_ag and
-		    self.selected_ag.has_voice() and
+		    self.selected_ag.has_audio() and
 		    self.soundstate == 2):
 			try:
 				self.soundio.AudioGatewayStart(
 					self.selected_ag.path, False)
-				self.command_voice_attach(True)
+				self.command_audio_attach(True)
 			except:
-				if self.selected_ag.has_voice():
-					self.selected_ag.close_voice()
-		self.ag_stop_voice_unselected()
+				self.soundio_status_msg(
+					'Failed to Open Primary Sound Card',
+					5000)
+				if self.selected_ag.has_audio():
+					self.selected_ag.close_audio()
+		self.ag_stop_audio_unselected()
 	def ag_state_changed(self, ag):
 		if ((not ag.selectable() and ag == self.selected_ag) or
-		    (ag.has_voice() and self.selected_ag and
-		     not self.selected_ag.has_voice())):
+		    (ag.has_audio() and self.selected_ag and
+		     not self.selected_ag.has_audio())):
 			ag.select(False)
 			self.ag_select_changed(None)
 
@@ -773,7 +817,7 @@ class HfConsole:
 			self.command_mode(2)
 		else:
 			self.command_mode(0)
-		self.ag_push_voice()
+		self.ag_push_audio()
 
 	def ag_mine(self, ag):
 		if self.ags_added.has_key(ag.addr):
@@ -871,28 +915,35 @@ class HfConsole:
 		ag.redial()
 	def dial_xfer_clicked(self, widget):
 		pass
-	def hfpd_system_state(self, state):
-		if self.system_msg:
+	def hfpd_system_msg_clear(self):
+		if hasattr(self, 'system_msg'):
 			self['StatusBar'].remove(self.system_ctx,
 						 self.system_msg)
+			del self.system_msg
+		if hasattr(self, 'system_msg_timeout'):
+			gobject.source_remove(self.system_msg_timeout)
+			del self.system_msg_timeout
+	def hfpd_system_msg(self, msg, timeout):
+		self.hfpd_system_msg_clear()
+		self.system_msg = self['StatusBar'].push(self.system_ctx, msg)
+		if timeout:
+			self.system_msg_timeout = gobject.timeout_add(
+				timeout, self.hfpd_system_msg_clear)
+
+	def hfpd_system_state(self, state):
 		if not state:
-			x = self['StatusBar'].push(self.system_ctx,
-						   'Bluetooth Unavailable')
+			self.hfpd_system_msg('Bluetooth Unavailable', None)
 		else:
-			x = self['StatusBar'].push(self.system_ctx,
-						   '')
-		self.system_msg = x
+			self.hfpd_system_msg_clear()
 
 	def scan_restart(self):
 		self.scanresults.clear()
 		self['ScanOK'].set_sensitive(False)
-		try:
-			self.hfpd.StartInquiry()
-			self.inquiry = True
-			self['ScanRestart'].set_sensitive(False)
-			return True
-		except:
-			return False
+		try: self.hfpd.StartInquiry()
+		except: return False
+		self.inquiry = True
+		self['ScanRestart'].set_sensitive(False)
+		return True
 
 	def scan_open(self, but):
 		dlg = self['ScanDialog']
@@ -1063,12 +1114,12 @@ class HfConsole:
 			self['ConfigDereverbDecay'].set_sensitive(True)
 			self['ConfigDereverbDecay'].set_value(
 				self.config['dereverbdecay'])
-		cmd = self.command_voice_attach_acmd
+		cmd = self.command_audio_attach_acmd
 		if cmd:
-			self['ConfigVoiceAttachCommand'].set_text(cmd)
-		cmd = self.command_voice_attach_dcmd
+			self['ConfigAudioAttachCommand'].set_text(cmd)
+		cmd = self.command_audio_attach_dcmd
 		if cmd:
-			self['ConfigVoiceDetachCommand'].set_text(cmd)
+			self['ConfigAudioDetachCommand'].set_text(cmd)
 
 		dlg.show()
 		result = dlg.run()
@@ -1127,11 +1178,11 @@ class HfConsole:
 				       self['ConfigDriverOpts'].get_text())
 		self.hfpd.SaveSettings()
 		self.autoreconnect = self['ConfigAutoReconnect'].get_active()
-		cmd = self['ConfigVoiceAttachCommand'].get_text()
-		self.command_voice_attach_acmd = cmd
+		cmd = self['ConfigAudioAttachCommand'].get_text()
+		self.command_audio_attach_acmd = cmd
 		self.configfile.set('options', 'attach_command', cmd)
-		cmd = self['ConfigVoiceDetachCommand'].get_text()
-		self.command_voice_attach_dcmd = cmd
+		cmd = self['ConfigAudioDetachCommand'].get_text()
+		self.command_audio_attach_dcmd = cmd
 		self.configfile.set('options', 'detach_command', cmd)
 		self.configfile.write(open(self.configfile_name, 'w+'))
 	def config_restore_vals(self, vals):
@@ -1158,9 +1209,13 @@ class HfConsole:
 		drivername = self['ConfigDriver'].get_active_text()
 		if not drivername:
 			return
-		devlist = self.soundio.ProbeDevices(drivername)
-		for x in devlist:
-			model.append([x[0], x[1]])
+		try:
+			devlist = self.soundio.ProbeDevices(drivername)
+		except dbus.exceptions.DBusException, (ex):
+			print 'Device probe failed: ' + str(ex) + '\n'
+		if devlist:
+			for x in devlist:
+				model.append([x[0], x[1]])
 	def constrain(self, val, min, max):
 		if val < min:
 			val = min
@@ -1264,21 +1319,54 @@ class HfConsole:
 						self.setprop_soundio(
 							'Mute', False)
 					self.soundio.LoopbackStart()
-				except:
+				except dbus.exceptions.DBusException, (ex):
 					widget.set_active(False)
 					self.error_message('Could not open '+
-							   'Audio Device')
+							   'Audio Device:\n' +
+							   str(ex))
 					return
 
 				self.loopback_active = True
+				self.soundio_skew_monitor = (
+					self.config_skew_notify)
 				pkt = self.getprop_soundio('PacketInterval')
 				self['ConfigRealPacketSizeLabel'].set_text(
 					str(pkt) + 'ms')
 		else:
 			if self.loopback_active:
 				self.soundio.Stop()
+				self.soundio_skew_monitor = None
+				self.config_skew_clear(True)
 				self.loopback_active = False
 				self['ConfigRealPacketSizeLabel'].set_text('')
+	def config_skew_clear(self, do_hide):
+		if do_hide:
+			self['ConfigSkewNotice'].hide()
+			self['ConfigSkewNoticeLabel'].hide()
+			self['ConfigSkewNoticeLabel'].set_text('')
+		if hasattr(self, 'config_skew_timeout'):
+			gobject.source_remove(self.config_skew_timeout)
+			del self.config_skew_timeout
+	def config_skew_notify(self, skewtype, count):
+		if skewtype == 1:
+			msg = 'Sound Card Overrun/Underrun: %d/sec' % count
+		elif skewtype == 2:
+			if count < 0:
+				submsg = '(Playback Slower)'
+				count = -count
+			else:
+				submsg = '(Capture Slower)'
+			msg = ('Sound Card Capture/Playback Skew: %1.3f%%\n%s'%
+			       (count, submsg))
+		else:
+			return
+		self.config_skew_clear(False)
+		self['ConfigSkewNotice'].show()
+		self['ConfigSkewNoticeLabel'].show()
+		self['ConfigSkewNoticeLabel'].set_text(msg)
+		self.config_skew_timeout = gobject.timeout_add(
+			1500, self.config_skew_clear, True)
+
 	def config_denoise_changed(self, widget):
 		value = widget.get_active()	
 		if bool(self.config['denoise']) != value:
@@ -1482,7 +1570,7 @@ class HfConsole:
 		agpath = self.getprop_soundio('AudioGateway')
 		self.soundstate = int(state)
 		if self.soundstate == 2:
-			self.command_voice_attach(False)
+			self.command_audio_attach(False)
 			if (hasattr(self, 'loopback_active') and
 			    self.loopback_active):
 				self.loopback_active = False
@@ -1496,19 +1584,62 @@ class HfConsole:
 				self['DspTestPlayStart'].set_active(False)
 				self['DspTestMicVolume1'].set_fraction(0.0)
 				self['DspTestMicVolume2'].set_fraction(0.0)
-			self.ag_push_voice()
+			self.ag_push_audio()
 		if self.soundstate == 3 or self.soundstate == 4:
 			agpath = self.getprop_soundio('AudioGateway')
 			if agpath:
 				ag = self.ags[agpath]
 				if ag:
 					self.ag_select(ag, True)
+	def soundio_stream_aborted(self, excode, descr):
+		if (excode ==
+		    'net.sf.nohands.hfpd.Error.SoundIoSoundCardFailed'):
+			self.soundio_status_msg('Primary Sound Card Failure',
+						5000)
+		self.soundio_state_changed(2)
 
 	def soundio_mute_changed(self, state):
 		self['Mute'].set_active(bool(state))
 	def mute_toggled(self, but):
 		self.setprop_soundio('Mute', but.get_active())
 
+	def soundio_status_msg_clear(self):
+		if hasattr(self, 'soundio_status_timeout'):
+			self['StatusBar'].remove(self.soundio_status_ctx,
+						 self.soundio_status_msg)
+			del self.soundio_status_msg
+		if hasattr(self, 'soundio_status_timeout'):
+			gobject.source_remove(self.soundio_status_timeout)
+			del self.soundio_status_timeout
+		if hasattr(self, 'soundio_skew_type'):
+			del self.soundio_skew_type
+	def soundio_status_msg(self, msg, timeout):
+		self.soundio_status_msg_clear()
+		self.soundio_status_msg = self['StatusBar'].push(
+			self.soundio_status_ctx,
+			msg);
+		if timeout:
+			self.soundio_status_timeout = gobject.timeout_add(
+				timeout, self.soundio_status_msg_clear)
+
+	def soundio_skew_notify(self, skewtype, count):
+		if (hasattr(self, 'soundio_skew_type') and
+		    self.soundio_skew_type < skewtype):
+			return
+		if skewtype == 1:
+			msg = 'Sound Card Overrun/Underrun'
+		elif skewtype == 2:
+			msg = 'Sound Card Playback/Capture Clock Skew'
+		elif skewtype == 3:
+			msg = 'Severe Bluetooth Playback/Capture Clock Skew'
+		elif skewtype == 4:
+			msg = 'Severe Sound Card / Bluetooth Clock Skew'
+		else:
+			return
+		self.soundio_status_msg(msg, skewtype, 5000)
+		self.soundio_skew_type = skewtype;
+		if self.soundio_skew_monitor:
+			self.soundio_skew_monitor(skewtype, count)
 
 if __name__ == "__main__":
 	hwg = HfConsole()

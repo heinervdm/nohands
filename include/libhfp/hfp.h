@@ -103,20 +103,24 @@ private:
 	int			m_autoreconnect_timeout;
 	bool			m_autoreconnect_set;
 
+	bool			m_complaint_sco_mtu;
+	bool			m_complaint_sco_vs;
+	bool			m_complaint_sco_listen;
+
 	void AddAutoReconnect(HfpSession *sessp);
 	void RemoveAutoReconnect(HfpSession *sessp);
 
-	bool ScoListen(void);
+	bool ScoListen(ErrorInfo *error);
 	void ScoCleanup(void);
 	void ScoListenNotify(SocketNotifier *, int fh);
 
-	bool SdpRegister(void);
+	bool SdpRegister(ErrorInfo *error);
 	void SdpUnregister(void);
 
 	HfpSession *FindSession(BtDevice *devp) const
 		{ return (HfpSession*) BtService::FindSession(devp); }
 
-	bool Start(void);
+	bool Start(ErrorInfo *error);
 	void Stop(void);
 
 	virtual RfcommSession *SessionFactory(BtDevice *devp);
@@ -369,11 +373,11 @@ public:
 
 	const char *GetServiceName(void) const
 		{ return m_svc_name ? m_svc_name : "Handsfree"; }
-	bool SetServiceName(const char *desc);
+	bool SetServiceName(const char *desc, ErrorInfo *error = 0);
 
 	const char *GetServiceDesc(void) const
 		{ return m_svc_desc ? m_svc_desc : ""; }
-	bool SetServiceDesc(const char *desc);
+	bool SetServiceDesc(const char *desc, ErrorInfo *error = 0);
 
 	static bool IsDeviceClassHf(uint32_t devclass) {
 		return (devclass & 0x1ffc) == 0x408;
@@ -437,7 +441,7 @@ class AtCommand;
  * successful call to the Cancel() method.
  */
 class HfpPendingCommand
-	: public Callback<void, HfpPendingCommand*, bool, const char *> {
+	: public Callback<void, HfpPendingCommand*, ErrorInfo*, const char *> {
 public:
 	/**
 	 * @brief Request that the command be canceled and not sent
@@ -519,7 +523,7 @@ public:
  *
  * When Disconnected or Connecting, none of the feature inquiries are
  * meaningful, no state indicator and call state notifications will
- * be delivered, the voice connection must be Disconnected, and no
+ * be delivered, the audio connection must be Disconnected, and no
  * commands may be issued on the device.
  *
  * Once connected, the device will accept commands, state indicator
@@ -545,22 +549,22 @@ private:
 	int			m_brsf;
 
 	/* Methods reimplemented from RfcommSession */
-	virtual void __Disconnect(bool notify, bool voluntary = false);
-	virtual void NotifyConnectionState(bool ext_notify);
+	virtual void __Disconnect(ErrorInfo *reason, bool voluntary = false);
+	virtual void NotifyConnectionState(ErrorInfo *async_error);
 	virtual void SdpSupportedFeatures(uint16_t features);
 
 	/* New methods for HFP */
 	void AutoReconnect(void);
-	bool HfpHandshake(void);
+	bool HfpHandshake(ErrorInfo *error);
 	void HfpHandshakeDone(void);
 	void HfpDataReady(SocketNotifier *notp, int fh);
 	size_t HfpConsume(char *buf, size_t len);
-	void DeleteFirstCommand(void);
-	void AppendCommand(AtCommand *cmdp);
-	void StartCommand(void);
+	void DeleteFirstCommand(bool do_start = true);
+	bool AppendCommand(AtCommand *cmdp, ErrorInfo *error);
+	bool StartCommand(ErrorInfo *error);
 	bool CancelCommand(AtCommand *cmdp);
 	void ResponseDefault(char *buf);
-	HfpPendingCommand *PendingCommand(AtCommand *cmdp);
+	HfpPendingCommand *PendingCommand(AtCommand *cmdp, ErrorInfo *error);
 
 	friend class CindRCommand;	
 	friend class AtdCommand;
@@ -621,10 +625,10 @@ private:
 	enum { PHONENUM_MAX_LEN = 31, };
 	GsmClipPhoneNumber	*m_state_incomplete_clip;
 
-	static bool ValidPhoneNumChar(char c);
-	static bool ValidPhoneNum(const char *ph);
+	static bool ValidPhoneNumChar(char c, ErrorInfo *error);
+	static bool ValidPhoneNum(const char *ph, ErrorInfo *error);
 
-	/* SCO and voice-related members */
+	/* SCO and audio-related members */
 	enum { SCO_MAX_PKTSIZE = 512 };
 	enum {
 		BVS_Invalid,
@@ -639,14 +643,15 @@ private:
 	uint16_t			m_sco_packet_samps;
 
 	bool				m_sco_nvs_pending;
-	bool				m_sco_np_pending;
+	bool				m_sco_nas_pending;
 
 	SocketNotifier			*m_sco_not;
 
-	void __DisconnectSco(bool notifyvs, bool notifyp, bool async);
-	bool ScoGetParams(int ssock);
+	void __DisconnectSco(bool notifyvs, bool notifyp, bool async,
+			     ErrorInfo &error);
+	bool ScoGetParams(int ssock, ErrorInfo *error);
 	bool ScoAccept(int ssock);
-	bool ScoConnect(void);
+	bool ScoConnect(ErrorInfo *error);
 	void ScoConnectNotify(SocketNotifier *notp, int fh);
 	void ScoDataNotify(SocketNotifier *, int fh);
 	bool ScoSocketExists(void) const { return (m_sco_sock >= 0); }
@@ -709,21 +714,28 @@ public:
 	 * the device until it enters the Connected state, it is critical
 	 * that clients receive notification of it.
 	 *
+	 * @param HfpSession* The HfpSession object that has had an
+	 * asynchronous state transition to its service-level connection.
+	 * @param error Error information structure.  If the state
+	 * transition was to the Disconnected state, the ErrorInfo*
+	 * parameter is nonzero, and contains information about why the
+	 * connection was lost.  Otherwise, it is @c 0.
+	 *
 	 * @sa IsConnecting(), IsConnected(), IsConnectionRemoteInitiated(),
 	 * IsPriorDisconnectVoluntary().
 	 */
-	Callback<void, HfpSession *>		cb_NotifyConnection;
+	Callback<void, HfpSession *, ErrorInfo *>	cb_NotifyConnection;
 
 	/**
 	 * @brief Notification of an asynchronous change to the voice
 	 * audio connection state
 	 *
 	 * The voice audio connection states include:
-	 * - Disconnected: ! IsConnectingVoice() && ! IsConnectedVoice()
-	 * - Connecting: IsConnectingVoice()
-	 * - Connected: IsConnectedVoice()
+	 * - Disconnected: ! IsConnectingAudio() && ! IsConnectedAudio()
+	 * - Connecting: IsConnectingAudio()
+	 * - Connected: IsConnectedAudio()
 	 *
-	 * Similar to the device connection state, the voice connection
+	 * Similar to the device connection state, the audio connection
 	 * state can transition from Disconnected to Connecting, e.g. by
 	 * SoundIo::SndOpen() or a remote connection attempt.  It can
 	 * transition from Connecting to Connected following negotiation.
@@ -733,15 +745,22 @@ public:
 	 *
 	 * As a rule, @ref callbacks "no callbacks are invoked in a nested fashion from method calls."
 	 * Similar to HfpSession::cb_NotifyConnection, this callback
-	 * is only invoked on asynchronous changes to the voice connection
+	 * is only invoked on asynchronous changes to the audio connection
 	 * state above and never directly through method calls.
 	 *
-	 * The voice connection will always be Disconnected whenever the
+	 * The audio connection will always be Disconnected whenever the
 	 * device is not Connected.
 	 *
-	 * @sa IsConnectingVoice(), IsConnectedVoice()
+	 * @param HfpSession* The HfpSession object that has had an
+	 * asynchronous state transition to its audio connection.
+	 * @param error Error information structure.  If the state
+	 * transition of the device audio was to the Disconnected state,
+	 * the ErrorInfo* parameter is nonzero, and contains information
+	 * about why the audio connection was lost.  Otherwise, it is @c 0.
+	 *
+	 * @sa IsConnectingAudio(), IsConnectedAudio()
 	 */
-	Callback<void, HfpSession *>		cb_NotifyVoiceConnection;
+	Callback<void, HfpSession*, ErrorInfo*>	cb_NotifyAudioConnection;
 
 	/**
 	 * @brief Notification of a change to the established call state
@@ -836,11 +855,11 @@ public:
 	 * @brief Query whether a voice audio (SCO) connection is being
 	 * initiated
 	 *
-	 * @retval true A voice connection is in progress but incomplete.
-	 * @retval false A voice connection is complete or nonexistant.
-	 * @sa IsConnectedVoice(), HfpSession::cb_NotifyVoiceConnection
+	 * @retval true An audio connection is in progress but incomplete.
+	 * @retval false An audio connection is complete or nonexistant.
+	 * @sa IsConnectedAudio(), HfpSession::cb_NotifyAudioConnection
 	 */
-	bool IsConnectingVoice(void) const {
+	bool IsConnectingAudio(void) const {
 		return (ScoSocketExists() &&
 			(m_sco_state == BVS_SocketConnecting));
 	}
@@ -849,11 +868,11 @@ public:
 	 * @brief Query whether a voice audio (SCO) connection is completed
 	 * and available for audio streaming
 	 *
-	 * @retval true Voice is connected and operational.
-	 * @retval false Voice is disconnected or connecting.
-	 * @sa IsConnectingVoice(), HfpSession::cb_NotifyVoiceConnection
+	 * @retval true Audio is connected and operational.
+	 * @retval false Audio is disconnected or connecting.
+	 * @sa IsConnectingAudio(), HfpSession::cb_NotifyAudioConnection
 	 */
-	bool IsConnectedVoice(void) const {
+	bool IsConnectedAudio(void) const {
 		return (ScoSocketExists() &&
 			(m_sco_state == BVS_Connected));
 	}
@@ -880,6 +899,10 @@ public:
 	 * directly generate a HfpSession::cb_NotifyConnection
 	 * callback.  Callers must notice state changes in-line.
 	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 *
 	 * @retval true The connection attempt is in progress, and the
 	 * device has transitioned to the Connecting state.
 	 * @retval false The connection attempt failed.  Reasons could
@@ -892,7 +915,7 @@ public:
 	 * @sa Disconnect(), SetAutoReconnect()
 	 * @sa HfpSession::cb_NotifyConnection
 	 */
-	bool Connect(void);
+	bool Connect(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query whether the autoreconnect mechanism is enabled for
@@ -1101,8 +1124,9 @@ public:
 	/**
 	 * @brief Query whether the attached device supports in-band ringtones
 	 *
-	 * If in-band ringtones are enabled, the audio gateway is able
-	 * to play its own ringtone the voice audio link
+	 * If the audio gateway supports in-band ringtones, it is able
+	 * to play its own ringtone through the voice audio link, and
+	 * will do so when in-band ringtones are enabled.
 	 *
 	 * @note This information is only valid when the device is in the
 	 * connected state.
@@ -1202,41 +1226,51 @@ public:
 	 */
 	bool IsCommandPending(void) const { return !m_commands.Empty(); }
 
-	HfpPendingCommand *CmdSetVoiceRecog(bool enabled);
-	HfpPendingCommand *CmdSetEcnr(bool enabled);
+	HfpPendingCommand *CmdSetVoiceRecog(bool enabled,
+					    ErrorInfo *error = 0);
+	HfpPendingCommand *CmdSetEcnr(bool enabled, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway answer the unanswered
 	 * incoming call
 	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdAnswer(void);
+	HfpPendingCommand *CmdAnswer(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway hang up the active call
 	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @retval true Command was queued
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdHangUp(void);
+	HfpPendingCommand *CmdHangUp(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway place a new outgoing call
 	 *
 	 * @param[in] phnum Phone number to be dialed
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost or the phone number is too long
 	 */
-	HfpPendingCommand *CmdDial(const char *phnum);
+	HfpPendingCommand *CmdDial(const char *phnum, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway place a new outgoing call
@@ -1246,25 +1280,31 @@ public:
 	 * gateway, and may have been dialed before the audio gateway was
 	 * connected to the hands-free.
 	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdRedial(void);
+	HfpPendingCommand *CmdRedial(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway send a DTMF tone to the
 	 * active call
 	 *
 	 * @param code DTMF code to be sent.  May be numeric, #, or *.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @retval true Command was queued
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdSendDtmf(char code);
+	HfpPendingCommand *CmdSendDtmf(char code, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway drop the held call, or
@@ -1273,12 +1313,15 @@ public:
 	 * @note This command may only be expected to succeed if the device
 	 * claims support for dropping waiting calls,
 	 * i.e. FeatureDropHeldUdub() returns true.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallDropHeldUdub(void);
+	HfpPendingCommand *CmdCallDropHeldUdub(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway drop the active call
@@ -1287,12 +1330,15 @@ public:
 	 * @note This command may only be expected to succeed if the
 	 * device supports active call drop-swapping, i.e.
 	 * FeatureSwapDropActive() returns true.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallSwapDropActive(void);
+	HfpPendingCommand *CmdCallSwapDropActive(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Drop a specific active call
@@ -1300,12 +1346,17 @@ public:
 	 * @note This command may only be expected to succeed if the
 	 * device supports dropping of specific active calls, i.e.
 	 * FeatureDropActive() returns true.
+	 * @param[in] actnum Call number to be dropped
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallDropActive(unsigned int actnum);
+	HfpPendingCommand *CmdCallDropActive(unsigned int actnum,
+					     ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway hold the active call
@@ -1314,12 +1365,15 @@ public:
 	 * @note This command may only be expected to succeed if the
 	 * device supports active call hold-swapping, i.e.
 	 * FeatureSwapHoldActive() returns true.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallSwapHoldActive(void);
+	HfpPendingCommand *CmdCallSwapHoldActive(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request private consultation mode with a call
@@ -1327,12 +1381,17 @@ public:
 	 * @note This command may only be expected to succeed if the
 	 * device supports private consultation mode, i.e.
 	 * FeaturePrivateConsult() returns true.
+	 * @param[in] callnum Call number to be made the active call
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallPrivateConsult(unsigned int callnum);
+	HfpPendingCommand *CmdCallPrivateConsult(unsigned int callnum,
+						 ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway create a three-way call
@@ -1340,12 +1399,15 @@ public:
 	 *
 	 * @note This command may only be expected to succeed if the
 	 * device supports call linking, i.e. FeatureLink() returns true.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallLink(void);
+	HfpPendingCommand *CmdCallLink(ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway link the two calls
@@ -1354,12 +1416,15 @@ public:
 	 * @note This command may only be expected to succeed if the
 	 * device supports explicit call transfer,
 	 * i.e. FeatureTransfer() returns true.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 * @return An HfpPendingCommand to receive a notification when
 	 * the command completes, with the command status, or @c 0 if
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallTransfer(void);
+	HfpPendingCommand *CmdCallTransfer(ErrorInfo *error = 0);
 
 
 	/*
@@ -1367,32 +1432,35 @@ public:
 	 */
 
 	/**
-	 * @brief Initiate a voice connection to the connected device
+	 * @brief Initiate an audio connection to the connected device
 	 *
-	 * This method will initiate an outbound voice connection to
+	 * This method will initiate an outbound audio connection to
 	 * the connected device.
 	 *
-	 * @param play Must be @em true
-	 * @param capture Must be @em true
+	 * @param[in] play Must be @em true
+	 * @param[in] capture Must be @em true
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
-	 * @retval true Voice connection has been initiated.  The
-	 * connection will be incomplete, i.e. IsConnectingVoice(), and
-	 * a callback to HfpSession::cb_NotifyVoiceConnection will be
+	 * @retval true Audio connection has been initiated.  The
+	 * connection will be incomplete, i.e. IsConnectingAudio(), and
+	 * a callback to HfpSession::cb_NotifyAudioConnection will be
 	 * pending.
-	 * @retval false Voice is either already connected, the
+	 * @retval false Audio is either already connected, the
 	 * connection attempt failed, or the @em play and/or @em capture
 	 * parameters were @em false.
 	 */
-	bool SndOpen(bool play, bool capture);
+	bool SndOpen(bool play, bool capture, ErrorInfo *error = 0);
 	/**
-	 * @brief Disconnect the voice connection
+	 * @brief Disconnect the audio connection
 	 *
-	 * Closes an existing voice connection, or cancels a pending voice
+	 * Closes an existing audio connection, or cancels a pending audio
 	 * connection.
 	 *
 	 * As a rule, @ref callbacks "no callbacks are invoked in a nested fashion from method calls."
 	 * This method is no exception and does not result in a call to
-	 * either HfpSession::cb_NotifyVoiceConnection or
+	 * either HfpSession::cb_NotifyAudioConnection or
 	 * SoundIo::cb_NotifyPacket.
 	 */
 	void SndClose(void);
@@ -1414,8 +1482,8 @@ public:
 	 *
 	 * This method is provided as part of the audio handling interface.
 	 */
-	bool SndSetFormat(SoundIoFormat &format);
-	void SndHandleAbort(void);
+	bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error);
+	void SndHandleAbort(ErrorInfo error);
 	void SndPushInput(bool);
 	void SndPushOutput(bool);
 	/**
@@ -1425,17 +1493,20 @@ public:
 	 * as audio packets are sent to/received from the connected
 	 * device.
 	 *
-	 * @param play Must be @em true
-	 * @param capture Must be @em true
+	 * @param[in] play Must be @em true
+	 * @param[in] capture Must be @em true
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true Asynchronous audio handling has been enabled.
 	 * Expect future callbacks to SoundIo::cb_NotifyPacket.
 	 * @retval false Error enabling asynchronous audio handling.
 	 * Reasons might include:
-	 * - Voice connection is not established, i.e. IsConnectedVoice()
+	 * - Audio connection is not established, i.e. IsConnectedAudio()
 	 * - The @em play and/or @em capture parameters were @em false.
 	 */
-	bool SndAsyncStart(bool play, bool capture);
+	bool SndAsyncStart(bool play, bool capture, ErrorInfo *error);
 	/**
 	 * @brief Halt asynchronous audio handling
 	 *
@@ -1448,9 +1519,9 @@ public:
 	 * This method is provided as part of the audio handling interface.
 	 */
 	bool SndIsAsyncStarted(void) const
-		{ return IsConnectedVoice() && (m_sco_not != 0); }
+		{ return IsConnectedAudio() && (m_sco_not != 0); }
 
-	size_t VoicePacketNumSamples(void) const { return m_sco_packet_samps; }
+	size_t AudioPacketNumSamples(void) const { return m_sco_packet_samps; }
 };
 
 

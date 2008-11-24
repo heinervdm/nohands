@@ -63,7 +63,7 @@ public:
 			if ((rtv.tv_sec > (m_trigger / 1000)) ||
 			    ((rtv.tv_sec == (m_trigger / 1000)) &&
 			     ((rtv.tv_usec / 1000) > (m_trigger % 1000)))) {
-				m_di->LogDebug("** OpLatency: %s took %ldms\n",
+				m_di->LogDebug("** OpLatency: %s took %ldms",
 					       m_label,
 					       (rtv.tv_sec * 1000) +
 					       (rtv.tv_usec / 1000));

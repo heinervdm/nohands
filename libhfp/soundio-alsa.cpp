@@ -128,9 +128,16 @@ public:
 	snd_pcm_sframes_t GetSampleBytes(void) const
 		{ return m_format.bytes_per_record; }
 
-	bool OpenDevice(snd_pcm_access_t pcm_access, bool play, bool rec) {
+	bool OpenDevice(snd_pcm_access_t pcm_access, bool play, bool rec,
+			ErrorInfo *error) {
 		int err;
-		if (m_play_handle || m_rec_handle) { return false; }
+		if (m_play_handle || m_rec_handle) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					   LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
+					   "Device already open");
+			return false;
+		}
 
 		/*
 		 * ALSA's snd_config_update() is broken WRT
@@ -143,17 +150,20 @@ public:
 			err = snd_pcm_open(&m_play_handle, m_play_devspec,
 					   SND_PCM_STREAM_PLAYBACK, 0);
 			if (err < 0) {
-				m_ei->LogWarn("Could not open playback "
-					      "device \"%s\": %s\n",
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "Could not open playback "
+					      "device \"%s\": %s",
 					      m_play_devspec,
 					      strerror(-err));
 				return false;
 			}
 
 			if (!ConfigurePcm(m_play_handle, m_format, pcm_access,
-					  m_play_props)) {
+					  m_play_props, error)) {
 				m_ei->LogWarn("Error configuring playback "
-					      "device \"%s\"\n",
+					      "device \"%s\"",
 					      m_play_devspec);
 				CloseDevice();
 				return false;
@@ -164,8 +174,11 @@ public:
 			err = snd_pcm_open(&m_rec_handle, m_rec_devspec,
 					   SND_PCM_STREAM_CAPTURE, 0);
 			if (err < 0) {
-				m_ei->LogWarn("Could not open record "
-					      "device \"%s\": %s\n",
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "Could not open record "
+					      "device \"%s\": %s",
 					      m_rec_devspec,
 					      strerror(-err));
 				CloseDevice();
@@ -173,9 +186,9 @@ public:
 			}
 
 			if (!ConfigurePcm(m_rec_handle, m_format, pcm_access,
-					  m_rec_props)) {
+					  m_rec_props, error)) {
 				m_ei->LogWarn("Error configuring record "
-					      "device \"%s\"\n",
+					      "device \"%s\"",
 					      m_rec_devspec);
 				CloseDevice();
 				return false;
@@ -210,7 +223,8 @@ public:
 	 * Start recording if requested.
 	 */
 	bool CreatePcmNotifiers(bool playback, bool capture,
-				Callback<void, SocketNotifier*, int> &tmpl) {
+				Callback<void, SocketNotifier*, int> &tmpl,
+				ErrorInfo *error) {
 		int err;
 		bool do_playback = playback;
 
@@ -218,9 +232,17 @@ public:
 			return true;
 		}
 		if (playback && (m_play_handle == NULL)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "Device not open for playback");
 			return false;
 		}
 		if (capture && (m_rec_handle == NULL)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "Device not open for capture");
 			return false;
 		}
 
@@ -238,13 +260,14 @@ public:
 		if (do_playback &&
 		    (m_play_not == NULL) &&
 		    !CreateNotifiers(m_play_handle, m_ei, tmpl, m_play_not,
-				     m_play_not_count)) {
+				     m_play_not_count, error)) {
 			return false;
 		}
 
 		if (capture && (m_rec_not == NULL)) {
 			if (!CreateNotifiers(m_rec_handle, m_ei, tmpl,
-					     m_rec_not, m_rec_not_count)) {
+					     m_rec_not, m_rec_not_count,
+					     error)) {
 				CleanupPcmNotifiers();
 				return false;
 			}
@@ -258,7 +281,10 @@ public:
 			}
 
 			if (err < 0) {
-				m_ei->LogDebug("ALSA pcm start: %s\n",
+				m_ei->LogDebug(error,
+					       LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					       LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					       "ALSA pcm start: %s",
 					       strerror(-err));
 				CleanupPcmNotifiers();
 				return false;
@@ -281,32 +307,32 @@ public:
 	}
 
 	bool Reconfigure(SoundIoFormat *formatp,
-			 snd_pcm_access_t pcm_access) {
+			 snd_pcm_access_t pcm_access, ErrorInfo *error) {
 		SoundIoFormat format;
 
 		if (formatp) { format = *formatp; } else { format = m_format; }
 
 		if (m_play_handle) {
-			m_ei->LogDebug("ALSA play state: %d\n",
+			m_ei->LogDebug("ALSA play state: %d",
 				       snd_pcm_state(m_play_handle));
 			snd_pcm_drop(m_play_handle);
 			if (!ConfigurePcm(m_play_handle, format, pcm_access,
-					  m_play_props)) {
+					  m_play_props, error)) {
 				return false;
 			}
-			m_ei->LogDebug("ALSA play state: %d\n",
+			m_ei->LogDebug("ALSA play state: %d",
 				       snd_pcm_state(m_play_handle));
 		}
 
 		if (m_rec_handle) {
-			m_ei->LogDebug("ALSA rec state: %d\n",
+			m_ei->LogDebug("ALSA rec state: %d",
 				       snd_pcm_state(m_rec_handle));
 			snd_pcm_drop(m_rec_handle);
 			if (!ConfigurePcm(m_rec_handle, format, pcm_access,
-					  m_rec_props)) {
+					  m_rec_props, error)) {
 				return false;
 			}
-			m_ei->LogDebug("ALSA rec state: %d\n",
+			m_ei->LogDebug("ALSA rec state: %d",
 				       snd_pcm_state(m_rec_handle));
 		}
 
@@ -342,7 +368,7 @@ public:
 
 		err = snd_pcm_sw_params_current(pcmp, swp);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA sw_params_current failed: %s\n",
+			m_ei->LogWarn("ALSA sw_params_current failed: %s",
 				      strerror(-err));
 			return false;
 		}
@@ -350,13 +376,13 @@ public:
 		err = snd_pcm_sw_params_set_avail_min(pcmp, swp, amin);
 		if (err < 0) {
 			m_ei->LogWarn("ALSA sw_params_set_avail_min "
-				      "failed: %s\n", strerror(-err));
+				      "failed: %s", strerror(-err));
 			return false;
 		}
 
 		err = snd_pcm_sw_params(pcmp, swp);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA sw_params failed: %s\n",
+			m_ei->LogWarn("ALSA sw_params failed: %s",
 				      strerror(-err));
 			return false;
 		}
@@ -366,7 +392,7 @@ public:
 
 	bool ConfigurePcm(snd_pcm_t *pcmp, SoundIoFormat &format,
 			  snd_pcm_access_t pcm_access,
-			  AlsaChannelProps &props) {
+			  AlsaChannelProps &props, ErrorInfo *error = 0) {
 		snd_pcm_hw_params_t *hwp;
 		snd_pcm_sw_params_t *swp;
 		snd_pcm_uframes_t buffersize, packetsize, amin;
@@ -375,7 +401,10 @@ public:
 
 		sampfmt = AlsaPcmFormat(format.sampletype);
 		if (sampfmt == SND_PCM_FORMAT_UNKNOWN) {
-			m_ei->LogWarn("Unrecognized sample type %d\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_FORMAT_UNKNOWN,
+				      "Unrecognized sample type %d",
 				      format.sampletype);
 			return false;
 		}
@@ -385,21 +414,30 @@ public:
 
 		err = snd_pcm_hw_params_any(pcmp, hwp);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA hw_params_any failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA hw_params_any failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_hw_params_set_access(pcmp, hwp, pcm_access);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA set_access failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA set_access failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_hw_params_set_format(pcmp, hwp, sampfmt);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA set_format failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA set_format failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
@@ -407,7 +445,10 @@ public:
 		err = snd_pcm_hw_params_set_rate(pcmp, hwp,
 						 format.samplerate, 0);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA set_rate failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA set_rate failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
@@ -415,7 +456,10 @@ public:
 		err = snd_pcm_hw_params_set_channels(pcmp, hwp,
 						     format.nchannels);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA set_channels failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA set_channels failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
@@ -425,7 +469,10 @@ public:
 		err = snd_pcm_hw_params_set_period_size_near(pcmp, hwp,
 							     &packetsize, 0);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA set_period failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA set_period failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
@@ -438,55 +485,79 @@ public:
 		err = snd_pcm_hw_params_set_buffer_size_near(pcmp, hwp,
 							     &buffersize);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA set_buffer_size failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA set_buffer_size failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_hw_params(pcmp, hwp);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA hw_params failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA hw_params failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_hw_params_current(pcmp, hwp);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA hw_params_current failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA hw_params_current failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_hw_params_get_buffer_size(hwp, &buffersize);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA get_buffer_size failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA get_buffer_size failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 		err = snd_pcm_hw_params_get_period_size(hwp, &packetsize, 0);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA get_period_size failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA get_period_size failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_sw_params_current(pcmp, swp);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA sw_params failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA sw_params failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_sw_params_get_avail_min(swp, &amin);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA sw_params_get_avail_min "
-				      "failed: %s\n", strerror(-err));
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA sw_params_get_avail_min "
+				      "failed: %s", strerror(-err));
 			goto failed;
 		}
 
 		err = snd_pcm_prepare(pcmp);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA prepare failed: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA prepare failed: %s",
 				      strerror(-err));
 			goto failed;
 		}
@@ -500,15 +571,15 @@ public:
 		return false;
 	}
 
-	bool Prepare(bool playback, bool capture) {
+	bool Prepare(bool playback, bool capture, ErrorInfo *error) {
 		if (playback) {
 			assert(m_play_handle);
-			m_ei->LogDebug("ALSA play state: %d\n",
+			m_ei->LogDebug("ALSA play state: %d",
 				       snd_pcm_state(m_play_handle));
 		}
 		if (capture) {
 			assert(m_rec_handle);
-			m_ei->LogDebug("ALSA rec state: %d\n",
+			m_ei->LogDebug("ALSA rec state: %d",
 				       snd_pcm_state(m_rec_handle));
 		}
 		return true;
@@ -517,7 +588,8 @@ public:
 	bool CreateNotifiers(snd_pcm_t *pcm_handle,
 			     DispatchInterface *eip,
 			     Callback<void, SocketNotifier*, int> &cbtemplate,
-			     SocketNotifier **&table, int &count) {
+			     SocketNotifier **&table, int &count,
+			     ErrorInfo *error) {
 		struct pollfd *polldesc;
 		int i, j, nfds, nnot;
 		int err;
@@ -526,7 +598,10 @@ public:
 		polldesc = (struct pollfd*) alloca(nfds * sizeof(*polldesc));
 		err = snd_pcm_poll_descriptors(pcm_handle, polldesc, nfds);
 		if (err < 0) {
-			m_ei->LogWarn("ALSA get poll descriptors: %s\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA get poll descriptors: %s",
 				      strerror(-err));
 			return false;
 		}
@@ -619,7 +694,7 @@ public:
 							     play_first,
 							     &revents) < 0) {
 			m_ei->LogWarn("ALSA pcm_poll_descriptors_revents "
-				      "for rec: %s\n", strerror(errno));
+				      "for rec: %s", strerror(errno));
 			}
 			else if (revents & POLLIN)
 				return true;
@@ -630,7 +705,7 @@ public:
 						     nused - play_first,
 						     &revents) < 0) {
 			m_ei->LogWarn("ALSA pcm_poll_descriptors_revents "
-				      "for play: %s\n", strerror(errno));
+				      "for play: %s", strerror(errno));
 			}
 			else if (revents & POLLOUT)
 				return true;
@@ -639,7 +714,8 @@ public:
 		return false;
 	}
 
-	bool HandleInterruption(snd_pcm_t *pcmp, snd_pcm_sframes_t res) {
+	bool HandleInterruption(snd_pcm_t *pcmp, snd_pcm_sframes_t res,
+				ErrorInfo *error) {
 		int err;
 		const char *streamtype;
 		bool *xrun;
@@ -656,13 +732,16 @@ public:
 		switch (snd_pcm_state(pcmp)) {
 		case SND_PCM_STATE_XRUN:
 			/* buffer overrun/underrun, treat like setup */
-			m_ei->LogDebug("**** ALSA %s xrun ****\n", streamtype);
+			m_ei->LogDebug("**** ALSA %s xrun ****", streamtype);
 			*xrun = true;
 
 		case SND_PCM_STATE_SETUP:
 			err = snd_pcm_prepare(pcmp);
 			if (err < 0) {
-				m_ei->LogWarn("ALSA %s prepare: %s\n",
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "ALSA %s prepare: %s",
 					      streamtype, strerror(-err));
 				return false;
 			}
@@ -674,7 +753,10 @@ public:
 			if (snd_pcm_stream(pcmp) == SND_PCM_STREAM_CAPTURE) {
 				err = snd_pcm_start(pcmp);
 				if (err < 0) {
-					m_ei->LogWarn("ALSA %s start: %s\n",
+					m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+						      "ALSA %s start: %s",
 						      streamtype,
 						      strerror(-err));
 					return false;
@@ -684,17 +766,23 @@ public:
 
 		case SND_PCM_STATE_SUSPENDED:
 			/* hardware was suspended? huh? */
-			m_ei->LogWarn("ALSA %s suspended\n", streamtype);
+			m_ei->LogWarn("ALSA %s suspended", streamtype);
 
 			err = snd_pcm_resume(pcmp);
 			if (err < 0) {
-				m_ei->LogWarn("ALSA %s resume: %s\n",
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "ALSA %s resume: %s",
 					      streamtype, strerror(-err));
 				return false;
 			}
 			if (snd_pcm_state(pcmp) == SND_PCM_STATE_SUSPENDED) {
-				m_ei->LogWarn("ALSA %s resume succeeded, but "
-					      "still in suspended state\n",
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "ALSA %s resume succeeded, but "
+					      "still in suspended state",
 					      streamtype);
 				return false;
 			}
@@ -704,12 +792,18 @@ public:
 			return true;
 
 		case SND_PCM_STATE_DISCONNECTED:
-			m_ei->LogDebug("ALSA %s is disconnected, "
-				       "shutting down\n", streamtype);
+			m_ei->LogDebug(error,
+				       LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				       LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				       "ALSA %s is disconnected, "
+				       "shutting down", streamtype);
 			return false;
 
 		default:
-			m_ei->LogWarn("ALSA %s in strange state %d\n",
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				      "ALSA %s in strange state %d",
 				      streamtype, snd_pcm_state(pcmp));
 			return false;
 		}
@@ -734,9 +828,9 @@ public:
 		: m_alsa(eip, output_devspec, input_devspec) {}
 	virtual ~SoundIoAlsaProc() {}
 
-	virtual bool SndOpen(bool play, bool capture) {
+	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
 		if (m_alsa.OpenDevice(SND_PCM_ACCESS_RW_INTERLEAVED,
-				      play, capture)) {
+				      play, capture, error)) {
 			m_play_nonblock = false;
 			m_rec_nonblock = false;
 			OpenBuf();
@@ -755,10 +849,10 @@ public:
 		format.packet_samps = m_alsa.GetPacketSize();
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
 		SndAsyncStop();
 		if (m_alsa.Reconfigure(&format,
-				       SND_PCM_ACCESS_RW_INTERLEAVED)) {
+				       SND_PCM_ACCESS_RW_INTERLEAVED, error)) {
 			OpenBuf();
 			return true;
 		}
@@ -791,6 +885,7 @@ public:
 		unsigned int nsamples;
 		uint8_t *buf;
 		snd_pcm_sframes_t exp, err;
+		ErrorInfo error;
 
 		if (m_abort)
 			return;		/* Don't bother */
@@ -799,7 +894,7 @@ public:
 			err = snd_pcm_nonblock(m_alsa.m_rec_handle, nonblock);
 			if (err < 0) {
 				m_alsa.m_ei->LogWarn("ALSA set nonblock: "
-						     "%ld\n", err);
+						     "%ld", err);
 			}
 			m_rec_nonblock = nonblock;
 		}
@@ -832,12 +927,13 @@ public:
 				if (err == -EAGAIN) { break; }
 			do_interruption:
 				if (m_alsa.HandleInterruption(
-					    m_alsa.m_rec_handle, err)) {
+					    m_alsa.m_rec_handle, err,
+					    &error)) {
 					goto restart_me;
 				}
 				m_alsa.m_ei->LogWarn("ALSA capture failed: "
-						     "%ld\n", err);
-				BufAbort(m_alsa.m_ei);
+						     "%ld", err);
+				BufAbort(m_alsa.m_ei, error);
 				break;
 			}
 			if (!err) { break; }
@@ -851,6 +947,7 @@ public:
 		unsigned int nsamples;
 		uint8_t *buf;
 		ssize_t err;
+		ErrorInfo error;
 
 		if (m_abort)
 			return;		/* Don't bother */
@@ -862,7 +959,7 @@ public:
 			err = snd_pcm_nonblock(m_alsa.m_play_handle, nonblock);
 			if (err < 0) {
 				m_alsa.m_ei->LogWarn("ALSA set nonblock: "
-						     "%zd\n", err);
+						     "%zd", err);
 			}
 			m_play_nonblock = nonblock;
 		}
@@ -879,21 +976,22 @@ public:
 			if (err < 0) {
 				if (err == -EAGAIN) {
 					m_alsa.m_ei->LogWarn("ALSA: playback "
-							     "buffer full\n");
+							     "buffer full");
 					break;
 				}
 				if (m_alsa.HandleInterruption(
-					    m_alsa.m_play_handle, err)) {
+					    m_alsa.m_play_handle, err,
+					    &error)) {
 					goto restart_me;
 				}
 				m_alsa.m_ei->LogWarn("ALSA playback failed: "
-						     "%zd\n", err);
-				BufAbort(m_alsa.m_ei);
+						     "%zd", err);
+				BufAbort(m_alsa.m_ei, error);
 				break;
 			}
 			if (!err) {
 				m_alsa.m_ei->LogWarn("ALSA pcm_writei "
-						     "result is 0?\n");
+						     "result is 0?");
 				break;
 			}
 
@@ -924,6 +1022,8 @@ public:
 				 * into our buffer
 				 */
 				SndPushInput(true);
+				if (m_abort)
+					goto do_abort;
 			}
 
 			overrun = m_alsa.m_rec_xrun;
@@ -935,7 +1035,8 @@ public:
 				if (overrun &&
 				    !m_alsa.HandleInterruption(m_alsa.
 							       m_rec_handle,
-							       -EPIPE)) {
+							       -EPIPE,
+							       &m_abort)) {
 					goto do_abort;
 				}
 			}
@@ -952,7 +1053,8 @@ public:
 				if (underrun &&
 				    !m_alsa.HandleInterruption(m_alsa.
 							       m_play_handle,
-							       -EPIPE)) {
+							       -EPIPE,
+							       &m_abort)) {
 					goto do_abort;
 				}
 			}
@@ -962,7 +1064,7 @@ public:
 				if (!underrun || (err != -EPIPE))
 					m_alsa.m_ei->LogWarn(
 						"ALSA playback: "
-						"snd_pcm_delay: %s\n",
+						"snd_pcm_delay: %s",
 						strerror(-err));
 				exp = 0;
 			}
@@ -991,10 +1093,11 @@ public:
 		return;
 
 	do_abort:
-		SndHandleAbort();
+		SndHandleAbort(m_abort);
 	}
 
-	virtual bool SndAsyncStart(bool playback, bool capture) {
+	virtual bool SndAsyncStart(bool playback, bool capture,
+				   ErrorInfo *error) {
 		Callback<void, SocketNotifier*, int> tmpl;
 		if (playback) {
 			m_alsa.SetAvailMin(m_alsa.m_play_handle,
@@ -1002,9 +1105,10 @@ public:
 					   m_alsa.m_play_props.packetsize);
 		}
 		tmpl.Register(this, &SoundIoAlsaProc::AsyncProcess);
-		if (!m_alsa.Prepare(playback, capture))
+		if (!m_alsa.Prepare(playback, capture, error))
 			return false;
-		return m_alsa.CreatePcmNotifiers(playback, capture, tmpl);
+		return m_alsa.CreatePcmNotifiers(playback, capture, tmpl,
+						 error);
 	}
 
 	virtual void SndAsyncStop(void) {
@@ -1026,20 +1130,23 @@ class SoundIoAlsaMmap : public SoundIo {
 	snd_pcm_uframes_t		m_rec_off, m_rec_size;
 	int				m_packetbytes;
 	SoundIoQueueState		m_qs;
-	bool				m_abort;
+	ErrorInfo			m_abort;
 
 public:
 	SoundIoAlsaMmap(DispatchInterface *eip,
 			const char *output_devspec, const char *input_devspec)
 		: m_alsa(eip, output_devspec, input_devspec),
-		  m_play_areas(NULL), m_rec_areas(NULL), m_abort(false) {}
+		  m_play_areas(NULL), m_rec_areas(NULL) {}
 	virtual ~SoundIoAlsaMmap() {}
 
-	bool SetPacketSize(void) {
+	bool SetPacketSize(ErrorInfo *error) {
 		if (m_alsa.m_rec_props.packetsize !=
 		    m_alsa.m_play_props.packetsize) {
-			m_alsa.m_ei->LogWarn("ALSA packet size mismatch: "
-					     "%ld capture, %ld playback\n",
+			m_alsa.m_ei->LogWarn(error,
+					     LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					     LIBHFP_ERROR_SOUNDIO_INTERNAL,
+					     "ALSA packet size mismatch: "
+					     "%ld capture, %ld playback",
 					     m_alsa.m_rec_props.packetsize,
 					     m_alsa.m_play_props.packetsize);
 			return false;
@@ -1063,10 +1170,10 @@ public:
 		}
 	}
 
-	virtual bool SndOpen(bool play, bool capture) {
+	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
 		return m_alsa.OpenDevice(SND_PCM_ACCESS_MMAP_INTERLEAVED,
-					 play, capture) &&
-			SetPacketSize();
+					 play, capture, error) &&
+			SetPacketSize(error);
 	}
 	virtual void SndClose(void) {
 		SndAsyncStop();
@@ -1082,13 +1189,14 @@ public:
 		format.packet_samps = m_alsa.GetPacketSize();
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
 		SndAsyncStop();
 		if (!m_alsa.Reconfigure(&format,
-					SND_PCM_ACCESS_MMAP_INTERLEAVED)) {
+					SND_PCM_ACCESS_MMAP_INTERLEAVED,
+					error)) {
 			return false;
 		}
-		if (!SetPacketSize()) {
+		if (!SetPacketSize(error)) {
 			return false;
 		}
 		return true;
@@ -1121,12 +1229,11 @@ public:
 					 &m_rec_size);
 		if (err < 0) {
 			if (m_alsa.HandleInterruption(m_alsa.m_rec_handle,
-						      err))
+						      err, &m_abort))
 				goto retry;
 
-			m_alsa.m_ei->LogWarn("ALSA rec mmap_begin: %s\n",
+			m_alsa.m_ei->LogWarn("ALSA rec mmap_begin: %s",
 					     strerror(-err));
-			m_abort = true;
 			fillme.m_size = 0;
 			return;
 		}
@@ -1159,11 +1266,11 @@ public:
 			if (err != (int) m_rec_size) {
 				if (!m_alsa.HandleInterruption(m_alsa.
 							       m_rec_handle,
-							       err)) {
+							       err,
+							       &m_abort)) {
 					m_alsa.m_ei->LogWarn(
-						"ALSA rec mmap_commit: %s\n",
+						"ALSA rec mmap_commit: %s",
 						strerror(-err));
-					m_abort = true;
 					return;
 				}
 			}
@@ -1207,11 +1314,10 @@ public:
 					 &m_play_size);
 		if (err < 0) {
 			if (m_alsa.HandleInterruption(m_alsa.m_play_handle,
-						      err))
+						      err, &m_abort))
 				goto retry;
-			m_alsa.m_ei->LogWarn("ALSA play mmap_begin: %s\n",
+			m_alsa.m_ei->LogWarn("ALSA play mmap_begin: %s",
 					     strerror(-err));
-			m_abort = true;
 			fillme.m_size = 0;
 			return;
 		}
@@ -1230,6 +1336,7 @@ public:
 
 	virtual void SndQueueOBuf(sio_sampnum_t qcount) {
 		int err;
+		ErrorInfo error;
 
 		/*
 		 * We permit callers to remove record buffer data
@@ -1244,16 +1351,17 @@ public:
 		err = snd_pcm_mmap_commit(m_alsa.m_play_handle,
 					  m_play_off, qcount);
 		if (err != (int) qcount) {
-			m_alsa.m_ei->LogWarn("ALSA play mmap_commit: %s\n",
+			m_alsa.m_ei->LogWarn("ALSA play mmap_commit: %s",
 					     strerror(-err));
-			m_alsa.HandleInterruption(m_alsa.m_play_handle, err);
+			m_alsa.HandleInterruption(m_alsa.m_play_handle, err,
+						  &error);
 		}
 
 		else if (snd_pcm_state(m_alsa.m_play_handle) ==
 			 SND_PCM_STATE_PREPARED) {
 			err = snd_pcm_start(m_alsa.m_play_handle);
 			if (err) {
-				m_alsa.m_ei->LogWarn("ALSA play start: %s\n",
+				m_alsa.m_ei->LogWarn("ALSA play start: %s",
 						     strerror(-err));
 			}
 		}
@@ -1285,24 +1393,25 @@ public:
 		qs = m_qs;
 	}
 
-	void SndHandleAbort(void) {
-		m_abort = false;
+	void SndHandleAbort(ErrorInfo error) {
+		m_abort.Clear();
 		CommitMappings();
 		m_alsa.CleanupPcmNotifiers();
-		if (cb_NotifyPacket.Registered())
-			cb_NotifyPacket(this, NULL);
+		if (cb_NotifyAsyncStop.Registered())
+			cb_NotifyAsyncStop(this, error);
 	}
 
 	void AsyncProcess(SocketNotifier *notp, int fh) {
 		SoundIoQueueState qs;
 		bool overrun, underrun;
+		ErrorInfo error;
 
 		/*
 		 * We will explicitly test for xruns here.
 		 */
 
 		if (m_abort) {
-			SndHandleAbort();
+			SndHandleAbort(m_abort);
 			return;
 		}
 
@@ -1318,8 +1427,8 @@ public:
 				    SND_PCM_STATE_XRUN);
 			if (underrun &&
 			    !m_alsa.HandleInterruption(m_alsa.m_play_handle,
-						       -EPIPE)) {
-				SndHandleAbort();
+						       -EPIPE, &error)) {
+				SndHandleAbort(error);
 				return;
 			}
 		}
@@ -1331,29 +1440,31 @@ public:
 				   SND_PCM_STATE_XRUN);
 			if (overrun &&
 			    !m_alsa.HandleInterruption(m_alsa.m_rec_handle,
-						       -EPIPE)) {
-				SndHandleAbort();
+						       -EPIPE, &error)) {
+				SndHandleAbort(error);
 				return;
 			}
 		}
 
 		if (cb_NotifyPacket.Registered())
-			cb_NotifyPacket(this, &qs);
+			cb_NotifyPacket(this, qs);
 
 		if (m_abort)
-			SndHandleAbort();
+			SndHandleAbort(m_abort);
 	}
 
-	virtual bool SndAsyncStart(bool playback, bool capture) {
+	virtual bool SndAsyncStart(bool playback, bool capture,
+				   ErrorInfo *error) {
 		Callback<void, SocketNotifier*, int> tmpl;
 		tmpl.Register(this, &SoundIoAlsaMmap::AsyncProcess);
-		return m_alsa.CreatePcmNotifiers(playback, capture, tmpl);
+		return m_alsa.CreatePcmNotifiers(playback, capture, tmpl,
+						 error);
 	}
 
 	virtual void SndAsyncStop(void) {
 		CommitMappings();
 		m_alsa.CleanupPcmNotifiers();
-		m_abort = false;
+		m_abort.Clear();
 	}
 
 	virtual bool SndIsAsyncStarted(void) const {
@@ -1373,7 +1484,8 @@ public:
 		} } while(0)
 
 SoundIo *
-SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts)
+SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts,
+		  ErrorInfo *error)
 {
 	char *opts = 0, *tok = 0, *save = 0, *tmp;
 	const char *ind, *outd;
@@ -1385,8 +1497,11 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts)
 
 	if (driveropts) {
 		opts = strdup(driveropts);
-		if (!opts)
+		if (!opts) {
+			if (error)
+				error->SetNoMem();
 			return 0;
+		}
 		tok = strtok_r(opts, "&", &save);
 	}
 
@@ -1422,7 +1537,7 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts)
 			}
 			else {
 				dip->LogWarn("ALSA: unrecognized mmap "
-					     "value \"%s\"\n", tmp);
+					     "value \"%s\"", tmp);
 			}
 		}
 		/*
@@ -1434,7 +1549,7 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts)
 		else if (strchr(tok, '=') &&
 			 (!strchr(tok, ':') ||
 			  (strchr(tok, '=') < strchr(tok, ':')))) {
-			dip->LogWarn("ALSA: unrecognized option \"%s\"\n",
+			dip->LogWarn("ALSA: unrecognized option \"%s\"",
 				     tok);
 		}
 		else {
@@ -1452,24 +1567,39 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts)
 	else
 		alsap = new SoundIoAlsaProc(dip, outd, ind);
 
+	if (!alsap) {
+		if (error)
+			error->SetNoMem();
+		return 0;
+	}
+
 	if (opts)
 		free(opts);
 	return alsap;
 }
 
 SoundIoDeviceList *
-SoundIoGetDeviceListAlsa(void)
+SoundIoGetDeviceListAlsa(ErrorInfo *error)
 {
 	SoundIoDeviceList *infop;
 	void **hints;
 	int i;
 
 	infop = new SoundIoDeviceList;
-	if (!infop)
+	if (!infop) {
+		if (error)
+			error->SetNoMem();
 		return 0;
+	}
 
-	if (snd_device_name_hint(-1, "pcm", &hints) < 0) {
+	i = snd_device_name_hint(-1, "pcm", &hints);
+	if (i < 0) {
 		delete infop;
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_SYSCALL,
+				   "ALSA snd_device_name_hint: %s",
+				   strerror(-i));
 		return 0;
 	}
 
@@ -1478,6 +1608,8 @@ SoundIoGetDeviceListAlsa(void)
 				snd_device_name_get_hint(hints[i], "DESC"))) {
 			delete infop;
 			infop = 0;
+			if (error)
+				error->SetNoMem();
 			break;
 		}
 			

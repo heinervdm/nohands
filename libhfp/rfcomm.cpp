@@ -44,13 +44,19 @@
 namespace libhfp {
 
 bool
-SetLinkModeOptions(int rsock, bool master, rfcomm_secmode_t sec)
+SetLinkModeOptions(int rsock, bool master, rfcomm_secmode_t sec,
+		   ErrorInfo *error)
 {
 	uint32_t linkmode;
 	socklen_t sl;
 
 	sl = sizeof(linkmode);
 	if (getsockopt(rsock, SOL_RFCOMM, RFCOMM_LM, &linkmode, &sl) < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "getsockopt RFCOMM_LM: %s",
+				   strerror(errno));
 		return false;
 	}
 
@@ -75,6 +81,11 @@ SetLinkModeOptions(int rsock, bool master, rfcomm_secmode_t sec)
 
 	sl = sizeof(linkmode);
 	if (setsockopt(rsock, SOL_RFCOMM, RFCOMM_LM, &linkmode, sl) < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "setsockopt RFCOMM_LM: %s",
+				   strerror(errno));
 		return false;
 	}
 
@@ -99,12 +110,22 @@ RfcommService::
 }
 
 bool RfcommService::
-SetSecMode(rfcomm_secmode_t secmode)
+SetSecMode(rfcomm_secmode_t secmode, ErrorInfo *error)
 {
+	if ((secmode != RFCOMM_SEC_NONE) &&
+	    (secmode != RFCOMM_SEC_AUTH) &&
+	    (secmode != RFCOMM_SEC_CRYPT)) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_EVENTS,
+				   LIBHFP_ERROR_EVENTS_BAD_PARAMETER,
+				   "Invalid RFCOMM security mode");
+		return false;
+	}
+
 	if (m_secmode != secmode) {
 		if ((m_rfcomm_listen >= 0) &&
 		    !SetLinkModeOptions(m_rfcomm_listen, m_bt_master,
-					secmode)) {
+					secmode, error)) {
 			return false;
 		}
 		m_secmode = secmode;
@@ -153,7 +174,7 @@ RfcommListenNotify(SocketNotifier *notp, int fh)
 }
 
 bool RfcommService::
-RfcommListen(uint8_t channel)
+RfcommListen(ErrorInfo *error, uint8_t channel)
 {
 	struct sockaddr_rc raddr;
 	BtHci *hcip;
@@ -164,19 +185,29 @@ RfcommListen(uint8_t channel)
 	assert(m_rfcomm_listen == -1);
 
 	hcip = GetHub()->GetHci();
-	if (!hcip)
+	if (!hcip) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	rsock = socket(PF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
 	if (rsock < 0) {
 		rsock = errno;
 		if (rsock == EPROTONOSUPPORT) {
-			GetDi()->LogError("Your kernel is not configured with "
-					  "support for RFCOMM sockets.\n");
+			GetDi()->LogError(error,
+					  LIBHFP_ERROR_SUBSYS_BT,
+					  LIBHFP_ERROR_BT_NO_SUPPORT,
+					  "Your kernel is not configured with "
+					  "support for RFCOMM sockets.");
 			GetHub()->SetAutoRestart(false);
 			return false;
 		}
-		GetDi()->LogWarn("Create RFCOMM socket: %s", strerror(rsock));
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Create RFCOMM socket: %s",
+				 strerror(rsock));
 		return false;
 	}
 
@@ -189,11 +220,17 @@ RfcommListen(uint8_t channel)
 		if (bind(rsock, (struct sockaddr*)&raddr,
 			 sizeof(raddr)) < 0) {
 			if (errno != EADDRINUSE) {
-				GetDi()->LogDebug("Bind RFCOMM socket: "
-						  "Channel %d is in use\n",
+				GetDi()->LogDebug(error,
+						  LIBHFP_ERROR_SUBSYS_BT,
+					  LIBHFP_ERROR_BT_SERVICE_CONFLICT,
+						  "Bind RFCOMM socket: "
+						  "Channel %d is in use",
 						  channel);
 			} else {
-				GetDi()->LogWarn("Bind RFCOMM socket: %s\n",
+				GetDi()->LogWarn(error,
+						 LIBHFP_ERROR_SUBSYS_BT,
+						 LIBHFP_ERROR_BT_SYSCALL,
+						 "Bind RFCOMM socket: %s",
 						 strerror(errno));
 			}
 			goto failed;
@@ -205,7 +242,10 @@ RfcommListen(uint8_t channel)
 
 		if (bind(rsock, (struct sockaddr*)&raddr, sizeof(raddr)) < 0) {
 			if (errno != EADDRINUSE) {
-				GetDi()->LogWarn("Bind RFCOMM socket: %s\n",
+				GetDi()->LogWarn(error,
+						 LIBHFP_ERROR_SUBSYS_BT,
+						 LIBHFP_ERROR_BT_SYSCALL,
+						 "Bind RFCOMM socket: %s",
 						 strerror(errno));
 				goto failed;
 			}
@@ -214,14 +254,17 @@ RfcommListen(uint8_t channel)
 		break;
 	}
 
-	if (!SetLinkModeOptions(rsock, m_bt_master, m_secmode)) {
+	if (!SetLinkModeOptions(rsock, m_bt_master, m_secmode, error)) {
 		GetDi()->LogWarn("Error setting RFCOMM link mode "
-				 "options: %s\n", strerror(errno));
+				 "options");
 		goto failed;
 	}
-	
+
 	if (listen(rsock, 1) < 0) {
-		GetDi()->LogWarn("Set RFCOMM socket to listen: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Set RFCOMM socket to listen: %s",
 				 strerror(errno));
 		goto failed;
 	}
@@ -229,14 +272,20 @@ RfcommListen(uint8_t channel)
 	/* Query the assigned channel of the RFCOMM */
 	al = sizeof(raddr);
 	if (getsockname(rsock, (struct sockaddr*)&raddr, &al) < 0) {
-		GetDi()->LogWarn("Query RFCOMM listener local address: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Query RFCOMM listener local address: %s",
 				 strerror(errno));
 		goto failed;
 	}
 
 	m_rfcomm_listen_not = GetDi()->NewSocket(rsock, false);
 	if (!m_rfcomm_listen_not) {
-		GetDi()->LogWarn("Could not create RFCOMM listen notifier\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Could not create RFCOMM listen notifier");
 		goto failed;
 	}	
 
@@ -382,7 +431,7 @@ RfcommSession::
 
 
 bool RfcommSession::
-RfcommSdpLookupChannel(void)
+RfcommSdpLookupChannel(ErrorInfo *error)
 {
 	SdpTask *taskp;
 
@@ -390,8 +439,11 @@ RfcommSdpLookupChannel(void)
 	assert(m_rfcomm_state == RFC_Disconnected);
 
 	taskp = new SdpTask;
-	if (taskp == 0)
+	if (taskp == 0) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	taskp->m_params.m_tasktype = SdpTaskParams::ST_SDP_LOOKUP;
 	bacpy(&taskp->m_params.m_bdaddr, &(GetDevice()->GetAddr()));
@@ -400,7 +452,7 @@ RfcommSdpLookupChannel(void)
 	taskp->cb_Result.Register(this, &RfcommSession::
 				  RfcommSdpLookupChannelComplete);
 
-	if (GetHub()->SdpTaskSubmit(taskp)) {
+	if (!GetHub()->SdpTaskSubmit(taskp, error)) {
 		delete taskp;
 		m_rfcomm_state = RFC_Disconnected;
 		return false;
@@ -416,6 +468,7 @@ void RfcommSession::
 RfcommSdpLookupChannelComplete(SdpTask *taskp)
 {
 	uint16_t channel;
+	ErrorInfo error;
 
 	assert(taskp == m_rfcomm_sdp_task);
 	assert(m_rfcomm_state == RFC_SdpLookupChannel);
@@ -423,17 +476,20 @@ RfcommSdpLookupChannelComplete(SdpTask *taskp)
 	m_rfcomm_inbound = false;
 
 	if (taskp->m_params.m_errno) {
-		GetDi()->LogDebug("SDP lookup failure: %s\n",
+		GetDi()->LogDebug(&error,
+				  LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "SDP lookup failure: %s",
 				  strerror(taskp->m_params.m_errno));
 		delete taskp;
 		m_rfcomm_sdp_task = 0;
-		__Disconnect(true, false);
+		__Disconnect(&error, false);
 		return;
 	}
 
 	channel = taskp->m_params.m_channel;
 	if (taskp->m_params.m_supported_features_present) {
-		GetDi()->LogDebug("SDP: Supported features: %x\n",
+		GetDi()->LogDebug("SDP: Supported features: %x",
 			       taskp->m_params.m_supported_features);
 		SdpSupportedFeatures(taskp->m_params.m_supported_features);
 	}
@@ -442,9 +498,9 @@ RfcommSdpLookupChannelComplete(SdpTask *taskp)
 	m_rfcomm_sdp_task = 0;
 
 	m_rfcomm_state = RFC_Disconnected;
-	if (!RfcommConnect(channel)) {
+	if (!RfcommConnect(channel, &error)) {
 		Get();
-		__Disconnect(true, false);
+		__Disconnect(&error, false);
 	}
 
 	/*
@@ -457,7 +513,7 @@ RfcommSdpLookupChannelComplete(SdpTask *taskp)
 
 
 bool RfcommSession::
-RfcommConnect(uint8_t channel)
+RfcommConnect(uint8_t channel, ErrorInfo *error)
 {
 	struct sockaddr_rc raddr;
 	BtHci *hcip;
@@ -466,12 +522,17 @@ RfcommConnect(uint8_t channel)
 	assert(m_rfcomm_state == RFC_Disconnected);
 
 	hcip = GetHub()->GetHci();
-	if (!hcip)
+	if (!hcip) {
+		error->SetNoMem();
 		return false;
+	}
 
 	rsock = socket(PF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
 	if (rsock < 0) {
-		GetDi()->LogWarn("Create RFCOMM socket: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Create RFCOMM socket: %s",
 				 strerror(errno));
 		goto failure;
 	}
@@ -482,14 +543,17 @@ RfcommConnect(uint8_t channel)
 	raddr.rc_channel = 0;
 
 	if (bind(rsock, (struct sockaddr*)&raddr, sizeof(raddr)) < 0) {
-		GetDi()->LogWarn("Bind RFCOMM socket: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Bind RFCOMM socket: %s",
 				 strerror(errno));
 		goto failure;
 	}
 
 	if (!SetLinkModeOptions(rsock,
 				GetService()->m_bt_master,
-				GetService()->m_secmode)) {
+				GetService()->m_secmode, error)) {
 		GetDi()->LogWarn("Error setting RFCOMM link mode options");
 		goto failure;
 	}
@@ -497,7 +561,10 @@ RfcommConnect(uint8_t channel)
 	m_rfcomm_secmode = GetService()->m_secmode;
 
 	if (!SetNonBlock(rsock, true)) {
-		GetDi()->LogWarn("Set socket nonblocking: %s\n",
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Set socket nonblocking: %s",
 				 strerror(errno));
 		goto failure;
 	}
@@ -508,7 +575,10 @@ RfcommConnect(uint8_t channel)
 
 	if (connect(rsock, (struct sockaddr*)&raddr, sizeof(raddr)) < 0) {
 		if ((errno != EINPROGRESS) && (errno != EAGAIN)) {
-			GetDi()->LogWarn("Connect RFCOMM socket: %s\n",
+			GetDi()->LogWarn(error,
+					 LIBHFP_ERROR_SUBSYS_BT,
+					 LIBHFP_ERROR_BT_SYSCALL,
+					 "Connect RFCOMM socket: %s",
 					 strerror(errno));
 			goto failure;
 		}
@@ -516,8 +586,8 @@ RfcommConnect(uint8_t channel)
 		/* We wait for the socket to become _writable_ */
 		m_rfcomm_not = GetDi()->NewSocket(rsock, true);
 		if (!m_rfcomm_not) {
-			GetDi()->LogWarn("Could not create RFCOMM listening"
-					 "socket notifier\n");
+			if (error)
+				error->SetNoMem();
 			goto failure;
 		}
 
@@ -538,6 +608,7 @@ RfcommConnect(uint8_t channel)
 
 failure:
 	if (rsock >= 0) { close(rsock); }
+	assert(!error || error->IsSet());
 	return false;
 }
 
@@ -549,7 +620,7 @@ RfcommAccept(int sock)
 
 		ba2str(&GetDevice()->GetAddr(), bda);
 		GetDi()->LogWarn("Refusing connection from "
-				 "non-disconnected device %s\n", bda);
+				 "non-disconnected device %s", bda);
 		return false;
 	}
 
@@ -560,7 +631,7 @@ RfcommAccept(int sock)
 
 	m_rfcomm_state = RFC_Connected;
 	Get();
-	NotifyConnectionState(true);
+	NotifyConnectionState(0);
 	return true;
 }
 
@@ -569,6 +640,7 @@ RfcommConnectNotify(SocketNotifier *notp, int fh)
 {
 	int sockerr;
 	socklen_t sl;
+	ErrorInfo error;
 
 	assert(m_rfcomm_state == RFC_Connecting);
 
@@ -587,28 +659,34 @@ RfcommConnectNotify(SocketNotifier *notp, int fh)
 	sl = sizeof(sockerr);
 	if (getsockopt(m_rfcomm_sock, SOL_SOCKET, SO_ERROR,
 		       &sockerr, &sl) < 0) {
-		GetDi()->LogWarn("Retrieve status of RFCOMM connect: %s\n",
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Retrieve status of RFCOMM connect: %s",
 				 strerror(errno));
-		__Disconnect(true, false);
+		__Disconnect(&error, false);
 		return;
 	}
 
 	if (sockerr) {
-		GetDi()->LogWarn("RFCOMM connect: %s\n", strerror(sockerr));
-		__Disconnect(true, false);
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "RFCOMM connect: %s", strerror(sockerr));
+		__Disconnect(&error, false);
 		return;
 	}
 
-	NotifyConnectionState(true);
+	NotifyConnectionState(0);
 }
 
 bool RfcommSession::
-RfcommConnect(void)
+RfcommConnect(ErrorInfo *error)
 {
 	if (m_rfcomm_state != RFC_Disconnected)
 		return false;
 
-	return RfcommSdpLookupChannel();
+	return RfcommSdpLookupChannel(error);
 }
 
 void RfcommSession::
@@ -618,7 +696,7 @@ SdpSupportedFeatures(uint16_t features)
 }
 
 void RfcommSession::
-__Disconnect(bool notify, bool voluntary)
+__Disconnect(ErrorInfo *reason, bool voluntary)
 {
 	if (m_rfcomm_state != RFC_Disconnected) {
 		if (m_rfcomm_not) {
@@ -641,7 +719,7 @@ __Disconnect(bool notify, bool voluntary)
 		m_rfcomm_dcvoluntary = voluntary;
 		m_rfcomm_state = RFC_Disconnected;
 
-		NotifyConnectionState(notify);
+		NotifyConnectionState(reason);
 
 		Put();
 	}

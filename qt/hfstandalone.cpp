@@ -271,7 +271,8 @@ public:
 		devp->m_callmode = AgDevice::CCM_DEAD;
 	}
 
-	void NotifyConnection(AgDevice *agp, HfpSession *sessp) {
+	void NotifyConnection(AgDevice *agp, HfpSession *sessp,
+			      ErrorInfo *reason) {
 		assert(sessp == agp->m_sess);
 
 		if (!sessp->IsConnecting() && !sessp->IsConnected()) {
@@ -318,13 +319,13 @@ public:
 		UpdateButtons(agp);
 	}
 
-	void NotifyVoiceConnection(AgDevice *agp, HfpSession *sessp) {
+	void NotifyAudioConnection(AgDevice *agp, HfpSession *sessp) {
 		assert(agp->m_sess == sessp);
-		if (!sessp->IsConnectingVoice() &&
-		    !sessp->IsConnectedVoice())
-			VoiceDetached(agp);
-		else if (sessp->IsConnectedVoice())
-			VoiceAttached(agp);
+		if (!sessp->IsConnectingAudio() &&
+		    !sessp->IsConnectedAudio())
+			AudioDetached(agp);
+		else if (sessp->IsConnectedAudio())
+			AudioAttached(agp);
 	}
 
 	void NotifyCall(AgDevice *agp, HfpSession *sessp,
@@ -334,7 +335,7 @@ public:
 			       sessp->HasEstablishedCall() ? "yes" : "no");
 			if (sessp->HasEstablishedCall()) {
 				agp->m_active_cli = agp->m_setup_cli;
-				if (!sessp->IsConnectedVoice()) {
+				if (!sessp->IsConnectedAudio()) {
 					(void) sessp->SndOpen(true, true);
 				}
 			}
@@ -401,9 +402,9 @@ public:
 		/* Register notification callbacks */
 		sessp->cb_NotifyConnection.
 			Bind(this, &RealUI::NotifyConnection,
-			     agp, Arg1);
-		sessp->cb_NotifyVoiceConnection.
-			Bind(this, &RealUI::NotifyVoiceConnection,
+			     agp, Arg1, Arg2);
+		sessp->cb_NotifyAudioConnection.
+			Bind(this, &RealUI::NotifyAudioConnection,
 			     agp, Arg1);
 		sessp->cb_NotifyCall.
 			Bind(this, &RealUI::NotifyCall,
@@ -415,7 +416,8 @@ public:
 		return sessp;
 	}
 
-	void NotifyNameResolved(BtDevice *devp, const char *name) {
+	void NotifyNameResolved(BtDevice *devp, const char *name,
+				ErrorInfo *reason) {
 		AgDevice *agp;
 
 		if (devp->GetPrivate()) {
@@ -456,22 +458,22 @@ public:
 		return siop;
 	}
 
-	void MaybeAttachVoice(void) {
+	void MaybeAttachAudio(void) {
 		AgDevice *agp = m_active_dev;
 		HfpSession *sessp;
 		assert(agp);
 		sessp = agp->m_sess;
 		assert(sessp);
 
-		if (!sessp->IsConnectingVoice() &&
-		    !sessp->IsConnectedVoice() &&
+		if (!sessp->IsConnectingAudio() &&
+		    !sessp->IsConnectedAudio() &&
 		    (sessp->HasEstablishedCall() ||
 		     sessp->HasConnectingCall())) {
-			/* Try to raise the voice connection */
+			/* Try to raise the audio connection */
 			sessp->SndOpen(true, true);
 		}
 
-		else if (sessp->IsConnectedVoice()) {
+		else if (sessp->IsConnectedAudio()) {
 			if (m_sound_user == SC_RINGTONE) {
 				/*
 				 * Stop playing a ring tone and
@@ -503,7 +505,7 @@ public:
 		m_active_dev = agp;
 		if (agp != NULL) {
 			agp->m_devlist_box->setSelected(true);
-			MaybeAttachVoice();
+			MaybeAttachAudio();
 		}
 	}
 
@@ -646,8 +648,8 @@ public:
 				status += "\nNo Service";
 			}
 			else {
-				if (sessp->IsConnectedVoice()) {
-					status += "\nVoice Open";
+				if (sessp->IsConnectedAudio()) {
+					status += "\nAudio Open";
 				} else {
 					status += "\nReady";
 				}
@@ -738,7 +740,7 @@ public:
 						m_active_dev->m_sess->
 						HasConnectingCall(),
 						!m_active_dev->m_sess->
-						IsConnectedVoice());
+						IsConnectedAudio());
 		}
 	}
 
@@ -936,15 +938,15 @@ public:
 		}
 	}
 
-	void VoiceAttached(AgDevice *agp) {
+	void AudioAttached(AgDevice *agp) {
 		/*
 		 * If the focused device doesn't have an active
-		 * voice connection, shift focus to this device.
+		 * audio connection, shift focus to this device.
 		 */
 
 		if ((m_active_dev != agp) &&
 		    ((m_active_dev == NULL) ||
-		     !m_active_dev->m_sess->IsConnectedVoice())) {
+		     !m_active_dev->m_sess->IsConnectedAudio())) {
 			SetDeviceFocus(agp);
 		}
 
@@ -954,18 +956,18 @@ public:
 		 */
 
 		else if (m_active_dev == agp) {
-			MaybeAttachVoice();
+			MaybeAttachAudio();
 		}
 
-		printf("Voice attached!\n");
+		printf("Audio attached!\n");
 		UpdateButtons(agp);
 	}
 
-	void VoiceDetached(AgDevice *agp) {
+	void AudioDetached(AgDevice *agp) {
 		if ((m_sound_user == SC_CALL) && (agp == m_active_dev)) {
 			SoundCardRelease();
 		}
-		printf("Voice detached!\n");
+		printf("Audio detached!\n");
 		UpdateButtons(agp);
 	}
 
@@ -1034,7 +1036,7 @@ public slots:
 		if (m_sound_user == SC_FEEDBACK) {
 			SoundCardRelease();
 			if (m_active_dev)
-				MaybeAttachVoice();
+				MaybeAttachAudio();
 		}
 	}
 
@@ -1070,7 +1072,7 @@ public slots:
 			}
 			SoundCardRelease();
 			if (m_active_dev)
-				MaybeAttachVoice();
+				MaybeAttachAudio();
 		}
 	}
 
@@ -1089,7 +1091,7 @@ public slots:
 
 		switch (oldstate) {
 		case SC_CALL:
-			MaybeAttachVoice();
+			MaybeAttachAudio();
 			break;
 		case SC_FEEDBACK:
 			if (SoundCardLoop() && m_prefs) {
@@ -1301,7 +1303,7 @@ public:
 				break;
 			case SC_CALL:
 				/* Try to reattach the call */
-				MaybeAttachVoice();
+				MaybeAttachAudio();
 				break;
 			case SC_RINGTONE:
 				SoundCardRingTone();
@@ -1325,12 +1327,13 @@ public:
 		m_prefs = 0;
 	}
 
-	void NotifyInquiryResult(BtDevice *devp, int error) {
+	void NotifyInquiryResult(BtDevice *devp, ErrorInfo *error) {
 
 		if (!devp) {
 			if (error) {
 				QMessageBox::warning(0, QString("NoHands"),
-				     QString("Inquiry Failed to Start"),
+				     QString("Inquiry Failed to Start: ") +
+						     QString(error->Desc()),
 						     QMessageBox::Ok,
 						     QMessageBox::NoButton);
 				return;
@@ -1349,7 +1352,7 @@ public:
 		printf("Scan: %s\n", devp->GetName());
 	}
 
-	void NotifyBTState(void) {
+	void NotifyBTState(ErrorInfo *reason) {
 		if (!m_hub->IsStarted()) {
 			setStatus("Bluetooth Unavailable");
 			printf("Bluetooth Failure, hub shut down\n");
@@ -1370,7 +1373,7 @@ public:
 		UpdateButtons(0);
 	}
 
-	void NotifyPumpState(SoundIoManager *soundp) {
+	void NotifyPumpState(SoundIoManager *soundp, ErrorInfo &error) {
 		int old_user = m_sound_user;
 		fprintf(stderr, "Audio pump aborted\n");
 		SoundCardRelease();
@@ -1441,7 +1444,7 @@ public:
 			m_active_dev->m_sess->SndClose();
 			UpdateButtons(m_active_dev);
 		} else
-			MaybeAttachVoice();
+			MaybeAttachAudio();
 	}
 	virtual void HoldClicked(AgDevice *devp) {
 		DelPend(devp->m_sess->CmdCallSwapHoldActive());
@@ -1621,7 +1624,7 @@ public:
 
 		m_hub->SetAutoRestart(true);
 		m_hub->Start();
-		NotifyBTState();
+		NotifyBTState(0);
 
 		if (m_autoreconnect) {
 			ReconnectNow();
@@ -1722,8 +1725,8 @@ DetachConnectionClicked(void)
 		 * recorded as a voluntary disconnection, and
 		 * NotifyDeviceConnection() will behave as such.
 		 */
-		m_ui->NotifyVoiceConnection(this, m_sess);
-		m_ui->NotifyConnection(this, m_sess);
+		m_ui->NotifyAudioConnection(this, m_sess);
+		m_ui->NotifyConnection(this, m_sess, 0);
 	} else {
 		m_ui->VoluntaryDisconnect(this);
 		m_ui->UpdateButtons(this);

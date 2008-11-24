@@ -116,9 +116,15 @@ public:
 		m_source_buf.FreeBuffer();
 	}
 
-	virtual bool SndOpen(bool sink, bool source) {
-		if (!source && !sink)
+	virtual bool SndOpen(bool sink, bool source, ErrorInfo *error) {
+		if (!source && !sink) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "Neither source nor sink mode set");
 			return false;
+		}
+
 		m_do_sink = sink;
 		m_do_source = source;
 
@@ -134,8 +140,11 @@ public:
 			m_sink_buf.FreeBuffer();
 			m_sink_buf.m_start = m_sink_buf.m_end = 0;
 			if (!m_sink_buf.AllocateBuffer(m_nsamples *
-						       m_fmt.bytes_per_record))
+					       m_fmt.bytes_per_record)) {
+				if (error)
+					error->SetNoMem();
 				return false;
+			}
 		}
 
 		if (m_do_source)
@@ -152,13 +161,18 @@ public:
 		format = m_fmt;
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
 		if ((m_do_sink || m_do_source) &&
 		    ((format.samplerate != m_fmt.samplerate) ||
 		     (format.sampletype != m_fmt.sampletype) ||
-		     (format.nchannels != m_fmt.nchannels)))
+		     (format.nchannels != m_fmt.nchannels))) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+					   "Format does not match "
+					   "preconfigured format");
 			return false;
-
+		}
 		m_fmt = format;
 		return true;
 	}
@@ -220,8 +234,16 @@ public:
 		qs.out_queued = m_do_sink
 			? (m_sink_buf.SpaceUsed() / m_fmt.bytes_per_record)
 			: 0;
+		qs.in_overflow = false;
+		qs.out_underflow = false;
 	}
-	virtual bool SndAsyncStart(bool, bool) { return false; }
+	virtual bool SndAsyncStart(bool, bool, ErrorInfo *error) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_NO_CLOCK,
+				   "Not a clocked endpoint");
+		return false;
+	}
 	virtual void SndAsyncStop(void) {}
 	virtual bool SndIsAsyncStarted(void) const { return false; }
 };
@@ -265,22 +287,43 @@ public:
 	}
 
 	void SndGetFormat(SoundIoFormat &fmt) const { fmt = m_fmt; }
-	bool SndSetFormat(SoundIoFormat &fmt) {
+	bool SndSetFormat(SoundIoFormat &fmt, ErrorInfo *error) {
 		if (!IsOpen()) {
 			m_fmt = fmt;
 			return true;
 		}
+		if ((fmt.samplerate == m_fmt.samplerate) &&
+		     (fmt.sampletype == m_fmt.sampletype) &&
+		    (fmt.nchannels == m_fmt.nchannels))
+			return true;
+
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+				   "Requested format does not match format "
+				   "of open file");
 		return false;
 	}
 
-	bool SndOpen(bool sink, bool source) {
+	bool SndOpen(bool sink, bool source, ErrorInfo *error) {
 		AFfilesetup fs = NULL;
 		int *tracks, ntracks;
 
-		if ((sink && source) || (!sink && !source))
+		if ((sink && source) || (!sink && !source)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					   "AudioFile must be open for only "
+					   "one direction");
 			return false;
-		if (IsOpen())
+		}
+		if (IsOpen()) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					   LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
+					   "AudioFile already open");
 			return false;
+		}
 
 		if (sink) {
 			m_track = AF_DEFAULT_TRACK;
@@ -302,8 +345,11 @@ public:
 				break;
 			default:
 				afFreeFileSetup(fs);
-				m_ei->LogWarn("audiofile: output format "
-					      "not supported\n");
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_FORMAT_UNKNOWN,
+					      "audiofile: output format "
+					      "not supported");
 				return false;
 			}
 		}
@@ -319,15 +365,21 @@ public:
 
 		ntracks = afGetTrackIDs(m_handle, NULL);
 		if (!ntracks) {
-			m_ei->LogWarn("audiofile: no tracks?\n");
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_BAD_FILE,
+				      "audiofile: no tracks?");
 			SndClose();
 			return false;
 		}
 
 		tracks = (int *) malloc(ntracks * sizeof(*tracks));
 		if (!tracks) {
-			m_ei->LogWarn("audiofile: could not allocate "
-				      "track list of length %d\n", ntracks);
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_BAD_FILE,
+				      "audiofile: could not allocate "
+				      "track list of length %d", ntracks);
 			SndClose();
 			return false;
 		}
@@ -351,8 +403,11 @@ public:
 				m_fmt.sampletype = SIO_PCM_S16_LE;
 				m_fmt.bytes_per_record = 2 * m_fmt.nchannels;
 			} else {
-				m_ei->LogWarn("audiofile: format of opened "
-					      "file not supported\n");
+				m_ei->LogWarn(error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_FORMAT_UNKNOWN,
+					      "audiofile: format of opened "
+					      "file not supported");
 				SndClose();
 				return false;
 			}
@@ -363,6 +418,8 @@ public:
 
 		m_buf = (uint8_t *) malloc(c_bufsize * m_fmt.bytes_per_record);
 		if (!m_buf) {
+			if (error)
+				error->SetNoMem();
 			SndClose();
 			return false;
 		}
@@ -448,6 +505,8 @@ public:
 	void SndGetQueueState(SoundIoQueueState &qs) {
 		qs.in_queued = 0;
 		qs.out_queued = 0;
+		qs.in_overflow = false;
+		qs.out_underflow = false;
 
 		if (IsOpen() && !m_write) {
 			qs.in_queued = afGetFrameCount(m_handle, m_track)
@@ -456,7 +515,13 @@ public:
 		}
 	}
 
-	bool SndAsyncStart(bool sink, bool source) { return false; }
+	bool SndAsyncStart(bool sink, bool source, ErrorInfo *error) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_NO_CLOCK,
+				   "Not a clocked endpoint");
+		return false;
+	}
 	void SndAsyncStop(void) {}
 	bool SndIsAsyncStarted(void) const { return false; }
 
@@ -549,7 +614,7 @@ public:
 							     m_rate);
 			if (!m_spsp) {
 				m_ei->LogWarn("Speex: could not allocate "
-					      "preprocess state\n");
+					      "preprocess state");
 				CleanupSpeex();
 				return false;
 			}
@@ -586,7 +651,7 @@ public:
 						       m_echotail);
 			if (!m_sesp) {
 				m_ei->LogWarn("Speex: could not allocate "
-					      "echo cancel state\n");
+					      "echo cancel state");
 				CleanupSpeex();
 				return false;
 			}
@@ -596,13 +661,13 @@ public:
 			m_downpkt = (uint8_t *) malloc(m_packetsize * m_bps);
 			if (!m_downpkt) {
 				m_ei->LogWarn("Speex: Could not allocate "
-					      "saved packet buffer\n");
+					      "saved packet buffer");
 				CleanupSpeex();
 				return false;
 			}
 		}
 
-		m_ei->LogDebug("Echo tail: %i\n", m_echotail);
+		m_ei->LogDebug("Echo tail: %i", m_echotail);
 		return true;
 	}
 
@@ -621,29 +686,42 @@ public:
 		}
 	}
 
-	bool Configure(SoundIoSpeexProps const &props) {
-		if (m_running)
+	bool Configure(SoundIoSpeexProps const &props, ErrorInfo *error) {
+		if (m_running) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			LIBHFP_ERROR_SOUNDIO_CANNOT_CHANGE_WHILE_STREAMING,
+					   "Cannot change DSP parameters "
+					   "while streaming");
 			return false;
+		}
 
 		m_props = props;
 		return true;
 	}
 
-	bool FltPrepare(SoundIoFormat const &fmt, bool up, bool dn) {
+	bool FltPrepare(SoundIoFormat const &fmt, bool up, bool dn,
+			ErrorInfo *error) {
 		m_rate = fmt.samplerate;
 		m_bps = fmt.bytes_per_record;
 		m_packetsize = fmt.packet_samps;
 
 		if (fmt.sampletype != SIO_PCM_S16_LE) {
 			/* Speex expects 16-bit little-endian samples */
-			m_ei->LogWarn("Speex requires S16_LE format\n");
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+				      "Speex requires S16_LE format");
 			return false;
 		}
 
 		if (fmt.nchannels != 1) {
 			/* Speex expects single-channel sample records */
-			m_ei->LogWarn("Speex requires single channel "
-				      "sample records\n");
+			m_ei->LogWarn(error,
+				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+				      "Speex requires single channel "
+				      "sample records");
 			return false;
 		}
 
@@ -652,8 +730,10 @@ public:
 		m_downpkt_ready = false;
 		m_echotail = 0;
 
-		if (up && !InitSpeex(dn))
+		if (up && !InitSpeex(dn)) {
+			error->SetNoMem();
 			return false;
+		}
 
 		m_running = true;
 		return true;
@@ -728,7 +808,8 @@ public:
 	bool m_half;
 	sio_sampnum_t m_pktsize;
 
-	bool FltPrepare(SoundIoFormat const &fmt, bool up, bool dn) {
+	bool FltPrepare(SoundIoFormat const &fmt, bool up, bool dn,
+			ErrorInfo *error) {
 		assert(!m_started);
 		m_up = up;
 		m_dn = dn;

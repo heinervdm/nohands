@@ -53,12 +53,12 @@ public:
 		}
 	}
 
-	bool SaveConfig(bool force = false) {
+	bool SaveConfig(ErrorInfo *error = 0, bool force = false) {
 		if (!force && !m_config_autosave) {
 			m_config_dirty = true;
 			return true;
 		}
-		if (!Save(m_config_savefile, 2))
+		if (!Save(m_config_savefile, 2, error))
 			return false;
 		m_config_dirty = false;
 		return true;
@@ -81,7 +81,7 @@ public:
 			if (!Load(cfgfile, 2) &&
 			    !Create(cfgfile)) {
 				GetDi()->LogWarn("Could not open or create "
-					 "specified config file \"%s\"\n",
+					 "specified config file \"%s\"",
 						 cfgfile);
 				goto failed;
 			}
@@ -107,19 +107,30 @@ public:
 	void SetAutoSave(bool val) { m_config_autosave = val; }
 
 	const char *GetConfigFile(void) const { return m_config_savefile; }
-	bool SetConfigFile(const char *val) {
+	bool SetConfigFile(const char *val, ErrorInfo *error) {
 		char *oldval = m_config_savefile;
+
+		if (!val || !val[0]) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_EVENTS,
+					   LIBHFP_ERROR_EVENTS_BAD_PARAMETER,
+					   "Configuration file name is empty");
+			return false;
+		}
 
 		m_config_savefile = strdup(val);
 		if (!m_config_savefile) {
 			m_config_savefile = oldval;
+			if (error)
+				error->SetNoMem();
 			return false;
 		}
 
-		if (!SaveConfig()) {
+		if (!SaveConfig(error)) {
 			if (m_config_savefile)
 				free(m_config_savefile);
 			m_config_savefile = oldval;
+			return false;
 		}
 
 		if (oldval)
@@ -128,6 +139,62 @@ public:
 	}
 };
 
+const char *HfpdExportObject::
+DbusErrorName(libhfp::ErrorInfo &error) const
+{
+	const char *exname;
+
+	exname = HFPD_ERROR_FAILED;
+
+	switch (error.Subsys()) {
+	case LIBHFP_ERROR_SUBSYS_EVENTS:
+		switch (error.Code()) {
+		case LIBHFP_ERROR_EVENTS_NO_MEMORY:
+			exname = DBUS_ERROR_NO_MEMORY;
+			break;
+		case LIBHFP_ERROR_EVENTS_BAD_PARAMETER:
+			exname = DBUS_ERROR_INVALID_ARGS;
+			break;
+		case LIBHFP_ERROR_EVENTS_IO_ERROR:
+			exname = DBUS_ERROR_IO_ERROR;
+			break;
+		default:
+			break;
+		}
+	case LIBHFP_ERROR_SUBSYS_BT:
+		switch (error.Code()) {
+		case LIBHFP_ERROR_BT_NO_SUPPORT:
+			exname = HFPD_ERROR_BT_NO_KERNEL_SUPPORT;
+			break;
+		case LIBHFP_ERROR_BT_SERVICE_CONFLICT:
+			exname = HFPD_ERROR_BT_SERVICE_CONFLICT;
+			break;
+		case LIBHFP_ERROR_BT_BAD_SCO_CONFIG:
+			exname = HFPD_ERROR_BT_BAD_SCO_CONFIG;
+			break;
+		default:
+			break;
+		}
+		break;
+	case LIBHFP_ERROR_SUBSYS_SOUNDIO:
+		switch (error.Code()) {
+		case LIBHFP_ERROR_SOUNDIO_SOUNDCARD_FAILED:
+			exname = HFPD_ERROR_SOUNDIO_SOUNDCARD_FAILED;
+			break;
+		default:
+			break;
+		}
+		break;
+	}
+	return exname;
+}
+
+bool HfpdExportObject::
+SendReplyErrorInfo(DBusMessage *msgp, libhfp::ErrorInfo &error)
+{
+	assert(error.IsSet());
+	return SendReplyError(msgp, DbusErrorName(error), error.Desc());
+}
 
 struct AgPendingCommand {
 	ListItem		m_links;
@@ -136,7 +203,7 @@ struct AgPendingCommand {
 	AudioGateway		*m_ag;
 
 	void HfpCommandResult(HfpPendingCommand *pendp,
-			      bool success, const char *info) {
+			      ErrorInfo *error, const char *info) {
 		assert(pendp == m_pend);
 		assert(m_msg);
 		assert(m_ag);
@@ -145,24 +212,25 @@ struct AgPendingCommand {
 		 * We could try to allocate a must succeed
 		 * structure here.
 		 */
-		if (success) {
+		if (!error) {
 			(void) m_ag->SendReplyArgs(m_msg, DBUS_TYPE_INVALID);
 		} else {
-			(void) m_ag->SendReplyError(m_msg,
-						    DBUS_ERROR_FAILED,
-						    info ? info :
-						    "Command failed");
+			(void) m_ag->SendReplyErrorInfo(m_msg, *error);
 		}
 
 		delete this;
 	}
 
-	AgPendingCommand(AudioGateway *agp, DBusMessage *msgp,
-			 HfpPendingCommand *pendp)
-		: m_msg(msgp), m_pend(pendp), m_ag(agp) {
+	void Attach(HfpPendingCommand *cmdp) {
+		assert(!m_pend);
+		m_pend = cmdp;
+		cmdp->Register(this, &AgPendingCommand::HfpCommandResult);
+	}
+
+	AgPendingCommand(AudioGateway *agp, DBusMessage *msgp)
+		: m_msg(msgp), m_pend(0), m_ag(agp) {
 		dbus_message_ref(m_msg);
 		m_ag->Get();
-		m_pend->Register(this, &AgPendingCommand::HfpCommandResult);
 	}
 
 	~AgPendingCommand() {
@@ -177,14 +245,14 @@ struct AgPendingCommand {
 
 AudioGateway::
 AudioGateway(HandsFree *hfp, HfpSession *sessp, char *name)
-	: DbusExportObject(name, s_ifaces), m_sess(sessp),
+	: HfpdExportObject(name, s_ifaces), m_sess(sessp),
 	  m_name_free(name), m_known(false), 
-	  m_unbind_on_voice_close(false),
+	  m_unbind_on_audio_close(false),
 	  m_state(HFPD_AG_INVALID),
 	  m_call_state(HFPD_AG_CALL_INVALID),
-	  m_voice_state(HFPD_AG_VOICE_INVALID),
+	  m_audio_state(HFPD_AG_AUDIO_INVALID),
 	  m_hf(hfp), m_owner(0),
-	  m_voice_bind(0) {
+	  m_audio_bind(0) {
 
 	/*
 	 * Attach ourselves to the HfpSession
@@ -195,8 +263,8 @@ AudioGateway(HandsFree *hfp, HfpSession *sessp, char *name)
 
 	sessp->cb_NotifyConnection.Register(this,
 					&AudioGateway::NotifyConnection);
-	sessp->cb_NotifyVoiceConnection.Register(this,
-					&AudioGateway::NotifyVoiceConnection);
+	sessp->cb_NotifyAudioConnection.Register(this,
+					&AudioGateway::NotifyAudioConnection);
 	sessp->cb_NotifyCall.Register(this, &AudioGateway::NotifyCall);
 	sessp->cb_NotifyIndicator.Register(this,
 					&AudioGateway::NotifyIndicator);
@@ -226,7 +294,7 @@ OwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp)
 
 	assert(notp == m_owner);
 	m_sess->GetDevice()->GetAddr(buf);
-	GetDi()->LogInfo("AG %s: D-Bus owner disconnected\n", buf);
+	GetDi()->LogInfo("AG %s: D-Bus owner disconnected", buf);
 
 	claim = false;
 	(void) SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
@@ -240,8 +308,8 @@ OwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp)
 		m_sess->SetAutoReconnect(false);
 	if (!m_known && (State() > HFPD_AG_DISCONNECTED)) {
 		if (m_sess->SndIsAsyncStarted() && m_hf->m_voice_persist) {
-			/* Defer the disconnect until voice closes */
-			m_unbind_on_voice_close = true;
+			/* Defer the disconnect until audio closes */
+			m_unbind_on_audio_close = true;
 		} else {
 			m_sess->Disconnect();
 			DoDisconnect();
@@ -284,16 +352,16 @@ CallState(void)
 	return HFPD_AG_CALL_ESTAB_WAITING;
 }
 
-AudioGatewayVoiceState AudioGateway::
-VoiceState(void)
+AudioGatewayAudioState AudioGateway::
+AudioState(void)
 {
-	if (m_sess->IsConnectedVoice())
-		return HFPD_AG_VOICE_CONNECTED;
+	if (m_sess->IsConnectedAudio())
+		return HFPD_AG_AUDIO_CONNECTED;
 
-	if (m_sess->IsConnectingVoice())
-		return HFPD_AG_VOICE_CONNECTING;
+	if (m_sess->IsConnectingAudio())
+		return HFPD_AG_AUDIO_CONNECTING;
 
-	return HFPD_AG_VOICE_DISCONNECTED;
+	return HFPD_AG_AUDIO_DISCONNECTED;
 }
 
 bool AudioGateway::
@@ -333,17 +401,17 @@ UpdateCallState(AudioGatewayCallState st)
 }
 
 bool AudioGateway::
-UpdateVoiceState(AudioGatewayVoiceState st)
+UpdateAudioState(AudioGatewayAudioState st)
 {
 	const unsigned char state = (char) st;
-	if ((st != m_voice_state) &&
+	if ((st != m_audio_state) &&
 	    !SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
-			    "VoiceStateChanged",
+			    "AudioStateChanged",
 			    DBUS_TYPE_BYTE, &state,
 			    DBUS_TYPE_INVALID))
 		return false;
 
-	m_voice_state = st;
+	m_audio_state = st;
 	return true;
 }
 
@@ -365,17 +433,17 @@ void AudioGateway::
 DoDisconnect(void)
 {
 	char buf[32];
-	assert(VoiceState() == HFPD_AG_VOICE_DISCONNECTED);
-	m_unbind_on_voice_close = false;
-	NotifyVoiceConnection(m_sess);
+	assert(AudioState() == HFPD_AG_AUDIO_DISCONNECTED);
+	m_unbind_on_audio_close = false;
+	NotifyAudioConnection(m_sess, 0);
 
 	m_sess->GetDevice()->GetAddr(buf);
-	GetDi()->LogInfo("AG %s: Disconnected\n", buf);
+	GetDi()->LogInfo("AG %s: Disconnected", buf);
 	UpdateState(State());
 }
 
 void AudioGateway::
-NotifyConnection(libhfp::HfpSession *sessp)
+NotifyConnection(libhfp::HfpSession *sessp, ErrorInfo *reason)
 {
 	AudioGatewayState st;
 	char addr[32];
@@ -427,7 +495,7 @@ NotifyConnection(libhfp::HfpSession *sessp)
 	if (st == HFPD_AG_CONNECTED) {
 		char buf[32];
 		m_sess->GetDevice()->GetAddr(buf);
-		GetDi()->LogInfo("AG %s: Connected\n", buf);
+		GetDi()->LogInfo("AG %s: Connected", buf);
 	}
 
 	UpdateState(st);
@@ -473,43 +541,43 @@ NotifyIndicator(libhfp::HfpSession *sessp, const char *indname, int val)
 }
 
 void AudioGateway::
-NotifyVoiceConnection(libhfp::HfpSession *sessp)
+NotifyAudioConnection(libhfp::HfpSession *sessp, libhfp::ErrorInfo *error)
 {
-	AudioGatewayVoiceState st;
-	st = VoiceState();
+	AudioGatewayAudioState st;
+	st = AudioState();
 
 	if (!m_owner && (!m_known || !m_hf->m_voice_autoconnect) &&
-	    (st != HFPD_AG_VOICE_DISCONNECTED)) {
+	    (st != HFPD_AG_AUDIO_DISCONNECTED)) {
 		/*
-		 * Auto-refuse voice connections from unclaimed,
+		 * Auto-refuse audio connections from unclaimed,
 		 * unknown devices.
 		 * Don't even report that the device is trying to connect.
-		 * If they want a voice connection, they need to claim
+		 * If they want an audio connection, they need to claim
 		 * the device or mark it known.
 		 */
 		m_sess->SndClose();
-		st = VoiceState();
+		st = AudioState();
 	}
 
-	UpdateVoiceState(st);
+	UpdateAudioState(st);
 
-	if (m_voice_bind)
-		m_voice_bind->EpAudioGatewayComplete(this);
+	if (m_audio_bind)
+		m_audio_bind->EpAudioGatewayComplete(this, 0);
 
-	if (!m_owner && m_known && (st == HFPD_AG_VOICE_CONNECTED)) {
+	if (!m_owner && m_known && (st == HFPD_AG_AUDIO_CONNECTED)) {
 		/*
 		 * The device is known and unclaimed.
 		 * Make an effort to set up the audio pipe.
 		 */
 		if ((m_hf->m_sound->m_state != HFPD_SIO_STOPPED) ||
-		    !m_hf->m_sound->EpAudioGateway(this, false)) {
+		    !m_hf->m_sound->EpAudioGateway(this, false, 0)) {
 			m_sess->SndClose();
-			st = VoiceState();
+			st = AudioState();
 		}
 	}
 
-	if (m_unbind_on_voice_close &&
-	    (st == HFPD_AG_VOICE_DISCONNECTED)) {
+	if (m_unbind_on_audio_close &&
+	    (st == HFPD_AG_AUDIO_DISCONNECTED)) {
 		m_sess->Disconnect();
 		DoDisconnect();
 		return;
@@ -550,11 +618,10 @@ NameResolved(void)
 bool AudioGateway::
 Connect(DBusMessage *msgp)
 {
-	if (!m_sess->Connect()) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Attempt to initiate connection failed");
-	}
+	ErrorInfo error;
+
+	if (!m_sess->Connect(&error))
+		return SendReplyErrorInfo(msgp, error);
 
 	UpdateState(State());
 
@@ -571,9 +638,9 @@ Disconnect(DBusMessage *msgp)
 }
 
 bool AudioGateway::
-CloseVoice(DBusMessage *msgp)
+CloseAudio(DBusMessage *msgp)
 {
-	GetDi()->LogDebug("AG %s: CloseVoice\n", GetDbusPath());
+	GetDi()->LogDebug("AG %s: CloseAudio", GetDbusPath());
 
 	if (m_sess->SndIsAsyncStarted())
 		m_hf->m_sound->EpRelease();
@@ -583,26 +650,28 @@ CloseVoice(DBusMessage *msgp)
 }
 
 bool AudioGateway::
-DoPendingCommand(DBusMessage *msgp, HfpPendingCommand *cmdp)
+CreatePendingCommand(DBusMessage *msgp, AgPendingCommand *&agpendp)
 {
-	AgPendingCommand *agpendp;
+	agpendp = new AgPendingCommand(this, msgp);
+	if (!agpendp)
+		return false;
+
+	return true;
+}
+
+bool AudioGateway::
+DoPendingCommand(AgPendingCommand *agpendp, ErrorInfo &error,
+		 HfpPendingCommand *cmdp)
+{
+	bool res;
 
 	if (!cmdp) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Command could not be queued");
+		res = SendReplyErrorInfo(agpendp->m_msg, error);
+		delete agpendp;
+		return res;
 	}
 
-	agpendp = new AgPendingCommand(this, msgp, cmdp);
-	if (!agpendp) {
-		/* Try to cancel it, at least */
-		cmdp->Cancel();
-		delete cmdp;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not set up pending command");
-	}
-
+	agpendp->Attach(cmdp);
 	return true;
 }
 
@@ -612,6 +681,8 @@ Dial(DBusMessage *msgp)
 {
 	DBusMessageIter mi;
 	const char *number;
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
 	bool res;
 
 	res = dbus_message_iter_init(msgp, &mi);
@@ -624,23 +695,35 @@ Dial(DBusMessage *msgp)
 
 	if (!number) {
 		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
+				      HFPD_ERROR_FAILED,
 				      "Empty phone number specified");
 	}
 
-	return DoPendingCommand(msgp, m_sess->CmdDial(number));
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdDial(number, &error)));
 }
 
 bool AudioGateway::
 Redial(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdRedial());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdRedial(&error)));
 }
 
 bool AudioGateway::
 HangUp(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdHangUp());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdHangUp(&error)));
 }
 
 bool AudioGateway::
@@ -648,6 +731,8 @@ SendDtmf(DBusMessage *msgp)
 {
 	DBusMessageIter mi;
 	char digit;
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
 	bool res;
 
 	res = dbus_message_iter_init(msgp, &mi);
@@ -655,43 +740,75 @@ SendDtmf(DBusMessage *msgp)
 	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BYTE);
 	dbus_message_iter_get_basic(&mi, &digit);
 
-	return DoPendingCommand(msgp, m_sess->CmdSendDtmf(digit));
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdSendDtmf(digit, &error)));
 }
 
 bool AudioGateway::
 Answer(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdAnswer());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdAnswer(&error)));
 }
 
 bool AudioGateway::
 CallDropHeldUdub(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdCallDropHeldUdub());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdCallDropHeldUdub(&error)));
 }
 
 bool AudioGateway::
 CallSwapDropActive(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdCallSwapDropActive());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdCallSwapDropActive(&error)));
 }
 
 bool AudioGateway::
 CallSwapHoldActive(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdCallSwapHoldActive());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdCallSwapHoldActive(&error)));
 }
 
 bool AudioGateway::
 CallLink(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdCallLink());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdCallLink(&error)));
 }
 
 bool AudioGateway::
 CallTransfer(DBusMessage *msgp)
 {
-	return DoPendingCommand(msgp, m_sess->CmdCallTransfer());
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdCallTransfer(&error)));
 }
 
 
@@ -710,9 +827,9 @@ GetCallState(DBusMessage *msgp, unsigned char &val)
 }
 
 bool AudioGateway::
-GetVoiceState(DBusMessage *msgp, unsigned char &val)
+GetAudioState(DBusMessage *msgp, unsigned char &val)
 {
-	val = VoiceState();
+	val = AudioState();
 	return true;
 }
 
@@ -758,17 +875,16 @@ GetKnown(DBusMessage *msgp, bool &val)
 bool AudioGateway::
 SetKnown(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
 	char addr[32];
 
 	m_sess->GetDevice()->GetAddr(addr);
 	if ((val && !m_hf->m_config->Set("devices", addr,
 					 m_sess->IsAutoReconnect())) ||
-	    (!val && !m_hf->m_config->Delete("devices", addr)) ||
-	    !m_hf->SaveConfig()) {
+	    (!val && !m_hf->m_config->Delete("devices", addr, &error)) ||
+	    !m_hf->SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	DoSetKnown(val);
@@ -785,22 +901,21 @@ GetAutoReconnect(DBusMessage *msgp, bool &val)
 bool AudioGateway::
 SetAutoReconnect(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
 	char addr[32];
 
 	if (val && !m_owner && !m_known) {
 		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
+				      HFPD_ERROR_FAILED,
 				      "Device not known or claimed");
 	}
 
 	if (m_known) {
 		m_sess->GetDevice()->GetAddr(addr);
-		if (!m_hf->m_config->Set("devices", addr, val) ||
-		    !m_hf->SaveConfig()) {
+		if (!m_hf->m_config->Set("devices", addr, val, &error) ||
+		    !m_hf->SaveConfig(&error)) {
 			doreply = false;
-			return SendReplyError(msgp,
-					      DBUS_ERROR_FAILED,
-					      "Could not save configuration");
+			return SendReplyErrorInfo(msgp, error);
 		}
 	}
 
@@ -898,11 +1013,11 @@ GetRawFeatures(DBusMessage *msgp, dbus_uint32_t &val)
 
 HandsFree::
 HandsFree(DispatchInterface *dip, DbusSession *dbusp)
-	: DbusExportObject(HFPD_HANDSFREE_OBJECT, s_ifaces),
+	: HfpdExportObject(HFPD_HANDSFREE_OBJECT, s_ifaces),
 	  m_di(dip), m_dbus(dbusp), m_hub(0), m_hfp(0),
-	  m_sound(0),
+	  m_sound(0), m_inquiry_state(false),
 	  m_accept_unknown(false), m_voice_persist(false),
-	  m_voice_autoconnect(false), m_config(0), m_error_alt(0)
+	  m_voice_autoconnect(false), m_config(0)
 {
 }
 
@@ -990,9 +1105,9 @@ Cleanup(void)
 }
 
 bool HandsFree::
-SaveConfig(bool force)
+SaveConfig(ErrorInfo *error, bool force)
 {
-	return m_config->SaveConfig(force);
+	return m_config->SaveConfig(error, force);
 }
 
 
@@ -1054,19 +1169,6 @@ LogMessage(libhfp::DispatchInterface::logtype_t lt, const char *msg)
 			      DBUS_TYPE_UINT32, &ltu,
 			      DBUS_TYPE_STRING, &msg,
 			      DBUS_TYPE_INVALID);
-
-	if (m_error_alt) {
-		if (!m_error_fatal &&
-		    (lt < libhfp::DispatchInterface::EVLOG_WARNING)) {
-			m_error_fatal = true;
-			m_error_alt->Clear();
-		}
-		if (m_error_alt->Contents() &&
-		    m_error_alt->Contents()[0])
-			m_error_alt->AppendFmt("\n%s", msg);
-		else
-			m_error_alt->AppendFmt("%s", msg);
-	}
 }
 
 AudioGateway *HandsFree::
@@ -1129,7 +1231,7 @@ SessionFactory(BtDevice *devp)
 	m_gateways.AppendItem(agp->m_links);
 
 	/* Announce our presence */
-	agp->NotifyConnection(sessp);
+	agp->NotifyConnection(sessp, 0);
 
 	(void) SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
 			      "AudioGatewayAdded",
@@ -1152,7 +1254,7 @@ struct NameResolveRequest {
 	DBusMessage	*req;
 	BtDevice	*dev;
 
-	void Complete(DbusExportObject *objp, const char *name) {
+	void Complete(HfpdExportObject *objp, const char *name) {
 		assert(req);
 		assert(dev);
 		objp->SendReplyArgs(req,
@@ -1162,12 +1264,10 @@ struct NameResolveRequest {
 		req = 0;
 	}
 
-	void Failed(DbusExportObject *objp, const char *reason) {
+	void Failed(HfpdExportObject *objp, ErrorInfo &error) {
 		assert(req);
 		assert(dev);
-		objp->SendReplyError(req,
-				     DBUS_ERROR_FAILED,
-				     reason);
+		objp->SendReplyErrorInfo(req, error);
 		dbus_message_unref(req);
 		req = 0;
 	}
@@ -1195,14 +1295,19 @@ DoStopped(void)
 	BtDevice *devp;
 	NameResolveRequest *reqp, *nextp;
 	dbus_bool_t res;
+	ErrorInfo error;
 
-	GetDi()->LogInfo("Bluetooth System Shut Down\n");
+	GetDi()->LogInfo("Bluetooth System Shut Down");
 
 	res = false;
 	(void) SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
 			      "SystemStateChanged",
 			      DBUS_TYPE_BOOLEAN, &res,
 			      DBUS_TYPE_INVALID);
+
+	error.Set(LIBHFP_ERROR_SUBSYS_BT,
+		  LIBHFP_ERROR_BT_SHUTDOWN,
+		  "Bluetooth system shut down");
 
 	/* Find all the name resolution requests and cancel them */
 	for (devp = m_hub->GetFirstDevice();
@@ -1214,7 +1319,7 @@ DoStopped(void)
 				? 0
 				: GetContainer(reqp->links.next,
 					       NameResolveRequest, links);
-			reqp->Failed(this, "Bluetooth system shut down");
+			reqp->Failed(this, error);
 			reqp->links.Unlink();
 			delete reqp;
 			reqp = nextp;
@@ -1230,7 +1335,7 @@ DoStarted(void)
 	dbus_bool_t a = true;
 	uint32_t devclass;
 
-	GetDi()->LogInfo("Bluetooth System Started\n");
+	GetDi()->LogInfo("Bluetooth System Started");
 
 	(void) SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
 			      "SystemStateChanged",
@@ -1242,15 +1347,15 @@ DoStarted(void)
 	    !m_hfp->IsDeviceClassHf(devclass)) {
 		m_hfp->SetDeviceClassHf(devclass);
 		GetDi()->LogWarn("*** Your configured device class may "
-				 "not be recognized as a hands-free\n");
-		GetDi()->LogWarn("*** Edit /etc/bluetooth/hcid.conf "
-				 "and change:\n");
-		GetDi()->LogWarn("*** class 0x%06x;\n", devclass);
+				 "not be recognized as a hands-free\n"
+				 "*** Edit /etc/bluetooth/hcid.conf "
+				 "and change:\n"
+				 "*** class 0x%06x;", devclass);
 	}
 }
 
 void HandsFree::
-NotifySystemState(void)
+NotifySystemState(ErrorInfo *reason)
 {
 	if (!m_hub->IsStarted()) {
 		DoStopped();
@@ -1261,18 +1366,21 @@ NotifySystemState(void)
 }
 
 void HandsFree::
-NotifyInquiryResult(BtDevice *devp, int error)
+NotifyInquiryResult(BtDevice *devp, ErrorInfo *error)
 {
 	char buf[32];
 	dbus_uint32_t dclass;
 	char *cp;
 
 	if (!devp) {
-		dbus_bool_t st = false;
-		SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
-			       "InquiryStateChanged",
-			       DBUS_TYPE_BOOLEAN, &st,
-			       DBUS_TYPE_INVALID);
+		if (m_inquiry_state) {
+			dbus_bool_t st = false;
+			if (SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
+					   "InquiryStateChanged",
+					   DBUS_TYPE_BOOLEAN, &st,
+					   DBUS_TYPE_INVALID))
+				m_inquiry_state = false;
+		}
 		return;
 	}
 
@@ -1288,7 +1396,7 @@ NotifyInquiryResult(BtDevice *devp, int error)
 
 
 void HandsFree::
-NotifyNameResolved(BtDevice *devp, const char *name)
+NotifyNameResolved(BtDevice *devp, const char *name, ErrorInfo *reason)
 {
 	NameResolveRequest *reqp, *nextp;
 	HfpSession *sessp;
@@ -1301,10 +1409,13 @@ NotifyNameResolved(BtDevice *devp, const char *name)
 			? 0
 			: GetContainer(reqp->links.next,
 				       NameResolveRequest, links);
-		if (name)
+		if (name) {
+			assert(!reason);
 			reqp->Complete(this, name);
-		else
-			reqp->Failed(this, "Name resolution failure");
+		} else {
+			assert(reason);
+			reqp->Failed(this, *reason);
+		}
 		reqp->links.Unlink();
 		delete reqp;
 		reqp = nextp;
@@ -1327,11 +1438,10 @@ NotifyNameResolved(BtDevice *devp, const char *name)
 bool HandsFree::
 SaveSettings(DBusMessage *msgp)
 {
-	if (!SaveConfig(true)) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save config file");
-	}
+	ErrorInfo error;
+
+	if (!SaveConfig(&error, true))
+		return SendReplyErrorInfo(msgp, error);
 
 	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
 }
@@ -1340,29 +1450,11 @@ bool HandsFree::
 Start(DBusMessage *msgp)
 {
 	bool oldstate;
-	dbus_bool_t res;
-	StringBuffer sb;
-
-	m_error_alt = &sb;
-	m_error_fatal = false;
+	ErrorInfo hfperror;
 
 	oldstate = m_hub->IsStarted();
-	res = m_hub->Start();
-
-	m_error_alt = 0;
-
-	if (!res) {
-		const char *error = DBUS_ERROR_FAILED;
-		if (m_error_fatal)
-			error = "net.sf.nohands.hfpd.FatalStartError";
-
-		if (sb.Contents())
-			return SendReplyError(msgp, error,
-					      sb.Contents());
-
-		return SendReplyError(msgp, error,
-				      "Could not start Bluetooth system");
-	}
+	if (!m_hub->Start(&hfperror))
+		return SendReplyErrorInfo(msgp, hfperror);
 
 	DoStarted();
 
@@ -1397,23 +1489,22 @@ bool HandsFree::
 StartInquiry(DBusMessage *msgp)
 {
 	dbus_bool_t st;
-	int res;
+	ErrorInfo error;
 
-	res = m_hub->StartInquiry();
+	if (!m_hub->StartInquiry(5000, &error))
+		return SendReplyErrorInfo(msgp, error);
 
-	if (res)
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not start inquiry: %s",
-				      strerror(-res));
+	if (!m_inquiry_state) {
+		st = true;
+		if (!SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
+				    "InquiryStateChanged",
+				    DBUS_TYPE_BOOLEAN, &st,
+				    DBUS_TYPE_INVALID))
+			return false;
+		m_inquiry_state = true;
+	}
 
-	st = true;
-
-	if (!SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
-			    "InquiryStateChanged",
-			    DBUS_TYPE_BOOLEAN, &st,
-			    DBUS_TYPE_INVALID) ||
-	    !SendReplyArgs(msgp, DBUS_TYPE_INVALID))
+	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID))
 		return false;
 
 	return true;
@@ -1423,24 +1514,21 @@ bool HandsFree::
 StopInquiry(DBusMessage *msgp)
 {
 	dbus_bool_t st;
-	int res;
 
-	res = m_hub->StopInquiry();
+	if (m_inquiry_state) {
+		st = false;
+		if (!SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
+				    "InquiryStateChanged",
+				    DBUS_TYPE_BOOLEAN, &st,
+				    DBUS_TYPE_INVALID))
+			return false;
+		m_inquiry_state = false;
+	}
 
-	if (res)
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not stop inquiry: %s",
-				      strerror(-res));
-
-	st = false;
-	if (!SendSignalArgs(HFPD_HANDSFREE_INTERFACE_NAME,
-			    "InquiryStateChanged",
-			    DBUS_TYPE_BOOLEAN, &st,
-			    DBUS_TYPE_INVALID) ||
-	    !SendReplyArgs(msgp, DBUS_TYPE_INVALID))
+	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID))
 		return false;
 
+	m_hub->StopInquiry();
 	return true;
 }
 
@@ -1451,6 +1539,7 @@ GetName(DBusMessage *msgp)
 	DBusMessageIter mi;
 	BtDevice *devp;
 	const char *addr;
+	ErrorInfo error;
 	bool res;
 
 	res = dbus_message_iter_init(msgp, &mi);
@@ -1469,10 +1558,8 @@ GetName(DBusMessage *msgp)
 		goto done;
 	}
 
-	if (!devp->ResolveName()) {
-		res = SendReplyError(msgp,
-				     DBUS_ERROR_FAILED,
-				     "Could not start name resolution");
+	if (!devp->ResolveName(&error)) {
+		res = SendReplyErrorInfo(msgp, error);
 		goto done;
 	}
 
@@ -1508,6 +1595,7 @@ AddDevice(DBusMessage *msgp)
 	DBusMessageIter mi;
 	DbusPeer *peerp = 0;
 	const char *addr, *path;
+	ErrorInfo error;
 	bool remove_dn = false, unsetknown = false, res;
 	dbus_bool_t setknown, claim;
 
@@ -1537,7 +1625,7 @@ AddDevice(DBusMessage *msgp)
 
 	if (!setknown && agp->m_owner && (agp->m_owner->GetPeer() != peerp)) {
 		res = SendReplyError(msgp,
-				     DBUS_ERROR_FAILED,
+				     HFPD_ERROR_FAILED,
 				     "Device claimed by another client");
 		goto done;
 	}
@@ -1554,7 +1642,7 @@ AddDevice(DBusMessage *msgp)
 				       &AudioGateway::
 				       OwnerDisconnectNotify);
 
-		GetDi()->LogInfo("AG %s: claimed by D-Bus peer %s\n",
+		GetDi()->LogInfo("AG %s: claimed by D-Bus peer %s",
 				 addr, peerp->GetName());
 
 		claim = true;
@@ -1566,11 +1654,9 @@ AddDevice(DBusMessage *msgp)
 
 	if (setknown && !agp->m_known) {
 		if (!m_config->Set("devices", addr,
-				   agp->m_sess->IsAutoReconnect()) ||
-		    !SaveConfig()) {
-			res = SendReplyError(msgp,
-					     DBUS_ERROR_FAILED,
-					     "Could not save configuration");
+				   agp->m_sess->IsAutoReconnect(), &error) ||
+		    !SaveConfig(&error)) {
+			res = SendReplyErrorInfo(msgp, error);
 			goto done;
 		}
 		agp->DoSetKnown(true);
@@ -1622,7 +1708,7 @@ RemoveDevice(DBusMessage *msgp)
 	sessp = m_hfp->GetSession(addr, false);
 	if (!sessp) {
 		res = SendReplyError(msgp,
-				     DBUS_ERROR_FAILED,
+				     HFPD_ERROR_FAILED,
 				     "No such audio gateway");
 		goto done;
 	}
@@ -1636,14 +1722,14 @@ RemoveDevice(DBusMessage *msgp)
 	agp = GetAudioGateway(sessp);
 	if (!agp) {
 		res = SendReplyError(msgp,
-				     DBUS_ERROR_FAILED,
+				     HFPD_ERROR_FAILED,
 				     "No such audio gateway");
 		goto done;
 	}
 
 	if (agp->m_owner && (agp->m_owner->GetPeer() != peerp)) {
 		res = SendReplyError(msgp,
-				     DBUS_ERROR_FAILED,
+				     HFPD_ERROR_FAILED,
 				     "This audio gateway has been claimed by "
 				     "another client");
 		goto done;
@@ -1661,7 +1747,7 @@ RemoveDevice(DBusMessage *msgp)
 	}
 
 	if (agp->m_owner) {
-		GetDi()->LogInfo("AG %s: disowned by D-Bus peer %s\n",
+		GetDi()->LogInfo("AG %s: disowned by D-Bus peer %s",
 				 addr, agp->m_owner->GetPeer()->GetName());
 
 		claim = false;
@@ -1687,7 +1773,7 @@ done:
 bool HandsFree::
 GetVersion(DBusMessage *msgp, dbus_uint32_t &val)
 {
-	val = 1;
+	val = 2;
 	return true;
 }
 
@@ -1701,15 +1787,15 @@ GetAutoSave(DBusMessage *msgp, bool &val)
 bool HandsFree::
 SetAutoSave(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
+
 	if (m_config->GetAutoSave() == val)
 		return true;
 
-	if (!m_config->Set("daemon", "autosave", val) ||
-	    !SaveConfig(val)) {
+	if (!m_config->Set("daemon", "autosave", val, &error) ||
+	    !SaveConfig(&error, val)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	m_config->SetAutoSave(val);
@@ -1726,18 +1812,11 @@ GetSaveFile(DBusMessage *msgp, const char * &val)
 bool HandsFree::
 SetSaveFile(DBusMessage *msgp, const char * const &val, bool &doreply)
 {
-	if (!strlen(val)) {
-		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Configuration file name is empty");
-	}
+	ErrorInfo error;
 
-	if (!m_config->SetConfigFile(val)) {
+	if (!m_config->SetConfigFile(val, &error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not write new config file");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	return true;
@@ -1761,15 +1840,15 @@ GetAutoRestart(DBusMessage *msgp, bool &val)
 bool HandsFree::
 SetAutoRestart(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
+
 	if (val == m_hub->GetAutoRestart())
 		return true;
 
-	if (!m_config->Set("daemon", "autorestart", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("daemon", "autorestart", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	m_hub->SetAutoRestart(val);
@@ -1786,27 +1865,21 @@ GetSecMode(DBusMessage *msgp, unsigned char &val)
 bool HandsFree::
 SetSecMode(DBusMessage *msgp, const unsigned char &val, bool &doreply)
 {
-	if (m_hfp->GetSecMode() == (rfcomm_secmode_t) val)
+	ErrorInfo error;
+	rfcomm_secmode_t old;
+
+	old = m_hfp->GetSecMode();
+	if (old == (rfcomm_secmode_t) val)
 		return true;
 
-	if ((val != RFCOMM_SEC_NONE) &&
-	    (val != RFCOMM_SEC_AUTH) &&
-	    (val != RFCOMM_SEC_CRYPT)) {
+	if (!m_hfp->SetSecMode((rfcomm_secmode_t)val, &error) ||
+	    !m_config->Set("daemon", "secmode", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_INVALID_ARGS,
-				      "Invalid secmode value specified");
+		(void) m_hfp->SetSecMode(old);
+		return SendReplyErrorInfo(msgp, error);
 	}
 
-	if (!m_config->Set("daemon", "secmode", val) ||
-	    !SaveConfig()) {
-		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
-	}
-
-	m_hfp->SetSecMode((rfcomm_secmode_t)val);
 	return true;
 }
 
@@ -1820,15 +1893,15 @@ GetAcceptUnknown(DBusMessage *msgp, bool &val)
 bool HandsFree::
 SetAcceptUnknown(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
+
 	if (m_accept_unknown == val)
 		return true;
 
-	if (!m_config->Set("daemon", "acceptunknown", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("daemon", "acceptunknown", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	m_accept_unknown = val;
@@ -1845,15 +1918,15 @@ GetVoicePersist(DBusMessage *msgp, bool &val)
 bool HandsFree::
 SetVoicePersist(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
+
 	if (m_voice_persist == val)
 		return true;
 
-	if (!m_config->Set("daemon", "voicepersist", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("daemon", "voicepersist", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	m_voice_persist = val;
@@ -1870,15 +1943,15 @@ GetVoiceAutoConnect(DBusMessage *msgp, bool &val)
 bool HandsFree::
 SetVoiceAutoConnect(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
+
 	if (m_voice_autoconnect == val)
 		return true;
 
-	if (!m_config->Set("daemon", "voiceautoconnect", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("daemon", "voiceautoconnect", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	m_voice_autoconnect = val;
@@ -1940,11 +2013,11 @@ GetServiceName(DBusMessage *msgp, const char * &val)
 bool HandsFree::
 SetServiceName(DBusMessage *msgp, const char * const &val, bool &doreply)
 {
-	if (!m_hfp->SetServiceName(val)) {
+	ErrorInfo error;
+
+	if (!m_hfp->SetServiceName(val, &error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not set service name");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	return true;
 }
@@ -1959,11 +2032,11 @@ GetServiceDesc(DBusMessage *msgp, const char * &val)
 bool HandsFree::
 SetServiceDesc(DBusMessage *msgp, const char * const &val, bool &doreply)
 {
-	if (!m_hfp->SetServiceDesc(val)) {
+	ErrorInfo error;
+
+	if (!m_hfp->SetServiceDesc(val, &error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not set service description");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	return true;
 }
@@ -2011,10 +2084,16 @@ public:
 	}
 
 	virtual bool FltPrepare(SoundIoFormat const &fmt,
-				bool up, bool dn) {
+				bool up, bool dn, ErrorInfo *error) {
 		if ((fmt.sampletype != SIO_PCM_S16_LE) ||
-		    (fmt.nchannels != 1))
+		    (fmt.nchannels != 1)) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+					   "MicVolumeFilter requires "
+					   "S16_LE, 1ch");
 			return false;
+		}
 		assert(fmt.bytes_per_record == 2);
 		m_doup = up;
 		m_dovol = up;
@@ -2073,7 +2152,7 @@ public:
 
 SoundIoObj::
 SoundIoObj(HandsFree *hfp)
-	: DbusExportObject(HFPD_SOUNDIO_OBJECT, s_ifaces),
+	: HfpdExportObject(HFPD_SOUNDIO_OBJECT, s_ifaces),
 	  m_hf(hfp), m_sound(0),
 	  m_state(HFPD_SIO_DECONFIGURED), m_state_sent(HFPD_SIO_DECONFIGURED),
 	  m_ringtone(0), m_sigproc(0),
@@ -2092,17 +2171,22 @@ SoundIoObj::
 
 
 void SoundIoObj::
-NotifySoundStop(SoundIoManager *mgrp)
+NotifySoundStop(SoundIoManager *mgrp, ErrorInfo &error)
 {
-	GetDi()->LogInfo("Spontaneous audio stream halt\n");
 	assert(mgrp == m_sound);
-	EpRelease();
+	EpRelease(HFPD_SIO_INVALID, &error);
 }
 
-bool SoundIoObj::
-SaveConfig(bool force)
+void SoundIoObj::
+NotifySkew(SoundIoManager *mgrp, sio_stream_skewinfo_t reason, double value)
 {
-	return m_config->SaveConfig(force);
+	uint8_t val = (uint8_t) reason;
+
+	(void) SendSignalArgs(HFPD_SOUNDIO_INTERFACE_NAME,
+			      "SkewNotify",
+			      DBUS_TYPE_BYTE, &val,
+			      DBUS_TYPE_DOUBLE, &value,
+			      DBUS_TYPE_INVALID);
 }
 
 bool SoundIoObj::
@@ -2119,6 +2203,8 @@ Init(DbusSession *dbusp)
 
 	m_sound->cb_NotifyAsyncState.Register(this,
 					      &SoundIoObj::NotifySoundStop);
+	m_sound->cb_NotifySkew.Register(this,
+					&SoundIoObj::NotifySkew);
 
 	m_config->Get("audio", "driver", driver, 0);
 	m_config->Get("audio", "driveropts", driveropts, 0);
@@ -2132,7 +2218,7 @@ Init(DbusSession *dbusp)
 
 	if (!m_sound->SetDriver(driver, driveropts)) {
 		GetDi()->LogWarn("Could not configure sound driver \"%s\" "
-				 "with options \"%s\"\n",
+				 "with options \"%s\"",
 				 driver ? driver : "",
 				 driveropts ? driveropts : "");
 		goto failed;
@@ -2148,7 +2234,7 @@ Init(DbusSession *dbusp)
 #if defined(USE_SPEEXDSP)
 	m_sigproc = SoundIoFltCreateSpeex(GetDi());
 	if (!m_sigproc) {
-		GetDi()->LogWarn("Could not create DSP filter object\n");
+		GetDi()->LogWarn("Could not create DSP filter object");
 		goto failed;
 	}
 
@@ -2164,7 +2250,7 @@ Init(DbusSession *dbusp)
 		      m_procprops.dereverb_decay, 0.0);
 
 	if (!m_sigproc->Configure(m_procprops)) {
-		GetDi()->LogWarn("Could not configure DSP settings\n");
+		GetDi()->LogWarn("Could not configure DSP settings");
 		goto failed;
 	}
 
@@ -2199,9 +2285,9 @@ Cleanup(void)
 }
 
 bool SoundIoObj::
-UpdateState(SoundIoState st)
+UpdateState(SoundIoState st, ErrorInfo *reason)
 {
-	const char *agpath;
+	const char *str1, *str2;
 	uint8_t stx = st;
 
 	m_state = st;
@@ -2219,26 +2305,44 @@ UpdateState(SoundIoState st)
 	    (m_state_sent != HFPD_SIO_AUDIOGATEWAY_CONNECTING) &&
 	    (m_state_sent != HFPD_SIO_AUDIOGATEWAY)) {
 		assert(m_bound_ag);
-		agpath = m_bound_ag->GetDbusPath();
+		str1 = m_bound_ag->GetDbusPath();
 		if (!SendSignalArgs(HFPD_SOUNDIO_INTERFACE_NAME,
 				    "AudioGatewaySet",
-				    DBUS_TYPE_OBJECT_PATH, &agpath,
+				    DBUS_TYPE_OBJECT_PATH, &str1,
 				    DBUS_TYPE_INVALID))
 			return false;
 	}
 
-	if (!SendSignalArgs(HFPD_SOUNDIO_INTERFACE_NAME,
-			    "StateChanged",
-			    DBUS_TYPE_BYTE, &stx,
-			    DBUS_TYPE_INVALID))
-		return false;
+	if (reason) {
+		assert(st == HFPD_SIO_STOPPED);
+
+		/*
+		 * This is as close as we can get to a signalled exception.
+		 */
+		str1 = DbusErrorName(*reason);
+		str2 = reason->Desc();
+
+		if (!SendSignalArgs(HFPD_SOUNDIO_INTERFACE_NAME,
+				    "StreamAborted",
+				    DBUS_TYPE_STRING, &str1,
+				    DBUS_TYPE_STRING, &str2,
+				    DBUS_TYPE_INVALID))
+			return false;
+
+	} else {
+		if (!SendSignalArgs(HFPD_SOUNDIO_INTERFACE_NAME,
+				    "StateChanged",
+				    DBUS_TYPE_BYTE, &stx,
+				    DBUS_TYPE_INVALID))
+			return false;
+	}
 
 	m_state_sent = st;
 	return true;
 }
 
 void SoundIoObj::
-EpRelease(SoundIoState st)
+EpRelease(SoundIoState st, ErrorInfo *reason)
 {
 	SoundIoFilter *fltp;
 
@@ -2260,10 +2364,10 @@ EpRelease(SoundIoState st)
 	case HFPD_SIO_AUDIOGATEWAY_CONNECTING:
 		assert(m_bound_ag);
 		assert(!m_sound->GetSecondary());
-		if (m_bound_ag->m_voice_bind == this)
-			m_bound_ag->m_voice_bind = 0;
+		if (m_bound_ag->m_audio_bind == this)
+			m_bound_ag->m_audio_bind = 0;
 		m_bound_ag->GetSoundIo()->SndClose();
-		m_bound_ag->NotifyVoiceConnection(0);
+		m_bound_ag->NotifyAudioConnection(0, 0);
 		m_bound_ag->Put();
 		m_bound_ag = 0;
 		break;
@@ -2284,11 +2388,11 @@ EpRelease(SoundIoState st)
 	default:
 		abort();
 	}
-	(void) UpdateState(HFPD_SIO_STOPPED);
+	(void) UpdateState(HFPD_SIO_STOPPED, reason);
 }
 
 bool SoundIoObj::
-EpAudioGateway(AudioGateway *agp, bool can_connect)
+EpAudioGateway(AudioGateway *agp, bool can_connect, ErrorInfo *error)
 {
 	if (m_state != HFPD_SIO_STOPPED)
 		EpRelease();
@@ -2298,40 +2402,67 @@ EpAudioGateway(AudioGateway *agp, bool can_connect)
 	assert(!m_bound_ag);
 	m_bound_ag = agp;
 
-	if ((m_bound_ag->VoiceState() == HFPD_AG_VOICE_DISCONNECTED) &&
-	    (!can_connect ||
-	     !m_bound_ag->GetSoundIo()->SndOpen(true, true))) {
-		m_bound_ag = 0;
-		agp->Put();
-		return false;
+	if (m_bound_ag->AudioState() == HFPD_AG_AUDIO_DISCONNECTED) {
+		if (!can_connect) {
+			if (error)
+				error->Set(LIBHFP_ERROR_SUBSYS_BT,
+					   LIBHFP_ERROR_BT_NOT_CONNECTED_SCO,
+					   "Audio connection not established");
+			goto fail;
+		}
+		if (!m_bound_ag->GetSoundIo()->SndOpen(true, true, error))
+			goto fail;
 	}
 
-	assert(m_bound_ag->VoiceState() != HFPD_AG_VOICE_DISCONNECTED);
-	assert(!agp->m_voice_bind);
-	agp->m_voice_bind = this;
-	return EpAudioGatewayComplete(agp);
+	assert(m_bound_ag->AudioState() != HFPD_AG_AUDIO_DISCONNECTED);
+	assert(!agp->m_audio_bind);
+	agp->m_audio_bind = this;
+	return EpAudioGatewayComplete(agp, error);
+
+fail:
+	m_bound_ag = 0;
+	agp->Put();
+	return false;
 }
 
 bool SoundIoObj::
-EpAudioGatewayComplete(AudioGateway *agp)
+EpAudioGatewayComplete(AudioGateway *agp, ErrorInfo *error)
 {
+	ErrorInfo local_error, *throwme;
 	bool res;
 
-	AudioGatewayVoiceState st;
-	assert(agp == m_bound_ag);
-	st = agp->VoiceState();
+	/*
+	 * If the caller is interested in why we failed, we collect it
+	 * for them and pass it back to them.
+	 *
+	 * Otherwise, we collect the error locally, and pass it to
+	 * EpRelease(), which sends it out via the StreamAborted signal.
+	 */
+	throwme = 0;
+	if (!error) {
+		error = &local_error;
+		throwme = &local_error;
+	}
 
-	assert(agp->m_voice_bind == this);
+	AudioGatewayAudioState st;
+	assert(agp == m_bound_ag);
+	st = agp->AudioState();
+
+	assert(agp->m_audio_bind == this);
 	switch (st) {
-	case HFPD_AG_VOICE_DISCONNECTED:
-		agp->m_voice_bind = 0;
+	case HFPD_AG_AUDIO_DISCONNECTED:
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_NOT_CONNECTED_SCO,
+				   "Audio connection not established");
+		agp->m_audio_bind = 0;
 		EpRelease();
 		return false;
-	case HFPD_AG_VOICE_CONNECTING:
+	case HFPD_AG_AUDIO_CONNECTING:
 		(void) UpdateState(HFPD_SIO_AUDIOGATEWAY_CONNECTING);
 		return true;
-	case HFPD_AG_VOICE_CONNECTED:
-		agp->m_voice_bind = 0;
+	case HFPD_AG_AUDIO_CONNECTED:
+		agp->m_audio_bind = 0;
 		break;
 	default:
 		abort();
@@ -2342,9 +2473,9 @@ EpAudioGatewayComplete(AudioGateway *agp)
 
 	res = m_sound->SetSecondary(agp->GetSoundIo());
 	assert(res);
-	if (!m_sound->Start()) {
-		GetDi()->LogWarn("Could not start stream\n");
-		EpRelease(HFPD_SIO_AUDIOGATEWAY);
+	if (!m_sound->Start(false, false, error)) {
+		GetDi()->LogWarn("Could not start stream");
+		EpRelease(HFPD_SIO_AUDIOGATEWAY, throwme);
 		return false;
 	}
 
@@ -2353,21 +2484,18 @@ EpAudioGatewayComplete(AudioGateway *agp)
 }
 
 bool SoundIoObj::
-EpLoopback(void)
+EpLoopback(ErrorInfo *error)
 {
-	bool res;
-
 	if (m_state != HFPD_SIO_STOPPED)
 		EpRelease();
 	assert(m_state == HFPD_SIO_STOPPED);
 	EpRelease();		/* Call again to run the assertions */
-	res = m_sound->Loopback();
-	if (!res) {
-		GetDi()->LogWarn("Could not configure loopback mode\n");
+	if (!m_sound->Loopback(error)) {
+		GetDi()->LogWarn("Could not configure loopback mode");
 		return false;
 	}
-	if (!m_sound->Start()) {
-		GetDi()->LogWarn("Could not start stream in loopback mode\n");
+	if (!m_sound->Start(false, false, error)) {
+		GetDi()->LogWarn("Could not start stream in loopback mode");
 		return false;
 	}
 	(void) UpdateState(HFPD_SIO_LOOPBACK);
@@ -2375,7 +2503,7 @@ EpLoopback(void)
 }
 
 bool SoundIoObj::
-EpMembuf(bool in, bool out, SoundIoFilter *fltp)
+EpMembuf(bool in, bool out, SoundIoFilter *fltp, ErrorInfo *error)
 {
 	bool res;
 
@@ -2384,16 +2512,16 @@ EpMembuf(bool in, bool out, SoundIoFilter *fltp)
 	assert(m_membuf);
 	assert(m_state == HFPD_SIO_STOPPED);
 	EpRelease();		/* Call again to run the assertions */
-	res = m_sound->SetSecondary(m_membuf);
+	res = m_sound->SetSecondary(m_membuf, error);
 	assert(res);
-	res = m_membuf->SndOpen(in, out);
-	assert(res);
+	if (!m_membuf->SndOpen(in, out, error))
+		return false;
 	if (fltp) {
-		res = m_sound->AddTop(fltp);
+		res = m_sound->AddTop(fltp, error);
 		assert(res);
 	}
-	if (!m_sound->Start()) {
-		GetDi()->LogWarn("Could not start stream with membuf\n");
+	if (!m_sound->Start(false, false, error)) {
+		GetDi()->LogWarn("Could not start stream with membuf");
 		if (fltp) {
 			m_sound->RemoveTop();
 			delete fltp;
@@ -2412,11 +2540,12 @@ SetDriver(DBusMessage *msgp)
 {
 	DBusMessageIter mi;
 	char *driver, *driveropts, *old_driver, *old_opts;
+	ErrorInfo error;
 	bool res;
 
 	if (m_sound->IsStarted()) {
 		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
+				      HFPD_ERROR_FAILED,
 				      "Cannot change driver while streaming");
 	}
 
@@ -2453,30 +2582,26 @@ SetDriver(DBusMessage *msgp)
 	/*
 	 * Set the driver options with the SoundIoManager
 	 */
-	if (!m_sound->SetDriver(driver, driveropts)) {
+	if (!m_sound->SetDriver(driver, driveropts, &error)) {
 		if (old_driver)
 			free(old_driver);
 		if (old_opts)
 			free(old_opts);
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Sound driver configuration failed");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	/*
 	 * Save the driver options to the config file
 	 */
-	if (!m_config->Set("audio", "driver", driver) ||
-	    !m_config->Set("audio", "driveropts", driveropts) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("audio", "driver", driver, &error) ||
+	    !m_config->Set("audio", "driveropts", driveropts, &error) ||
+	    !SaveConfig(&error)) {
 		(void) m_sound->SetDriver(old_driver, old_opts);
 		if (old_driver)
 			free(old_driver);
 		if (old_opts)
 			free(old_opts);
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	res = SendReplyArgs(msgp, DBUS_TYPE_INVALID);
@@ -2499,6 +2624,7 @@ ProbeDevices(DBusMessage *msgp)
 	const char *driver, *name, *desc;
 	int i;
 	bool res;
+	ErrorInfo error;
 
 	/*
 	 * The main reason to disallow this is to avoid operations
@@ -2507,7 +2633,7 @@ ProbeDevices(DBusMessage *msgp)
 	 * user will understand if the sound skips.
 	if (m_sound->IsStarted()) {
 		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
+				      HFPD_ERROR_FAILED,
 				      "Refusing request to probe devices "
 				      "while streaming");
 	}
@@ -2526,16 +2652,14 @@ ProbeDevices(DBusMessage *msgp)
 
 	if (!name) {
 		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
+				      HFPD_ERROR_FAILED,
 				      "Unknown driver \"%s\"", driver);
 	}
 
-	res = m_sound->GetDriverInfo(i, 0, 0, &devlist);
-	assert(res);
-	if (!devlist) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Device probe failed");
+	if (!m_sound->GetDriverInfo(i, 0, 0, &devlist, &error)) {
+		assert(!error.Matches(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				      LIBHFP_ERROR_SOUNDIO_NO_DRIVER));
+		return SendReplyErrorInfo(msgp, error);
 	}
 
 	replyp = NewMethodReturn(msgp);
@@ -2607,6 +2731,7 @@ AudioGatewayStart(DBusMessage *msgp)
 	AudioGateway *agp;
 	dbus_bool_t can_connect;
 	bool res;
+	ErrorInfo error;
 
 	res = dbus_message_iter_init(msgp, &mi);
 	assert(res);
@@ -2620,11 +2745,11 @@ AudioGatewayStart(DBusMessage *msgp)
 	agp = m_hf->FindAudioGateway(agpath);
 	if (!agp) {
 		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
+				      HFPD_ERROR_FAILED,
 				      "Audio Gateway Path Invalid");
 	}
 
-	GetDi()->LogDebug("AudioGatewayStart: %s\n", agpath);
+	GetDi()->LogDebug("AudioGatewayStart: %s", agpath);
 
 	if (m_bound_ag == agp) {
 		/*
@@ -2635,11 +2760,8 @@ AudioGatewayStart(DBusMessage *msgp)
 		return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
 	}
 
-	if (!EpAudioGateway(agp, can_connect)) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not start sound stream");
-	}
+	if (!EpAudioGateway(agp, can_connect, &error))
+		return SendReplyErrorInfo(msgp, error);
 
 	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
 		EpRelease();
@@ -2652,11 +2774,10 @@ AudioGatewayStart(DBusMessage *msgp)
 bool SoundIoObj::
 LoopbackStart(DBusMessage *msgp)
 {
-	if (!EpLoopback()) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not start sound stream");
-	}
+	ErrorInfo error;
+
+	if (!EpLoopback(&error))
+		return SendReplyErrorInfo(msgp, error);
 
 	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
 		EpRelease();
@@ -2699,6 +2820,7 @@ MembufStart(DBusMessage *msgp)
 	DBusMessageIter mi;
 	dbus_bool_t in, out;
 	dbus_uint32_t npackets, interval;
+	ErrorInfo error;
 	bool res;
 
 	res = dbus_message_iter_init(msgp, &mi);
@@ -2738,11 +2860,8 @@ MembufStart(DBusMessage *msgp)
 		m_membuf_size = npackets;
 	}
 
-	if (!EpMembuf(in, out, fltp)) {
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not start sound stream");
-	}
+	if (!EpMembuf(in, out, fltp, &error))
+		return SendReplyErrorInfo(msgp, error);
 
 	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
 		EpRelease();
@@ -2905,14 +3024,14 @@ GetPacketIntervalHint(DBusMessage *msgp, dbus_uint32_t &val)
 
 bool SoundIoObj::
 SetPacketIntervalHint(DBusMessage *msgp, const dbus_uint32_t &val,
-			   bool &doreply)
+		      bool &doreply)
 {
-	if (!m_config->Set("audio", "packetinterval", val) ||
-	    !SaveConfig()) {
+	ErrorInfo error;
+
+	if (!m_config->Set("audio", "packetinterval", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	m_sound->SetPacketIntervalHint(val);
 	return true;
@@ -2929,12 +3048,12 @@ bool SoundIoObj::
 SetMinBufferFillHint(DBusMessage *msgp, const dbus_uint32_t &val,
 		      bool &doreply)
 {
-	if (!m_config->Set("audio", "minbufferfill", val) ||
-	    !SaveConfig()) {
+	ErrorInfo error;
+
+	if (!m_config->Set("audio", "minbufferfill", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	m_sound->SetMinBufferFillHint(val);
 	return true;
@@ -2951,12 +3070,12 @@ bool SoundIoObj::
 SetJitterWindowHint(DBusMessage *msgp, const dbus_uint32_t &val,
 			 bool &doreply)
 {
-	if (!m_config->Set("audio", "jitterwindow", val) ||
-	    !SaveConfig()) {
+	ErrorInfo error;
+
+	if (!m_config->Set("audio", "jitterwindow", val, &error) ||
+	    !SaveConfig(&error)) {
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	m_sound->SetJitterWindowHint(val);
 	return true;
@@ -2973,22 +3092,20 @@ GetDenoise(DBusMessage *msgp, bool &val)
 bool SoundIoObj::
 SetDenoise(DBusMessage *msgp, const bool &val, bool &doreply)
 {
+	ErrorInfo error;
 	SoundIoSpeexProps save = m_procprops;
+
 	m_procprops.noisereduce = val;
-	if (!m_sigproc->Configure(m_procprops)) {
+	if (!m_sigproc->Configure(m_procprops, &error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Change rejected by Speex");
+		return SendReplyErrorInfo(msgp, error);
 	}
-	if (!m_config->Set("dsp", "denoise", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("dsp", "denoise", val, &error) ||
+	    !SaveConfig(&error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	return true;
 }
@@ -3003,22 +3120,19 @@ GetAutoGain(DBusMessage *msgp, dbus_uint32_t &val)
 bool SoundIoObj::
 SetAutoGain(DBusMessage *msgp, const dbus_uint32_t &val, bool &doreply)
 {
+	ErrorInfo error;
 	SoundIoSpeexProps save = m_procprops;
 	m_procprops.agc_level = val;
-	if (!m_sigproc->Configure(m_procprops)) {
+	if (!m_sigproc->Configure(m_procprops, &error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Change rejected by Speex");
+		return SendReplyErrorInfo(msgp, error);
 	}
-	if (!m_config->Set("dsp", "autogain", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("dsp", "autogain", val, &error) ||
+	    !SaveConfig(&error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	return true;
 }
@@ -3033,22 +3147,19 @@ GetEchoCancelTail(DBusMessage *msgp, dbus_uint32_t &val)
 bool SoundIoObj::
 SetEchoCancelTail(DBusMessage *msgp, const dbus_uint32_t &val, bool &doreply)
 {
+	ErrorInfo error;
 	SoundIoSpeexProps save = m_procprops;
 	m_procprops.echocancel_ms = val;
-	if (!m_sigproc->Configure(m_procprops)) {
+	if (!m_sigproc->Configure(m_procprops, &error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Change rejected by Speex");
+		return SendReplyErrorInfo(msgp, error);
 	}
-	if (!m_config->Set("dsp", "echocancel_ms", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("dsp", "echocancel_ms", val, &error) ||
+	    !SaveConfig(&error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	return true;
 }
@@ -3063,22 +3174,19 @@ GetDereverbLevel(DBusMessage *msgp, float &val)
 bool SoundIoObj::
 SetDereverbLevel(DBusMessage *msgp, const float &val, bool &doreply)
 {
+	ErrorInfo error;
 	SoundIoSpeexProps save = m_procprops;
 	m_procprops.dereverb_level = val;
-	if (!m_sigproc->Configure(m_procprops)) {
+	if (!m_sigproc->Configure(m_procprops, &error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Change rejected by Speex");
+		return SendReplyErrorInfo(msgp, error);
 	}
-	if (!m_config->Set("dsp", "dereverb_level", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("dsp", "dereverb_level", val, &error) ||
+	    !SaveConfig(&error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	return true;
 }
@@ -3093,22 +3201,19 @@ GetDereverbDecay(DBusMessage *msgp, float &val)
 bool SoundIoObj::
 SetDereverbDecay(DBusMessage *msgp, const float &val, bool &doreply)
 {
+	ErrorInfo error;
 	SoundIoSpeexProps save = m_procprops;
 	m_procprops.dereverb_decay = val;
-	if (!m_sigproc->Configure(m_procprops)) {
+	if (!m_sigproc->Configure(m_procprops, &error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Change rejected by Speex");
+		return SendReplyErrorInfo(msgp, error);
 	}
-	if (!m_config->Set("dsp", "dereverb_decay", val) ||
-	    !SaveConfig()) {
+	if (!m_config->Set("dsp", "dereverb_decay", val, &error) ||
+	    !SaveConfig(&error)) {
 		m_procprops = save;
 		doreply = false;
-		return SendReplyError(msgp,
-				      DBUS_ERROR_FAILED,
-				      "Could not save configuration");
+		return SendReplyErrorInfo(msgp, error);
 	}
 	return true;
 }

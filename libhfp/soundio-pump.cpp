@@ -22,6 +22,7 @@
 #include <string.h>
 #include <limits.h>
 #include <assert.h>
+#include <errno.h>
 
 #include <libhfp/soundio.h>
 
@@ -500,6 +501,7 @@ ProcessorLoop(SoundIoWorkingState &bws, SoundIoWorkingState &tws,
 struct xfer_bound {
 	sio_sampnum_t lower;
 	sio_sampnum_t upper;
+	char prio;
 	char under_cost;
 	char over_cost;
 };
@@ -507,7 +509,7 @@ struct xfer_bound {
 sio_sampnum_t
 BestXfer(xfer_bound *bounds, int nbounds, sio_sampnum_t interval)
 {
-	int i, cost, bestcost;
+	int i, prio, bestprio, cost, bestcost;
 	sio_sampnum_t minu, maxl, tryme, best;
 
 	minu = maxl = 0;
@@ -536,20 +538,40 @@ BestXfer(xfer_bound *bounds, int nbounds, sio_sampnum_t interval)
 	 */
 	best = 0;
 	bestcost = INT_MAX;
+	bestprio = INT_MAX;
 	tryme = minu;
 	while (tryme <= maxl) {
 		cost = 0;
+		prio = INT_MAX;
 		for (i = 0; i < nbounds; i++) {
-			if (tryme < bounds[i].lower)
+			if (tryme < bounds[i].lower) {
+				if (prio > bounds[i].prio)
+					prio = bounds[i].prio;
 				cost += ((bounds[i].lower - tryme) *
 					 bounds[i].under_cost);
-			else if (tryme > bounds[i].upper)
+			} else if (tryme > bounds[i].upper) {
+				if (prio > bounds[i].prio)
+					prio = bounds[i].prio;
 				cost += ((tryme - bounds[i].upper) *
 					 bounds[i].over_cost);
+			}
 		}
-		/* Compare cost <= bestcost to maximize the transfer size */
-		if ((tryme == minu) || (cost <= bestcost)) {
+		assert(cost);
+		assert(prio != INT_MAX);
+
+		/*
+		 * 'prio' is set to the priority value of the highest
+		 * priority constraint (lowest numerical value) that is
+		 * being violated.
+		 *
+		 * Priorities being equal, compare cost <= bestcost to
+		 * maximize the transfer size
+		 */
+		if ((tryme == minu) ||
+		    (prio > bestprio) ||
+		    ((prio == bestprio) && (cost <= bestcost))) {
 			best = tryme;
+			bestprio = prio;
 			bestcost = cost;
 		}
 
@@ -560,20 +582,42 @@ BestXfer(xfer_bound *bounds, int nbounds, sio_sampnum_t interval)
 }
 
 void SoundIoPump::
-AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
+DumpQueueState(bool start, bool top) const
 {
+	assert(((int) m_bottom_qs.out_queued) >= 0);
+	GetDi()->LogDebug("%s%sBot: In %d Out %d",
+			  start ? "->" : "<-",
+			  top ? "[-]" : "[*]",
+			  m_bottom_qs.in_queued,
+			  m_bottom_qs.out_queued);
+	GetDi()->LogDebug("%s%sTop: In %d Out %d",
+			  start ? "->" : "<-",
+			  top ? "[*]" : "[-]",
+			  m_top_qs.in_queued, m_top_qs.out_queued);
+}
+
+void SoundIoPump::
+AsyncProcess(SoundIo *subp, SoundIoQueueState &state)
+{
+	/* Compile-time debugging flags for this method */
+	const bool fill_debug = false;
+	const bool loss_debug = false;
+
+	/* Policy flag for querying the queue state of the other EP */
+	const bool query_other_ep = false;
+
 	OpLatencyMonitor lat(GetDi(), "async process overall");
-	sio_sampnum_t ncopy, nadj;
+	sio_sampnum_t ncopy, nadj, todo;
 	xfer_bound bounds[4];
 	SoundIoWorkingState bws, tws;
-	const bool fill_debug = false, loss_debug = false;
+	bool did_loss = false, did_state_dump = false;
 
 	/* This function is not reenterant, catch attempts to do so */
 	assert(!m_async_entered);
 	m_async_entered = true;
 
 	if (!IsStarted()) {
-		GetDi()->LogWarn("Received cb_NotifyPacket from %s??\n",
+		GetDi()->LogWarn("Received cb_NotifyPacket from %s??",
 				 (subp == m_bottom) ? "Bottom" :
 				 ((subp == m_top) ? "Top" : "Unknown"));
 		goto done;
@@ -581,62 +625,102 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
 
 	if (subp == m_bottom) {
 		assert(m_config.bottom_async);
-		if (!statep) {
-			GetDi()->LogDebug("Bottom stream shut down, "
-					  "aborting\n");
-			__Stop(true, m_bottom);
-			goto done;
+
+		ncopy = (state.in_queued - m_bottom_qs.in_queued);
+		nadj = (m_bottom_qs.out_queued - state.out_queued);
+		m_bottom_in_count += ncopy;
+		m_bottom_out_count += nadj;
+
+		if (m_stat) {
+			m_stat->bottom.in.process += ncopy;
+			m_stat->bottom.out.process += nadj;
 		}
 
 		m_bottom_strikes = 0;
-		m_bottom_qs = *statep;
+		m_bottom_qs = state;
 
-		m_top->SndGetQueueState(m_top_qs);
+		if (query_other_ep || !m_config.top_async) {
+			ncopy = m_top_qs.in_queued;
+			nadj = m_top_qs.out_queued;
+
+			m_top->SndGetQueueState(m_top_qs);
+		}
+
 		if (m_config.top_loop) {
 			m_top_qs.in_queued += m_bottom_qs.in_queued;
+		}
+
+		if (query_other_ep || !m_config.top_async) {
+			ncopy = (m_top_qs.in_queued - ncopy);
+			nadj -= m_top_qs.out_queued;
+			m_top_in_count += ncopy;
+			m_top_out_count += nadj;
+
+			if (m_stat) {
+				m_stat->top.in.process += ncopy;
+				m_stat->top.out.process += nadj;
+			}
 		}
 	}
 	else if (subp == m_top) {
 		assert(m_config.top_async);
-		if (!statep) {
-			GetDi()->LogDebug("Top stream shut down, aborting\n");
-			__Stop(true, m_top);
-			goto done;
+
+		ncopy = (state.in_queued - m_top_qs.in_queued);
+		nadj = (m_top_qs.out_queued - state.out_queued);
+		m_top_in_count += ncopy;
+		m_top_out_count += nadj;
+
+		if (m_stat) {
+			m_stat->top.in.process += ncopy;
+			m_stat->top.out.process += nadj;
 		}
 
 		m_top_strikes = 0;
-		m_top_qs = *statep;
+		m_top_qs = state;
 
-		m_bottom->SndGetQueueState(m_bottom_qs);
+		if (query_other_ep || !m_config.bottom_async) {
+			ncopy = m_bottom_qs.in_queued;
+			nadj = m_bottom_qs.out_queued;
+
+			m_bottom->SndGetQueueState(m_bottom_qs);
+		}
+
 		if (m_config.bottom_loop) {
-			m_top_qs.in_queued += m_bottom_qs.in_queued;
+			m_bottom_qs.in_queued += m_top_qs.in_queued;
+		}
+
+		if (query_other_ep || !m_config.bottom_async) {
+			ncopy = (m_bottom_qs.in_queued - ncopy);
+			nadj -= m_bottom_qs.out_queued;
+			m_bottom_in_count += ncopy;
+			m_bottom_out_count += nadj;
+
+			if (m_stat) {
+				m_stat->bottom.in.process += ncopy;
+				m_stat->bottom.out.process += nadj;
+			}
 		}
 	} else
 		abort();
 
 	if (fill_debug) {
-		assert(((int) m_bottom_qs.out_queued) >= 0);
-		GetDi()->LogDebug("->[%c]Bot: In %d Out %d\n",
-				  (subp == m_bottom) ? '*' : '-',
-				  m_bottom_qs.in_queued,
-				  m_bottom_qs.out_queued);
-		GetDi()->LogDebug("->[%c]Top: In %d Out %d\n",
-				  (subp == m_top) ? '*' : '-',
-				  m_top_qs.in_queued, m_top_qs.out_queued);
+		DumpQueueState(true, (subp == m_top));
+		did_state_dump = true;
 	}
 
 	ncopy = 0;
 	if (m_config.pump_up) {
 		bounds[ncopy].lower = (m_config.bottom_async &&
 				       (m_bottom_qs.in_queued >
-					m_config.in_max))
-			? (m_bottom_qs.in_queued - m_config.in_max) : 0;
+					m_config.bottom_in_max))
+			? (m_bottom_qs.in_queued - m_config.bottom_in_max) : 0;
 		bounds[ncopy].upper = (!m_config.bottom_async &&
 				       (m_bottom_qs.in_queued <
 					m_config.filter_packet_samps))
 			? m_config.filter_packet_samps : m_bottom_qs.in_queued;
 
 		/* Make it more expensive to drop than to pad with silence. */
+		bounds[ncopy].prio = m_bottom_loss_tolerate ? 2 : 1;
 		bounds[ncopy].under_cost = 1;
 		bounds[ncopy++].over_cost = 2;
 
@@ -647,17 +731,20 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
 		bounds[ncopy].upper = (m_top_qs.out_queued <
 				       m_config.top_out_max)
 			? (m_config.top_out_max - m_top_qs.out_queued) : 0;
+		bounds[ncopy].prio = m_top_loss_tolerate ? 2 : 1;
 		bounds[ncopy].under_cost = 2;
 		bounds[ncopy++].over_cost = 1;
 	}
 	if (m_config.pump_down) {
 		bounds[ncopy].lower = (m_config.top_async &&
-				       (m_top_qs.in_queued > m_config.in_max))
-			? (m_top_qs.in_queued - m_config.in_max) : 0;
+				       (m_top_qs.in_queued >
+					m_config.top_in_max))
+			? (m_top_qs.in_queued - m_config.top_in_max) : 0;
 		bounds[ncopy].upper = (!m_config.top_async &&
 				       (m_top_qs.in_queued <
 					m_config.filter_packet_samps))
 			? m_config.filter_packet_samps : m_top_qs.in_queued;
+		bounds[ncopy].prio = m_top_loss_tolerate ? 2 : 1;
 		bounds[ncopy].under_cost = 1;
 		bounds[ncopy++].over_cost = 2;
 		bounds[ncopy].lower = (m_config.bottom_async &&
@@ -669,6 +756,7 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
 				       m_config.bottom_out_max)
 			? (m_config.bottom_out_max -
 			   m_bottom_qs.out_queued) : 0;
+		bounds[ncopy].prio = m_bottom_loss_tolerate ? 2 : 1;
 		bounds[ncopy].under_cost = 2;
 		bounds[ncopy++].over_cost = 1;
 	}
@@ -700,32 +788,73 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
 	memcpy(tws.in_silence, m_ti_last, sizeof(tws.in_silence));
 	memcpy(tws.out_silence, m_to_last, sizeof(tws.out_silence));
 
+	if (m_stat) {
+		m_stat->process_count += ncopy;
+
+		if (m_bottom_qs.out_underflow) {
+			did_loss = true;
+			m_stat->bottom.out.xrun++;
+		}
+		if (m_bottom_qs.in_overflow) {
+			did_loss = true;
+			m_stat->bottom.in.xrun++;
+		}
+		if (m_top_qs.out_underflow) {
+			did_loss = true;
+			m_stat->top.out.xrun++;
+		}
+		if (m_top_qs.in_overflow) {
+			did_loss = true;
+			m_stat->top.in.xrun++;
+		}
+	}
+
 	/* Some imbalances need to be corrected immediately */
 	if (m_config.pump_up) {
 		bws.in_xfer = ncopy;
 		nadj = m_bottom_qs.in_queued - ncopy;
 		if (ncopy > m_bottom_qs.in_queued) {
 			bws.in_xfer = m_bottom_qs.in_queued;
-		} else if (m_config.bottom_async && (nadj > m_config.in_max)) {
+		} else if (m_config.bottom_async &&
+			   (nadj > m_config.bottom_in_max)) {
 			/* Input overflow, toss the excess now */
 			if (loss_debug && m_config.warn_loss) {
-				GetDi()->LogDebug("Bot: discarding %u input\n",
-						  nadj - m_config.in_max);
+				if (!did_state_dump) {
+					DumpQueueState(true, (subp == m_top));
+					did_state_dump = true;
+				}
+				GetDi()->LogDebug("Bot: discarding %u input",
+						  nadj -
+						  m_config.bottom_in_max);
 			}
-			m_bottom->SndDequeueIBuf(nadj - m_config.in_max);
-			m_bottom_qs.in_queued -= (nadj - m_config.in_max);
+			if (m_stat)
+				m_stat->bottom.in.drop +=
+					(nadj - m_config.bottom_in_max);
+			m_bottom->SndDequeueIBuf(nadj -
+						 m_config.bottom_in_max);
+			m_bottom_qs.in_queued -= (nadj -
+						  m_config.bottom_in_max);
+			did_loss = true;
 		}
 		tws.out_xfer = ncopy;
 		nadj = m_top_qs.out_queued + ncopy;
 		if (nadj > m_config.top_out_max) {
 			if (loss_debug && m_config.warn_loss) {
+				if (!did_state_dump) {
+					DumpQueueState(true, (subp == m_top));
+					did_state_dump = true;
+				}
 				GetDi()->LogDebug("Top: discarding %u "
-						  "output\n",
+						  "output",
 						  nadj - m_config.top_out_max);
 			}
+			if (m_stat)
+				m_stat->top.out.drop +=
+					(nadj - m_config.top_out_max);
 			nadj -= m_config.top_out_max;
 			tws.out_xfer = (nadj > tws.out_xfer)
 				? 0 : (tws.out_xfer - nadj);
+			did_loss = true;
 		}
 	}
 	if (m_config.pump_down) {
@@ -733,27 +862,44 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
 		nadj = m_top_qs.in_queued - ncopy;
 		if (ncopy > m_top_qs.in_queued) {
 			tws.in_xfer = m_top_qs.in_queued;
-		} else if (m_config.top_async && (nadj > m_config.in_max)) {
+		} else if (m_config.top_async &&
+			   (nadj > m_config.top_in_max)) {
 			/* Input overflow, toss the excess now */
 			if (loss_debug && m_config.warn_loss) {
-				GetDi()->LogDebug("Top: discarding %u input\n",
-						  nadj - m_config.in_max);
+				if (!did_state_dump) {
+					DumpQueueState(true, (subp == m_top));
+					did_state_dump = true;
+				}
+				GetDi()->LogDebug("Top: discarding %u input",
+						  nadj - m_config.top_in_max);
 			}
-			m_top->SndDequeueIBuf(nadj - m_config.in_max);
-			m_top_qs.in_queued -= (nadj - m_config.in_max);
+			if (m_stat)
+				m_stat->top.in.drop +=
+					(nadj - m_config.top_in_max);
+			m_top->SndDequeueIBuf(nadj - m_config.top_in_max);
+			m_top_qs.in_queued -= (nadj - m_config.top_in_max);
+			did_loss = true;
 		}
 		bws.out_xfer = ncopy;
 		nadj = m_bottom_qs.out_queued + ncopy;
 		if (nadj > m_config.bottom_out_max) {
 			if (loss_debug && m_config.warn_loss) {
+				if (!did_state_dump) {
+					DumpQueueState(true, (subp == m_top));
+					did_state_dump = true;
+				}
 				GetDi()->LogDebug("Bot: discarding %u "
-						  "output\n",
+						  "output",
 						  nadj -
 						  m_config.bottom_out_max);
 			}
+			if (m_stat)
+				m_stat->bottom.out.drop +=
+					(nadj - m_config.bottom_out_max);
 			nadj -= m_config.bottom_out_max;
 			bws.out_xfer = (nadj > bws.out_xfer)
 				? 0 : (bws.out_xfer - nadj);
+			did_loss = true;
 		}
 	}
 
@@ -762,8 +908,8 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
 	tws.in_xfer_expect = tws.in_xfer;
 	tws.out_xfer_expect = tws.out_xfer;
 
-	if (fill_debug && ncopy) {
-		GetDi()->LogDebug("Copy %d\n", ncopy);
+	if ((fill_debug || (loss_debug && did_state_dump)) && ncopy) {
+		GetDi()->LogDebug("Copy %d", ncopy);
 	}
 
 	if (!ncopy)
@@ -778,13 +924,14 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState *statep)
 				(void) CopyCross(&tws, &bws, ncopy);
 		} else {
 			/* Keep the packet size down for loops */
+			todo = ncopy;
 			nadj = m_config.filter_packet_samps;
-			while (ncopy) {
+			while (todo) {
 				if (m_config.pump_down)
 					(void) CopyCross(&bws, &tws, nadj);
 				if (m_config.pump_up)
 					(void) CopyCross(&tws, &bws, nadj);
-				ncopy -= nadj;
+				todo -= nadj;
 			}
 		}
 
@@ -809,26 +956,42 @@ done_copyback:
 		nadj = m_top_qs.out_queued;
 		if (nadj < m_config.top_out_min) {
 			if (loss_debug && m_config.warn_loss) {
+				if (!did_state_dump) {
+					DumpQueueState(true, (subp == m_top));
+					did_state_dump = true;
+				}
 				GetDi()->LogDebug("Top: silence padding "
-						  "output %u\n",
+						  "output %u",
 						  m_config.top_out_min - nadj);
 			}
+			if (m_stat)
+				m_stat->top.out.pad +=
+					(m_config.top_out_min - nadj);
 			OutputSilence(&tws, m_config.top_out_min - nadj);
 			m_top_qs.out_queued += (m_config.top_out_min - nadj);
+			did_loss = true;
 		}
 	}
 	if (m_config.pump_down) {
 		nadj = m_bottom_qs.out_queued;
 		if (nadj < m_config.bottom_out_min) {
 			if (loss_debug && m_config.warn_loss) {
+				if (!did_state_dump) {
+					DumpQueueState(true, (subp == m_top));
+					did_state_dump = true;
+				}
 				GetDi()->LogDebug("Bot: silence padding "
-						  "output %u\n",
+						  "output %u",
 						  m_config.bottom_out_min -
 						  nadj);
 			}
+			if (m_stat)
+				m_stat->bottom.out.pad +=
+					(m_config.bottom_out_min - nadj);
 			OutputSilence(&bws, m_config.bottom_out_min - nadj);
 			m_bottom_qs.out_queued +=
 				(m_config.bottom_out_min - nadj);
+			did_loss = true;
 		}
 	}
 
@@ -852,48 +1015,75 @@ done_copyback:
 	    (m_config.bottom_roe &&
 	     (!m_config.pump_up || bws.in_silencepad) &&
 	     (!m_config.pump_down || bws.out_drop))) {
+		ErrorInfo error;
+		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			  LIBHFP_ERROR_SOUNDIO_DATA_EXHAUSTED,
+			  "Static Endpoint Exhausted");
 		assert(m_async_entered);
 		m_async_entered = false;
-		__Stop(true, m_config.top_async ? m_bottom : m_top);
+		__Stop(&error, m_config.top_async ? m_bottom : m_top);
 		return;
 	}
 
+	/*
+	 * Losses are uncommon, so only do this messy processing
+	 * section when we have to.
+	 */
+	if (bws.in_silencepad || bws.in_xfer || bws.out_xfer ||
+	    tws.in_silencepad || tws.in_xfer || tws.out_xfer) {
+		did_loss = true;
 
-	if (loss_debug && m_config.warn_loss) {
-		if (bws.in_xfer)
-			GetDi()->LogDebug("Bot: failed to process %u input\n",
-					  bws.in_xfer);
-		if (bws.out_xfer)
-			GetDi()->LogDebug("Bot: failed to process %u output\n",
-					  bws.out_xfer);
-		if (tws.in_xfer)
-			GetDi()->LogDebug("Top: failed to process %u input\n",
-					  tws.in_xfer);
-		if (tws.out_xfer)
-			GetDi()->LogDebug("Top: failed to process %u output\n",
-					  tws.out_xfer);
+		if (m_stat) {
+			m_stat->bottom.in.pad += bws.in_silencepad;
+			m_stat->bottom.in.fail += bws.in_xfer;
+			m_stat->bottom.out.fail += bws.out_xfer;
+			m_stat->top.in.pad += tws.in_silencepad;
+			m_stat->top.in.fail += tws.in_xfer;
+			m_stat->top.out.fail += tws.out_xfer;
+		}
+
+		if (loss_debug && m_config.warn_loss) {
+			if (bws.in_xfer)
+				GetDi()->LogDebug("Bot: failed to process %u "
+						  "input",
+						  bws.in_xfer);
+			if (bws.out_xfer)
+				GetDi()->LogDebug("Bot: failed to process %u "
+						  "output",
+						  bws.out_xfer);
+			if (tws.in_xfer)
+				GetDi()->LogDebug("Top: failed to process %u "
+						  "input",
+						  tws.in_xfer);
+			if (tws.out_xfer)
+				GetDi()->LogDebug("Top: failed to process %u "
+						  "output",
+						  tws.out_xfer);
+		}
 	}
 
-	if (fill_debug) {
+	if (fill_debug || (loss_debug && did_state_dump)) {
 		SoundIoQueueState qs;
 		m_bottom->SndGetQueueState(qs);
 		assert(qs.in_queued >= m_bottom_qs.in_queued);
 		assert(qs.out_queued <= m_bottom_qs.out_queued);
-		GetDi()->LogDebug("<-[%c]Bot: In %d Out %d\n",
+		GetDi()->LogDebug("<-[%c]Bot: In %d Out %d",
 				  (subp == m_bottom) ? '*' : '-',
 				  qs.in_queued, qs.out_queued);
-		if ((m_bottom_qs.out_queued - qs.out_queued) > 20)
-			GetDi()->LogDebug("*** Bot out: expect %u real %u\n",
+		if ((subp == m_bottom) &&
+		    ((m_bottom_qs.out_queued - qs.out_queued) > 20))
+			GetDi()->LogDebug("*** Bot out: expect %u real %u",
 					  m_bottom_qs.out_queued,
 					  qs.out_queued);
 		m_top->SndGetQueueState(qs);
 		assert(qs.in_queued >= m_top_qs.in_queued);
 		assert(qs.out_queued <= m_top_qs.out_queued);
-		GetDi()->LogDebug("<-[%c]Top: In %d Out %d\n",
+		GetDi()->LogDebug("<-[%c]Top: In %d Out %d",
 				  (subp == m_top) ? '*' : '-',
 			       qs.in_queued, qs.out_queued);
-		if ((m_top_qs.out_queued - qs.out_queued) > 20)
-			GetDi()->LogDebug("*** Top out: expect %u real %u\n",
+		if ((subp == m_top) &&
+		    ((m_top_qs.out_queued - qs.out_queued) > 20))
+			GetDi()->LogDebug("*** Top out: expect %u real %u",
 					  m_top_qs.out_queued, qs.out_queued);
 	}
 
@@ -907,14 +1097,98 @@ done_copyback:
 		assert(qs.in_queued <= m_config.filter_packet_samps);
 	}
 
+	if (m_stat && (ncopy || did_loss) &&
+	    cb_NotifyStatistics.Registered()) {
+		m_stat->bottom.out.level = m_bottom_qs.out_queued;
+		m_stat->bottom.in.level = m_bottom_qs.in_queued;
+		m_stat->top.out.level = m_top_qs.out_queued;
+		m_stat->top.in.level = m_top_qs.in_queued;
+		cb_NotifyStatistics(this, *m_stat, did_loss);
+	}
+
 done:
 	assert(m_async_entered);
 	m_async_entered = false;
 }
 
 void SoundIoPump::
+AsyncStopped(SoundIo *subp, ErrorInfo &error)
+{
+	assert(!m_async_entered);
+	m_async_entered = true;
+
+	if (!IsStarted()) {
+		GetDi()->LogWarn("Received cb_NotifyAsyncStop from %s??",
+				 (subp == m_bottom) ? "Bottom" :
+				 ((subp == m_top) ? "Top" : "Unknown"));
+		m_async_entered = false;
+		return;
+	}
+
+	if (subp == m_bottom) {
+		assert(m_config.bottom_async);
+
+		GetDi()->LogDebug("Bottom endpoint caused pump halt: %s",
+				  error.Desc());
+	}
+	else if (subp == m_top) {
+		assert(m_config.top_async);
+
+		GetDi()->LogDebug("Top endpoint caused pump halt: %s",
+				  error.Desc());
+	} else
+		abort();
+
+	assert(m_async_entered);
+	m_async_entered = false;
+
+	__Stop(&error, subp);
+}
+
+bool SoundIoPump::
+WatchdogThreshold(sio_sampnum_t &count, char &strikes, const char *name,
+		  ErrorInfo &error)
+{
+	int res = 0;
+
+	if (count < m_config.watchdog_min_progress) {
+		GetDi()->LogDebug("SoundIoPump: %s underprocessed (%d < %d)",
+				  name, count, m_config.watchdog_min_progress);
+		res = -1;
+	}
+	else if (count > m_config.watchdog_max_progress) {
+		GetDi()->LogDebug("SoundIoPump: %s overprocessed (%d > %d)",
+				  name, count, m_config.watchdog_max_progress);
+		res = 1;
+	}
+	count = 0;
+	if (!res) {
+		strikes = 0;
+		return true;
+	}
+
+	strikes += res;
+	if (strikes < -m_config.watchdog_strikes) {
+		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			  LIBHFP_ERROR_SOUNDIO_WATCHDOG_TIMEOUT,
+			  "SoundIoPump: %s underprocessing", name);
+		return false;
+	}
+	if (strikes > m_config.watchdog_strikes) {
+		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			  LIBHFP_ERROR_SOUNDIO_WATCHDOG_TIMEOUT,
+			  "SoundIoPump: %s overprocessing", name);
+		return false;
+	}
+	return true;
+}
+
+void SoundIoPump::
 Watchdog(TimerNotifier *notp)
 {
+	SoundIo *ep = 0;
+	ErrorInfo error;
+
 	assert(notp == m_watchdog);
 	assert(m_running);
 
@@ -922,23 +1196,53 @@ Watchdog(TimerNotifier *notp)
 	 * If we are stuck with a device that has a flaky clock or
 	 * a broken driver, we want to fail gracefully.
 	 *
-	 * We allow two "strikes."
+	 * We allow a maximum number of "strikes" for any sort of violation.
 	 */
-	if (m_bottom_async_started && (++m_bottom_strikes > 1)) {
-		GetDi()->LogWarn("SoundIoPump: Bottom endpoint "
-				 "watchdog timeout\n");
-		__Stop(true, m_bottom);
-		return;
+	if (m_bottom_async_started) {
+		ep = m_bottom;
+		if (++m_bottom_strikes > m_config.watchdog_strikes) {
+			error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				  LIBHFP_ERROR_SOUNDIO_WATCHDOG_TIMEOUT,
+				  "SoundIoPump: Bottom endpoint timeout");
+			goto failed;
+		}
+
+		if (m_config.pump_up &&
+		    !WatchdogThreshold(m_bottom_in_count, m_bottom_in_strikes,
+				       "bottom input", error))
+			goto failed;
+		if (m_config.pump_down &&
+		    !WatchdogThreshold(m_bottom_out_count,
+				       m_bottom_out_strikes,
+				       "bottom output", error))
+			goto failed;
 	}
 
-	if (m_top_async_started && (++m_top_strikes > 1)) {
-		GetDi()->LogWarn("SoundIoPump: Top endpoint "
-				 "watchdog timeout\n");
-		__Stop(true, m_top);
-		return;
+	if (m_top_async_started) {
+		if (++m_top_strikes > m_config.watchdog_strikes) {
+			error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				  LIBHFP_ERROR_SOUNDIO_WATCHDOG_TIMEOUT,
+				  "SoundIoPump: Top endpoint timeout");
+			goto failed;
+		}
+
+		if (m_config.pump_down &&
+		    !WatchdogThreshold(m_top_in_count, m_top_in_strikes,
+				       "top input", error))
+			goto failed;
+		if (m_config.pump_up &&
+		    !WatchdogThreshold(m_top_out_count, m_top_out_strikes,
+				       "top output", error))
+			goto failed;
 	}
 
 	m_watchdog->Set(m_config.watchdog_to);
+	return;
+
+failed:
+	GetDi()->LogWarn("%s", error.Desc());
+	__Stop(&error, ep);
+	return;
 }
 
 /*
@@ -949,18 +1253,22 @@ Watchdog(TimerNotifier *notp)
  * - All other fields are filled in by this function.
  */
 bool SoundIoPump::
-ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
+ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg,
+		   ErrorInfo *error)
 {
 	enum { watchdog_packets = 15 };
 
 	SoundIoProps bottom_props, top_props;
 	SoundIoFormat bottom_fmt, top_fmt;
-	sio_sampnum_t config_out_min, config_window, nsamps;
+	sio_sampnum_t config_out_min, config_window, max_packet, nsamps;
 	unsigned int msecs;
 	bool fixed_fps;
 
 	if (!bottom || !top) {
-		GetDi()->LogDebug("Config fail: Endpoints not set\n");
+		GetDi()->LogDebug(error,
+				  LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				  LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+				  "Config fail: Endpoints not set");
 		return false;
 	}
 
@@ -974,21 +1282,30 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 		cfg.pump_up = (top_props.does_sink &&
 			       bottom_props.does_source);
 		if (!cfg.pump_down && !cfg.pump_up) {
-			GetDi()->LogWarn("Config fail: "
-					 "Can't pump up or down\n");
+			GetDi()->LogWarn(error,
+					 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					 LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+					 "Config fail: "
+					 "Can't pump up or down");
 			return false;
 		}
 	}
 	else if (cfg.pump_down && (!bottom_props.does_sink ||
 				   !top_props.does_source)) {
-		GetDi()->LogWarn("Config fail: One or both endpoints does "
-				 "not support downward streaming\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+				 "Config fail: One or both endpoints does "
+				 "not support downward streaming");
 		return false;
 	}
 	else if (cfg.pump_up && (!bottom_props.does_source ||
 				 !top_props.does_sink)) {
-		GetDi()->LogWarn("Config fail: One or both endpoints does "
-				 "not support upward streaming\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_DUPLEX_MISMATCH,
+				 "Config fail: One or both endpoints does "
+				 "not support upward streaming");
 		return false;
 	}
 
@@ -1012,13 +1329,19 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 
 	if (!cfg.bottom_async && !cfg.top_async) {
 		/* Offline processing mode isn't supported yet */
-		GetDi()->LogWarn("Config fail: Offline mode not supported\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+				 "Config fail: Offline mode not supported");
 		return false;
 	}
 
 	if (cfg.bottom_loop && cfg.top_loop) {
-		GetDi()->LogWarn("Config fail: Both bottom and top "
-				 "are loops\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+				 "Config fail: Both bottom and top "
+				 "are loops");
 		return false;
 	}
 
@@ -1038,50 +1361,46 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 	if ((top_fmt.sampletype != bottom_fmt.sampletype) ||
 	    (top_fmt.samplerate != bottom_fmt.samplerate) ||
 	    (top_fmt.nchannels != bottom_fmt.nchannels)) {
-		GetDi()->LogWarn("Config fail: Top/bottom formats disagree\n");
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				 LIBHFP_ERROR_SOUNDIO_FORMAT_MISMATCH,
+				 "Config fail: Top/bottom formats disagree");
 		return false;
 	}
 
 	cfg.fmt = bottom_fmt;
 	fixed_fps = (cfg.filter_packet_samps != 0);
 
+	max_packet = cfg.filter_packet_samps;
+	if (cfg.bottom_async && (bottom_fmt.packet_samps > max_packet))
+		max_packet = bottom_fmt.packet_samps;
+	if (cfg.top_async && (top_fmt.packet_samps > max_packet))
+		max_packet = top_fmt.packet_samps;
+
 	/* We don't allow the endpoints to constrain us beyond this: */
 	if (cfg.bottom_async && bottom_props.outbuf_size) {
-		if ((3 * bottom_fmt.packet_samps) > bottom_props.outbuf_size) {
-			GetDi()->LogWarn("Config fail: Bottom output "
-					 "buffer (%d) "
-					 "is less than three times the packet "
-					 "size (%d)\n",
-					 bottom_props.outbuf_size,
-					 bottom_fmt.packet_samps);
-			return false;
-		}
-		if ((4 * cfg.filter_packet_samps) > bottom_props.outbuf_size) {
-			GetDi()->LogWarn("Config fail: Bottom output "
+		if ((4 * max_packet) > bottom_props.outbuf_size) {
+			GetDi()->LogWarn(error,
+					 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					 LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+					 "Config fail: Bottom output "
 					 "buffer (%d) "
 					 "is less than four times the "
-					 "required filter packet size (%d)\n",
+					 "maximum packet size (%d)",
 					 bottom_props.outbuf_size,
-					 cfg.filter_packet_samps);
+					 max_packet);
 			return false;
 		}
 	}
 	if (cfg.top_async && top_props.outbuf_size) {
-		if ((3 * top_fmt.packet_samps) > top_props.outbuf_size) {
-			GetDi()->LogWarn("Config fail: Top output buffer (%d) "
-					 "is less than three times the packet "
-					 "size (%d)\n",
-					 top_props.outbuf_size,
-					 top_fmt.packet_samps);
-			return false;
-		}
-		if ((4 * cfg.filter_packet_samps) > top_props.outbuf_size) {
-			GetDi()->LogWarn("Config fail: Top output "
-					 "buffer (%d) "
+		if ((4 * max_packet) > top_props.outbuf_size) {
+			GetDi()->LogWarn(error,
+					 LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					 LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+					 "Config fail: Top output buffer (%d) "
 					 "is less than four times the "
-					 "required filter packet size (%d)\n",
-					 top_props.outbuf_size,
-					 cfg.filter_packet_samps);
+					 "maximum packet size (%d)",
+					 top_props.outbuf_size, max_packet);
 			return false;
 		}
 	}
@@ -1106,28 +1425,22 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 			config_window = 1;
 	}
 
-	if (fixed_fps) {
-		if (config_out_min &&
-		    (config_out_min < (2 * cfg.filter_packet_samps))) {
-			GetDi()->LogDebug("Config warn: Configured output "
-					  "minimum buffer (%d) is less than "
-					  "twice the filter packet size "
-					  "(%d)\n",
-					  config_out_min,
-					  cfg.filter_packet_samps * 2);
-			config_out_min = (2 * cfg.filter_packet_samps);
-		}
+	if (config_out_min &&
+	    (config_out_min < (2 * max_packet))) {
+		GetDi()->LogDebug("Config warn: Configured output "
+				  "minimum buffer (%d) is less than "
+				  "twice the maximum packet size (%d)",
+				  config_out_min, (2 * max_packet));
+		config_out_min = (2 * max_packet);
+	}
 
-		if (config_window &&
-		    (config_window < (2 * cfg.filter_packet_samps))) {
-			GetDi()->LogDebug("Config warn: Configured output "
-					  "window size (%d) is less than "
-					  "twice the filter packet size "
-					  "(%d)\n",
-					  config_window,
-					  cfg.filter_packet_samps * 2);
-			config_window = (2 * cfg.filter_packet_samps);
-		}
+	if (config_window &&
+	    (config_window < (2 * max_packet))) {
+		GetDi()->LogDebug("Config warn: Configured output "
+				  "window size (%d) is less than "
+				  "twice the maximum packet size (%d)",
+				  config_window, (2 * max_packet));
+		config_window = (2 * max_packet);
 	}
 
 	/*
@@ -1141,17 +1454,12 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 			cfg.bottom_out_min = config_out_min;
 		else
 			/* A hopefully safe default */
-			cfg.bottom_out_min = bottom_fmt.packet_samps * 2;
-
-		/* Increase to at least twice the fixed filter packet size */
-		if (fixed_fps && (cfg.bottom_out_min <
-				  (2 * cfg.filter_packet_samps)))
-			cfg.bottom_out_min = (2 * cfg.filter_packet_samps);
+			cfg.bottom_out_min = max_packet * 2;
 
 		if (cfg.bottom_out_min < bottom_fmt.packet_samps) {
 			GetDi()->LogDebug("Config warn: Configured output "
 					  "minimum buffer (%d) is less than "
-					  "the bottom packet size (%d)\n",
+					  "the bottom packet size (%d)",
 					  config_out_min,
 					  bottom_fmt.packet_samps);
 			cfg.bottom_out_min = bottom_fmt.packet_samps;
@@ -1164,7 +1472,7 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 						  "Configured output minimum "
 						  "buffer (%d) is within one "
 						  "packet size of the bottom "
-						  "buffer size (%d)\n",
+						  "buffer size (%d)",
 						  config_out_min,
 						  bottom_props.outbuf_size);
 			}
@@ -1174,10 +1482,8 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 
 		/* Two packets acceptable fill window */
 		nsamps = config_window ? config_window : cfg.bottom_out_min;
-		if (nsamps < bottom_fmt.packet_samps)
-			nsamps = bottom_fmt.packet_samps;
-		if (fixed_fps && (nsamps < (2 * cfg.filter_packet_samps)))
-			nsamps = (2 * cfg.filter_packet_samps);
+		if (nsamps < (max_packet * 3))
+			nsamps = (max_packet * 3);
 		cfg.bottom_out_max = cfg.bottom_out_min + nsamps;
 
 		if (bottom_props.outbuf_size &&
@@ -1185,7 +1491,7 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 			cfg.bottom_out_max = bottom_props.outbuf_size;
 			GetDi()->LogDebug("Config warn: Configured output "
 					  "window (%d) would exceed bottom "
-					  "output buffer (%d)\n",
+					  "output buffer (%d)",
 					  nsamps, bottom_props.outbuf_size);
 			assert((cfg.bottom_out_max - cfg.bottom_out_min) >=
 			       bottom_fmt.packet_samps);
@@ -1203,17 +1509,12 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 			cfg.top_out_min = config_out_min;
 		else
 			/* A hopefully safe default */
-			cfg.top_out_min = top_fmt.packet_samps * 2;
-
-		/* Increase to at least twice the fixed filter packet size */
-		if (fixed_fps && (cfg.top_out_min <
-				  (2 * cfg.filter_packet_samps)))
-			cfg.top_out_min = (2 * cfg.filter_packet_samps);
+			cfg.top_out_min = max_packet * 2;
 
 		if (cfg.top_out_min < top_fmt.packet_samps) {
 			GetDi()->LogDebug("Config warn: Configured output "
 					  "minimum buffer (%d) is less than "
-					  "the top packet size (%d)\n",
+					  "the top packet size (%d)",
 					  config_out_min,
 					  top_fmt.packet_samps);
 			cfg.top_out_min = top_fmt.packet_samps;
@@ -1226,20 +1527,18 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 						  "Configured output minimum "
 						  "buffer (%d) is within one "
 						  "packet size of the top "
-						  "buffer size (%d)\n",
+						  "buffer size (%d)",
 						  config_out_min,
 						  top_props.outbuf_size);
 			}
 			cfg.top_out_min = top_props.outbuf_size -
 				top_fmt.packet_samps;
 		}
-			
 
+		/* Two packets acceptable fill window */
 		nsamps = config_window ? config_window : cfg.top_out_min;
-		if (nsamps < (top_fmt.packet_samps * 2))
-			nsamps = top_fmt.packet_samps;
-		if (fixed_fps && (nsamps < (2 * cfg.filter_packet_samps)))
-			nsamps = (2 * cfg.filter_packet_samps);
+		if (nsamps < (max_packet * 3))
+			nsamps = (max_packet * 3);
 		cfg.top_out_max = cfg.top_out_min + nsamps;
 
 		if (top_props.outbuf_size &&
@@ -1247,7 +1546,7 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 			cfg.top_out_max = top_props.outbuf_size;
 			GetDi()->LogDebug("Config warn: Configured output "
 					  "window (%d) would exceed top "
-					  "output buffer (%d)\n",
+					  "output buffer (%d)",
 					  nsamps, top_props.outbuf_size);
 			assert((cfg.top_out_max - cfg.top_out_min) >=
 			       top_fmt.packet_samps);
@@ -1260,12 +1559,10 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 	}
 
 	/*
-	 * Choose a fair system-wide input buffer maximum fill level
+	 * Use the chosen output maximum as the input max fill level
 	 */
-	cfg.in_max = bottom_fmt.packet_samps;
-	if (cfg.in_max < top_fmt.packet_samps)
-		cfg.in_max = top_fmt.packet_samps;
-	cfg.in_max *= 2;
+	cfg.bottom_in_max = cfg.bottom_out_max - cfg.bottom_out_min;
+	cfg.top_in_max = cfg.top_out_max - cfg.bottom_out_min;
 
 	if (!fixed_fps) {
 		/* Find a good filter packet size */
@@ -1308,6 +1605,7 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 	 */
 
 	cfg.watchdog_to = 500;
+	cfg.watchdog_strikes = 2;
 
 	if (cfg.bottom_async) {
 		msecs = ((watchdog_packets * bottom_fmt.packet_samps * 1000) /
@@ -1324,27 +1622,38 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg)
 	}
 
 	/*
+	 * If any duplex of any clocked endpoint is processing samples
+	 * at less than 25% of the system clock, or above 200% the
+	 * system clock, we count it as a watchdog failure.
+	 */
+	nsamps = (cfg.fmt.samplerate * cfg.watchdog_to) / 1000;
+	cfg.watchdog_min_progress = nsamps / 4;
+	cfg.watchdog_max_progress = nsamps * 2;
+
+	/*
 	 * The working configuration of the pump is delicate,
 	 * and useful for debugging.
 	 */
-	GetDi()->LogDebug("Pump: packet size = %u\n", cfg.filter_packet_samps);
-	GetDi()->LogDebug("Pump: input max fill = %u\n", cfg.in_max);
-	GetDi()->LogDebug("Pump: bot packet size = %u\n",
+	GetDi()->LogDebug("Pump: packet size = %u", cfg.filter_packet_samps);
+	GetDi()->LogDebug("Pump: bot packet size = %u",
 			  bottom_fmt.packet_samps);
-	GetDi()->LogDebug("Pump: bot min fill = %u\n", cfg.bottom_out_min);
-	GetDi()->LogDebug("Pump: bot max fill = %u\n", cfg.bottom_out_max);
-	GetDi()->LogDebug("Pump: top packet size = %u\n",
+	GetDi()->LogDebug("Pump: bot input max fill = %u",
+			  cfg.bottom_in_max);
+	GetDi()->LogDebug("Pump: bot min fill = %u", cfg.bottom_out_min);
+	GetDi()->LogDebug("Pump: bot max fill = %u", cfg.bottom_out_max);
+	GetDi()->LogDebug("Pump: top packet size = %u",
 			  top_fmt.packet_samps);
-	GetDi()->LogDebug("Pump: top min fill = %u\n", cfg.top_out_min);
-	GetDi()->LogDebug("Pump: top max fill = %u\n", cfg.top_out_max);
-	GetDi()->LogDebug("Pump: watchdog timeout = %u\n", cfg.watchdog_to);
+	GetDi()->LogDebug("Pump: top input max fill = %u", cfg.top_in_max);
+	GetDi()->LogDebug("Pump: top min fill = %u", cfg.top_out_min);
+	GetDi()->LogDebug("Pump: top max fill = %u", cfg.top_out_max);
+	GetDi()->LogDebug("Pump: watchdog timeout = %u", cfg.watchdog_to);
 
 	return true;
 }
 
 
 bool SoundIoPump::
-SetBottom(SoundIo *newep)
+SetBottom(SoundIo *newep, ErrorInfo *error)
 {
 	SoundIo *oldep;
 
@@ -1357,6 +1666,9 @@ SetBottom(SoundIo *newep)
 		assert(!newep->cb_NotifyPacket.Registered());
 		newep->cb_NotifyPacket.Register(this,
 						 &SoundIoPump::AsyncProcess);
+		assert(!newep->cb_NotifyAsyncStop.Registered());
+		newep->cb_NotifyAsyncStop.Register(this,
+						   &SoundIoPump::AsyncStopped);
 	}
 
 	oldep = m_bottom;
@@ -1378,15 +1690,16 @@ SetBottom(SoundIo *newep)
 		newcfg.filter_packet_samps = m_config.filter_packet_samps;
 
 
-		if (!ConfigureEndpoints(newep, m_top, newcfg))
+		if (!ConfigureEndpoints(newep, m_top, newcfg, error))
 			goto failed;
 
 		if (newcfg.bottom_async) {
 			OpLatencyMonitor lat(GetDi(), "new bottom EP start");
 			if (!newep->SndAsyncStart(newcfg.pump_down,
-						  newcfg.pump_up)) {
+						  newcfg.pump_up,
+						  error)) {
 				GetDi()->LogWarn("SoundIo: Could not start "
-						 "new bottom EP\n");
+						 "new bottom EP");
 				goto failed;
 			}
 		}
@@ -1410,19 +1723,22 @@ SetBottom(SoundIo *newep)
 		__Stop();
 	}
 
-	if (oldep)
+	if (oldep) {
 		oldep->cb_NotifyPacket.Unregister();
+		oldep->cb_NotifyAsyncStop.Unregister();
+	}
 
 	return true;
 
 failed:
 	newep->cb_NotifyPacket.Unregister();
+	newep->cb_NotifyAsyncStop.Unregister();
 	m_bottom = oldep;
 	return false;
 }
 
 bool SoundIoPump::
-SetTop(SoundIo *newep)
+SetTop(SoundIo *newep, ErrorInfo *error)
 {
 	SoundIo *oldep;
 
@@ -1435,6 +1751,9 @@ SetTop(SoundIo *newep)
 		assert(!newep->cb_NotifyPacket.Registered());
 		newep->cb_NotifyPacket.Register(this,
 						 &SoundIoPump::AsyncProcess);
+		assert(!newep->cb_NotifyAsyncStop.Registered());
+		newep->cb_NotifyAsyncStop.Register(this,
+						   &SoundIoPump::AsyncStopped);
 	}
 
 	oldep = m_top;
@@ -1447,15 +1766,16 @@ SetTop(SoundIo *newep)
 		newcfg.pump_up = m_config.pump_up;
 		newcfg.pump_down = m_config.pump_down;
 		newcfg.filter_packet_samps = m_config.filter_packet_samps;
-		if (!ConfigureEndpoints(newep, m_top, newcfg))
+		if (!ConfigureEndpoints(newep, m_top, newcfg, error))
 			goto failed;
 
 		if (newcfg.top_async) {
 			OpLatencyMonitor lat(GetDi(), "new top EP start");
 			if (!newep->SndAsyncStart(newcfg.pump_up,
-						  newcfg.pump_down)) {
+						  newcfg.pump_down,
+						  error)) {
 				GetDi()->LogWarn("SoundIo: Could not start "
-						 "new top EP\n");
+						 "new top EP");
 				goto failed;
 			}
 		}
@@ -1474,29 +1794,45 @@ SetTop(SoundIo *newep)
 		__Stop();
 	}
 
-	if (oldep)
+	if (oldep) {
 		oldep->cb_NotifyPacket.Unregister();
+		oldep->cb_NotifyAsyncStop.Unregister();
+	}
 
 	return true;
 
 failed:
 	newep->cb_NotifyPacket.Unregister();
+	newep->cb_NotifyAsyncStop.Unregister();
 	m_top = oldep;
 	return false;
 }
 
 bool SoundIoPump::
-Start(void)
+Start(ErrorInfo *error)
 {
 	SoundIoFilter *fltp;
 	SoundIoFormat fltfmt;
 	SoundIoPumpConfig cfg;
 
-	if (IsStarted())
+	if (IsStarted()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
+				   "Pump already started");
 		return false;
+	}
 
-	if (!m_bottom || !m_top)
+	if (!m_bottom || !m_top) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+				   LIBHFP_ERROR_SOUNDIO_BAD_PUMP_CONFIG,
+				   (!m_bottom && !m_top) ?
+				   "Neither endpoint set" :
+				   (!m_bottom ? "Bottom endpoint not set"
+				    : "Top endpoint not set"));
 		return false;
+	}
 
 	/* Blank slate, let ConfigureEndpoints figure everything out */
 	memset(&cfg, 0, sizeof(cfg));
@@ -1504,7 +1840,7 @@ Start(void)
 	/*
 	 * Run the configuration function
 	 */
-	if (!ConfigureEndpoints(m_bottom, m_top, cfg))
+	if (!ConfigureEndpoints(m_bottom, m_top, cfg, error))
 		return false;
 
 	/*
@@ -1517,7 +1853,9 @@ Start(void)
 
 	m_watchdog = GetDi()->NewTimer();
 	if (!m_watchdog) {
-		GetDi()->LogWarn("Could not create watchdog\n");
+		if (error)
+			error->SetNoMem();
+		GetDi()->LogWarn("Could not create watchdog");
 		return false;
 	}
 	m_watchdog->Register(this, &SoundIoPump::Watchdog);
@@ -1532,9 +1870,10 @@ Start(void)
 	 */
 
 	for (fltp = m_bottom_flt; fltp != NULL; fltp = fltp->m_up) {
-		if (!fltp->FltPrepare(fltfmt, cfg.pump_up, cfg.pump_down)) {
+		if (!fltp->FltPrepare(fltfmt, cfg.pump_up, cfg.pump_down,
+				      error)) {
 			GetDi()->LogDebug("Filter prepare failed, "
-					  "not starting\n");
+					  "not starting");
 			fltp = fltp->m_down;
 			while (fltp != NULL) {
 				fltp->FltCleanup();
@@ -1557,7 +1896,8 @@ Start(void)
 
 	if (cfg.bottom_async) {
 		OpLatencyMonitor lat(GetDi(), "bottom EP start");
-		if (!m_bottom->SndAsyncStart(cfg.pump_down, cfg.pump_up))
+		if (!m_bottom->SndAsyncStart(cfg.pump_down, cfg.pump_up,
+					     error))
 			goto failed;
 		m_bottom_async_started = true;
 	}
@@ -1565,7 +1905,8 @@ Start(void)
 
 	if (cfg.top_async) {
 		OpLatencyMonitor lat(GetDi(), "top EP start");
-		if (!m_top->SndAsyncStart(cfg.pump_up, cfg.pump_down))
+		if (!m_top->SndAsyncStart(cfg.pump_up, cfg.pump_down,
+					  error))
 			goto failed;
 		m_top_async_started = true;
 	}
@@ -1576,6 +1917,14 @@ Start(void)
 	 */
 	m_bottom_strikes = 0;
 	m_top_strikes = 0;
+	m_bottom_in_count = 0;
+	m_top_in_count = 0;
+	m_bottom_out_count = 0;
+	m_top_out_count = 0;
+	m_bottom_in_strikes = 0;
+	m_top_in_strikes = 0;
+	m_bottom_out_strikes = 0;
+	m_top_out_strikes = 0;
 	if (cfg.watchdog_to)
 		m_watchdog->Set(cfg.watchdog_to);
 
@@ -1587,7 +1936,7 @@ failed:
 }
 
 void SoundIoPump::
-__Stop(bool notify, SoundIo *offender)
+__Stop(ErrorInfo *reason, SoundIo *offender)
 {
 	SoundIoFilter *fltp;
 
@@ -1621,26 +1970,29 @@ __Stop(bool notify, SoundIo *offender)
 
 		m_running = false;
 
-		GetDi()->LogDebug("SoundIoPump Stopped\n");
+		GetDi()->LogDebug("SoundIoPump Stopped");
 
-		if (notify && cb_NotifyAsyncState.Registered())
-			cb_NotifyAsyncState(this, offender);
+		if (reason && cb_NotifyAsyncState.Registered())
+			cb_NotifyAsyncState(this, offender, *reason);
 	}
 }
 
 bool SoundIoPump::
-PrepareFilter(SoundIoFilter *fltp, SoundIoPumpConfig &cfg)
+PrepareFilter(SoundIoFilter *fltp, SoundIoPumpConfig &cfg, ErrorInfo *error)
 {
 	SoundIoFormat fmt;
+	bool res;
 	fmt = cfg.fmt;
 	fmt.packet_samps = cfg.filter_packet_samps;
-	return fltp->FltPrepare(fmt, cfg.pump_up, cfg.pump_down);
+	res = fltp->FltPrepare(fmt, cfg.pump_up, cfg.pump_down, error);
+	assert(res || !error || error->IsSet());
+	return res;
 }
 
 bool SoundIoPump::
-AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp)
+AddBelow(SoundIoFilter *fltp, SoundIoFilter *targp, ErrorInfo *error)
 {
-	if (IsStarted() && !PrepareFilter(fltp, m_config))
+	if (IsStarted() && !PrepareFilter(fltp, m_config, error))
 		return false;
 
 	fltp->m_up = targp;
@@ -1693,6 +2045,16 @@ RemoveFilter(SoundIoFilter *fltp)
 		fltp->FltCleanup();
 }
 
+void SoundIoPump::
+SetLossMode(bool loss_at_bottom, bool loss_at_top)
+{
+	if (!loss_at_bottom && !loss_at_top)
+		abort();
+
+	m_bottom_loss_tolerate = loss_at_bottom;
+	m_top_loss_tolerate = loss_at_top;
+}
+
 unsigned int SoundIoPump::
 GetMinBufferFill(bool top)
 {
@@ -1723,8 +2085,9 @@ SoundIoPump(DispatchInterface *eip, SoundIo *bottom)
 	: m_ei(eip), m_bottom(0), m_top(0), m_running(false),
 	  m_bottom_flt(0), m_top_flt(0),
 	  m_bottom_async_started(false), m_top_async_started(false),
+	  m_bottom_loss_tolerate(true), m_top_loss_tolerate(true),
 	  m_async_entered(false), m_watchdog(0),
-	  m_config_out_min_ms(0)
+	  m_config_out_min_ms(0), m_config_out_window_ms(0), m_stat(0)
 {
 	SetBottom(bottom);
 }

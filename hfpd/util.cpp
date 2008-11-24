@@ -123,41 +123,13 @@ SetSyslog(bool enable, libhfp::DispatchInterface::logtype_t elevate)
 }
 
 void SyslogDispatcher::
-LogExt(DispatchInterface::logtype_t lt, const char *fmt, va_list ap)
-{
-	char buf[4096];
-	int len;
-	len = vsnprintf(buf, sizeof(buf), fmt, ap);
-	if (len < 0) {
-		/* This is bad news */
-		return;
-	}
-
-	/* Trim trailing newlines */
-	while (len && ((buf[len - 1] == '\r') || (buf[len - 1] == '\n'))) {
-		len--;
-		buf[len] = '\0';
-	}
-
-	cb_LogExt(lt, buf);
-}
-
-
-void SyslogDispatcher::
-LogVa(libhfp::DispatchInterface::logtype_t lt, const char *fmt, va_list ap)
+DoLog(libhfp::DispatchInterface::logtype_t lt, const char *msg)
 {
 	libhfp::DispatchInterface::logtype_t syslog_lt;
 	int syslog_prio;
-	va_list acpy;
 
-	if (lt > m_level)
-		return;
-
-	if (cb_LogExt.Registered()) {
-		va_copy(acpy, ap);
-		LogExt(lt, fmt, acpy);
-		va_end(acpy);
-	}
+	if (cb_LogExt.Registered())
+		cb_LogExt(lt, msg);
 
 	if (m_syslog) {
 		syslog_lt = lt;
@@ -187,11 +159,48 @@ LogVa(libhfp::DispatchInterface::logtype_t lt, const char *fmt, va_list ap)
 			abort();
 		}
 
-		vsyslog(syslog_prio, fmt, ap);
+		syslog(syslog_prio, "%s", (char *) msg);
 	}
 	if (m_stderr) {
-		va_copy(acpy, ap);
-		vfprintf(stderr, fmt, acpy);
-		va_end(acpy);
+		fprintf(stderr, "%s\n", (char *) msg);
 	}
+}
+
+void SyslogDispatcher::
+LogVa(libhfp::DispatchInterface::logtype_t lt, const char *fmt, va_list ap)
+{
+	char stackbuf[512];
+	libhfp::StringBuffer sb(stackbuf, sizeof(stackbuf));
+	char *cont;
+
+	if (lt > m_level)
+		return;
+
+	if (!sb.AppendFmtVa(fmt, ap)) {
+		DoLog(lt, "Memory exhausted writing to log");
+		DoLog(lt, fmt);
+		return;
+	}
+
+	cont = sb.Contents();
+
+	/*
+	 * Log messages using this interface should not be
+	 * newline-terminated.
+	 *
+	 * The below code exists to attempt to make up for
+	 * substandard clients.
+	 */
+	if (0) {
+		size_t len;
+		len = strlen(cont);
+		while (len &&
+		       ((cont[len - 1] == '\n') || (cont[len - 1] == '\r'))) {
+			cont[len] = '\0';
+			len--;
+		}
+	}
+
+	if (cont && cont[0])
+		DoLog(lt, cont);
 }

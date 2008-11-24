@@ -24,6 +24,7 @@
 
 #include <string.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 /*
  * Support class for callbacks and interfacing with an OS event loop
@@ -38,11 +39,225 @@ namespace libhfp {
 /**
  * @defgroup events Callback and Event Handling Interfaces
  *
- * This group contains two general facilities:
+ * This group contains four general facilities:
  * - A templatized stored callback mechanism, Callback.
  * - An event loop interface, DispatchInterface, plus interfaces
  * for receiving socket and timeout notifications.
+ * - A string formatting class, StringBuffer.  Provides a printf()
+ * style interface for constructing strings, with dynamic allocation.
+ * - An error reporting class, ErrorInfo.  This class is used to pass
+ * integer code values and string description values of an error
+ * condition through multiple layers of method calls.
  */
+
+
+/**
+ * @brief Dynamic-sized formatted string buffer
+ * @ingroup events
+ *
+ * The string buffer is a dynamic printf container for collecting
+ * formatted string values.  It is much more primitive than std::string,
+ * and does not support any of the expected syntactic sugar, such as the
+ * operator overloads.  However, it does support printf() style
+ * formatting.
+ */
+class StringBuffer {
+	char	*buf;
+	size_t	nalloc;
+	size_t	nused;
+	bool notmybuf;
+
+	bool Enlarge(void);
+
+public:
+	StringBuffer(void) : buf(0), nalloc(0), nused(0), notmybuf(false) {}
+
+	/*
+	 * @brief Initialize to a preallocated initial buffer
+	 *
+	 * @param initbuf Buffer to be used, until exhausted.
+	 * @param size Size of buffer
+	 */
+	StringBuffer(char *initbuf, size_t size)
+		: buf(initbuf), nalloc(size), nused(0), notmybuf(true) {}
+	~StringBuffer() { Clear(); }
+
+	/**
+	 * @brief Initialize to a permanent string constant
+	 */
+	StringBuffer(const char *init)
+		: buf((char *)init), nalloc(0), nused(strlen(init)),
+		  notmybuf(true) {}
+
+	/**
+	 * @brief Clear the contents of the string buffer
+	 *
+	 * This method has the effect of setting the length of the
+	 * string buffer contents to zero, and freeing any buffer
+	 * memory allocated to the string buffer.
+	 */
+	void Clear(void);
+
+	/**
+	 * @brief Query the contents of the string buffer
+	 *
+	 * This method returns the current contents of the string
+	 * buffer.  The pointer will remain valid until the contents are
+	 * appended to by AppendFmt(), or cleared by Clear().
+	 *
+	 * The buffer returned should not be directly modified.
+	 */
+	char *Contents(void) const { return buf; }
+
+	/**
+	 * @brief Append a formatted string to the buffer, using
+	 * varargs
+	 *
+	 * @sa AppendFmt()
+	 */
+	bool AppendFmtVa(const char *fmt, va_list ap);
+
+	/**
+	 * @brief Append a formatted string to the string buffer
+	 *
+	 * This function appends the result of a printf() style formatting
+	 * operation to the end of the string buffer.
+	 *
+	 * @retval true String formatted and appended
+	 * @retval false String could not be formatted, either due to
+	 * an invalid format string, or because there was not enough
+	 * memory to enlarge the buffer to contain the result of the
+	 * formatting procedure.
+	 */
+	bool AppendFmt(const char *fmt, ...)
+		__attribute__((format(printf, 2, 3))) {
+		va_list ap;
+		bool res;
+		va_start(ap, fmt);
+		res = AppendFmtVa(fmt, ap);
+		va_end(ap);
+		return res;
+	}
+};
+
+
+/**
+ * @brief Failure description class
+ * @ingroup events
+ */
+
+class ErrorInfo {
+	friend class ErrorInfoGlobal;
+
+	struct Container {
+		uint16_t	m_subsys;
+		uint16_t	m_code;
+		StringBuffer	m_desc;
+
+		Container(uint16_t ss, uint16_t c)
+			: m_subsys(ss), m_code(c) {}
+		Container(uint16_t ss, uint16_t c, const char *desc)
+			: m_subsys(ss), m_code(c), m_desc(desc) {}
+	};
+
+	Container	*m_error;
+
+	static Container *CopyContainer(const Container *src);
+
+public:
+	void SetVa(uint16_t subsys, uint16_t code,
+		   const char *fmt, va_list ap);
+
+	/**
+	 * @brief Set the error description info following a failure
+	 *
+	 * This method fills out an ErrorInfo structure.  The structure
+	 * must be clear at the time this method is invoked.  All three
+	 * elements of the failure description are set via this method.
+	 *
+	 * @param[in] subsys Subsystem ID code of the fault
+	 * @param[in] code Failure code of the fault
+	 * @param[in] fmt Format string for the descriptive string of the
+	 * fault
+	 *
+	 * This method may internally allocate memory.  If it fails, it
+	 * will set the fault code to LIBHFP_ERROR_EVENTS_NO_MEMORY.
+	 */
+	void Set(uint16_t subsys, uint16_t code, const char *fmt, ...)
+		__attribute__((format(printf, 4, 5))) {
+		va_list alist;
+		va_start(alist, fmt);
+		SetVa(subsys, code, fmt, alist);
+		va_end(alist);
+	}
+
+	/**
+	 * @brief Set the failure reason as due to lack of memory
+	 */
+	void SetNoMem(void);
+
+	/**
+	 * @brief Query whether a failure description has been set
+	 *
+	 * @return true A fault description has been set
+	 * @return false A fault description has not been set and the
+	 * structure is clear.
+	 */
+	bool IsSet(void) const {
+		return (m_error != 0);
+	}
+
+	/**
+	 * @brief Clear any existing failure description
+	 */
+	void Clear(void);
+
+	/**
+	 * @brief Query the subsystem ID of the failure
+	 */
+	uint16_t Subsys(void) const { return m_error ? m_error->m_subsys : 0; }
+
+	/**
+	 * @brief Query the code of the failure
+	 */
+	uint16_t Code(void) const { return m_error ? m_error->m_code : 0; }
+
+	/**
+	 * @brief Query the string description of the failure
+	 */
+	const char *Desc(void) const { return m_error->m_desc.Contents(); }
+
+	/**
+	 * @brief Test whether the subsystem and failure ID of the
+	 * failure match a set of values
+	 */
+	bool Matches(uint16_t subsys, uint16_t code)
+		{ return (Subsys() == subsys) && (Code() == code); }
+
+	operator bool() { return (m_error != 0); }
+	ErrorInfo &operator=(const ErrorInfo &rhs);
+
+	ErrorInfo(const ErrorInfo &src) : m_error(0) { *this = src; }
+	ErrorInfo() : m_error(0) {}
+	~ErrorInfo() { Clear(); }
+};
+
+#define LIBHFP_ERROR_SUBSYS_EVENTS 1
+
+/**
+ * @brief Error values for subsystem LIBHFP_ERROR_SUBSYS_EVENTS
+ * @ingroup events
+ */
+enum {
+	LIBHFP_ERROR_EVENTS_INVALID = 0,
+	/** Memory allocation failure */
+	LIBHFP_ERROR_EVENTS_NO_MEMORY,
+	/** Parameter failed validation */
+	LIBHFP_ERROR_EVENTS_BAD_PARAMETER,
+	/** Input/Output error */
+	LIBHFP_ERROR_EVENTS_IO_ERROR,
+};
+
 
 /*
  * The callback system below supports variable numbers of arguments and
@@ -936,6 +1151,20 @@ public:
 		va_end(alist);
 	}
 
+	void LogError(ErrorInfo *err, uint16_t subsys, uint16_t code,
+		      const char *fmt, ...)
+		__attribute__((format(printf, 5, 6))) {
+		va_list alist, xlist;
+		va_start(alist, fmt);
+		if (err) {
+			va_copy(xlist, alist);
+			err->SetVa(subsys, code, fmt, xlist);
+			va_end(xlist);
+		}
+		LogVa(EVLOG_ERROR, fmt, alist);
+		va_end(alist);
+	}
+
 	/**
 	 * @brief Submit a warning message to the application log
 	 */
@@ -943,6 +1172,20 @@ public:
 		__attribute__((format(printf, 2, 3))) {
 		va_list alist;
 		va_start(alist, fmt);
+		LogVa(EVLOG_WARNING, fmt, alist);
+		va_end(alist);
+	}
+
+	void LogWarn(ErrorInfo *err, uint16_t subsys, uint16_t code,
+		     const char *fmt, ...)
+		__attribute__((format(printf, 5, 6))) {
+		va_list alist, xlist;
+		va_start(alist, fmt);
+		if (err) {
+			va_copy(xlist, alist);
+			err->SetVa(subsys, code, fmt, xlist);
+			va_end(xlist);
+		}
 		LogVa(EVLOG_WARNING, fmt, alist);
 		va_end(alist);
 	}
@@ -969,6 +1212,22 @@ public:
 		LogVa(EVLOG_DEBUG, fmt, alist);
 		va_end(alist);
 #endif
+	}
+
+	void LogDebug(ErrorInfo *err, uint16_t subsys, uint16_t code,
+		     const char *fmt, ...)
+		__attribute__((format(printf, 5, 6))) {
+		va_list alist, xlist;
+		va_start(alist, fmt);
+		if (err) {
+			va_copy(xlist, alist);
+			err->SetVa(subsys, code, fmt, xlist);
+			va_end(xlist);
+		}
+#if !defined(NDEBUG)
+		LogVa(EVLOG_DEBUG, fmt, alist);
+#endif
+		va_end(alist);
 	}
 
 	/**

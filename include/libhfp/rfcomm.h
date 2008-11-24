@@ -100,7 +100,7 @@ protected:
 	virtual RfcommSession *SessionFactory(BtDevice *devp) = 0;
 
 	/* Call me from Start() */
-	bool RfcommListen(uint8_t channel = 0);
+	bool RfcommListen(ErrorInfo *error = 0, uint8_t channel = 0);
 
 	/* Call me from Stop() */
 	void RfcommCleanup(void);
@@ -133,7 +133,10 @@ public:
 	 * HfpSession objects also apply it to all outbound connections,
 	 * and it is effectively used as policy for all RFCOMM connections.
 	 *
-	 * @param sec Security mode to be applied
+	 * @param[in] sec Security mode to be applied
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @retval true Security mode was successfully applied
 	 * @retval false Error attempting to apply security mode
@@ -146,7 +149,7 @@ public:
 	 *
 	 * @sa GetSecMode(), HfpSession::GetSecMode().
 	 */
-	bool SetSecMode(rfcomm_secmode_t sec);
+	bool SetSecMode(rfcomm_secmode_t sec, ErrorInfo *error = 0);
 };
 
 
@@ -173,13 +176,13 @@ protected:
 	bool			m_rfcomm_inbound;
 	bool			m_rfcomm_dcvoluntary;
 
-	bool RfcommSdpLookupChannel();
+	bool RfcommSdpLookupChannel(ErrorInfo *error);
 	void RfcommSdpLookupChannelComplete(SdpTask *taskp);
-	bool RfcommConnect(uint8_t channel);
+	bool RfcommConnect(uint8_t channel, ErrorInfo *error);
 	void RfcommConnectNotify(SocketNotifier *notp, int fh);
 
 	/* This is the primary overload and handles SDP channel lookups */
-	bool RfcommConnect(void);
+	bool RfcommConnect(ErrorInfo *error);
 
 	virtual bool RfcommAccept(int sock);
 
@@ -200,10 +203,10 @@ protected:
 	virtual void SdpSupportedFeatures(uint16_t features);
 
 	/* Subclasses: override this method! */
-	virtual void __Disconnect(bool notify, bool voluntary = false);
+	virtual void __Disconnect(ErrorInfo *reason, bool voluntary = false);
 
 	/* Subclasses: implement this method! */
-	virtual void NotifyConnectionState(bool ext_notify) = 0;
+	virtual void NotifyConnectionState(ErrorInfo *async_error) = 0;
 
 	/* BlueZ error condition determinations */
 	static bool ReadErrorFatal(int err) {

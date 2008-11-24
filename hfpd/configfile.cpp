@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <assert.h>
 
 #include "configfile.h"
@@ -387,7 +388,7 @@ Load(const char *path, int layer)
 
 
 bool ConfigFile::
-Save(const char *path, int layer)
+Save(const char *path, int layer, ErrorInfo *error)
 {
 	char *expanded;
 	FILE *fp;
@@ -395,19 +396,31 @@ Save(const char *path, int layer)
 	Tuple *tupp;
 	ListItem *listp, *tlistp;
 	bool wrote_sect;
+	int res;
 
 	expanded = TildeExpand(path);
-	if (!expanded)
+	if (!expanded) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	fp = fopen(expanded, "w");
 	free(expanded);
-	if (!fp)
+	if (!fp) {
+		res = errno;
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_EVENTS,
+				   LIBHFP_ERROR_EVENTS_IO_ERROR,
+				   "Could not open config file to write: %s",
+				   strerror(res));
 		return false;
+	}
 
-	fprintf(fp,
-		"# Local settings file for hfpd\n"
-		"# Automatically generated, comments will be lost\n");
+	if (fprintf(fp,
+		    "# Local settings file for hfpd\n"
+		    "# Automatically generated, comments will be lost\n") < 0)
+		goto io_error;
 
 	ListForEach(listp, &m_sections) {
 		secp = GetContainer(listp, Section, m_links);
@@ -420,12 +433,15 @@ Save(const char *path, int layer)
 			     (tupp->lowest_layer < layer))) {
 
 				if (!wrote_sect) {
-					fprintf(fp, "\n[%s]\n", secp->m_name);
+					if (fprintf(fp, "\n[%s]\n",
+						    secp->m_name) < 0)
+						goto io_error;
 					wrote_sect = true;
 				}
 
-				fprintf(fp, "%s = %s\n",
-					tupp->key, tupp->value);
+				if (fprintf(fp, "%s = %s\n",
+					    tupp->key, tupp->value) < 0)
+					goto io_error;
 
 				/*
 				 * Record the layer where the tuple now exists
@@ -435,7 +451,22 @@ Save(const char *path, int layer)
 		}
 	}
 
-	return (fclose(fp) == 0);
+	if (fclose(fp) == 0)
+		return true;
+
+	fp = 0;
+
+io_error:
+	res = errno;
+	if (fp)
+		(void) fclose(fp);
+
+	if (error)
+		error->Set(LIBHFP_ERROR_SUBSYS_EVENTS,
+			   LIBHFP_ERROR_EVENTS_IO_ERROR,
+			   "Error writing to config file: %s",
+			   strerror(res));
+	return false;
 }
 
 bool ConfigFile::
@@ -587,7 +618,7 @@ Get(const char *section, const char *key, bool &value, bool defaultval)
 }
 
 bool ConfigFile::
-Set(const char *section, const char *key, const char *value)
+Set(const char *section, const char *key, const char *value, ErrorInfo *error)
 {
 	Section *secp;
 	Tuple *tupp;
@@ -596,8 +627,11 @@ Set(const char *section, const char *key, const char *value)
 	secp = FindSection(section);
 	if (!secp) {
 		secp = CreateSection(section, strlen(section));
-		if (!secp)
+		if (!secp) {
+			if (error)
+				error->SetNoMem();
 			return false;
+		}
 	}
 
 	tupp = FindTuple(secp, key);
@@ -614,8 +648,11 @@ Set(const char *section, const char *key, const char *value)
 	}
 
 	tupp = CreateTuple(secp, key, value);
-	if (!tupp)
+	if (!tupp) {
+		if (error)
+			error->SetNoMem();
 		return false;
+	}
 
 	tupp->layer = INT_MAX;
 	tupp->lowest_layer = lowest;
@@ -623,39 +660,39 @@ Set(const char *section, const char *key, const char *value)
 }
 
 bool ConfigFile::
-Set(const char *section, const char *key, int value)
+Set(const char *section, const char *key, int value, ErrorInfo *error)
 {
 	char buf[32];
 	int len;
 	len = snprintf(buf, sizeof(buf), "%d", value);
 	assert(len > 0);
-	return Set(section, key, buf);
+	return Set(section, key, buf, error);
 }
 
 bool ConfigFile::
-Set(const char *section, const char *key, unsigned int value)
+Set(const char *section, const char *key, unsigned int value, ErrorInfo *error)
 {
 	char buf[32];
 	int len;
 	len = snprintf(buf, sizeof(buf), "%u", value);
 	assert(len > 0);
-	return Set(section, key, buf);
+	return Set(section, key, buf, error);
 }
 
 bool ConfigFile::
-Set(const char *section, const char *key, float value)
+Set(const char *section, const char *key, float value, ErrorInfo *error)
 {
 	char buf[32];
 	int len;
 	len = snprintf(buf, sizeof(buf), "%.8g", value);
 	assert(len > 0);
-	return Set(section, key, buf);
+	return Set(section, key, buf, error);
 }
 
 bool ConfigFile::
-Set(const char *section, const char *key, bool value)
+Set(const char *section, const char *key, bool value, ErrorInfo *error)
 {
-	return Set(section, key, value ? "true" : "false");
+	return Set(section, key, value ? "true" : "false", error);
 }
 
 

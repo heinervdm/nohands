@@ -184,11 +184,13 @@ SdpDataReadyNot(SocketNotifier *notp, int fh)
 	SdpTask *taskp;
 	SdpTaskParams itask, *paramsp;
 	ssize_t res;
+	ErrorInfo error;
 
 	assert(fh == m_rspipe);
 	assert(notp == m_rspipe_not);
 
 	if (!m_current_aborted) {
+		assert(!m_tasks.Empty());
 		taskp = GetContainer(m_tasks.next, SdpTask, m_sdpt_links);
 		paramsp = &taskp->m_params;
 	} else {
@@ -198,9 +200,12 @@ SdpDataReadyNot(SocketNotifier *notp, int fh)
 
 	res = read(m_rspipe, paramsp, sizeof(*paramsp));
 	if (res != sizeof(*paramsp)) {
-		m_ei->LogWarn("SDP thread terminated unexpectedly (%zd)\n",
+		m_ei->LogWarn(&error,
+			      LIBHFP_ERROR_SUBSYS_BT,
+			      LIBHFP_ERROR_BT_SHUTDOWN,
+			      "SDP thread terminated unexpectedly (%zd)",
 			      res);
-		m_hub->InvoluntaryStop();
+		m_hub->InvoluntaryStop(&error);
 		return;
 	}
 
@@ -227,6 +232,7 @@ SdpNextQueue(void)
 	SdpTask *taskp;
 	sighandler_t sigsave;
 	ssize_t res;
+	ErrorInfo error;
 
 	assert(m_rqpipe >= 0);
 	assert(!m_current_aborted);
@@ -244,25 +250,33 @@ SdpNextQueue(void)
 
 	if (res != sizeof(taskp->m_params)) {
 		/* TODO: async involuntary stop */
-		m_hub->InvoluntaryStop();
+		error.Set(LIBHFP_ERROR_SUBSYS_BT,
+			  LIBHFP_ERROR_BT_SHUTDOWN,
+			  "Short write to SDP task");
+		m_hub->InvoluntaryStop(&error);
 	}
 }
 
-int SdpAsyncTaskHandler::
-SdpQueue(SdpTask *taskp)
+bool SdpAsyncTaskHandler::
+SdpQueue(SdpTask *taskp, ErrorInfo *error)
 {
 	bool was_idle;
 
 	assert(taskp->m_sdpt_links.Empty());
 
-	if (m_rqpipe < 0)
-		return -ESHUTDOWN;
+	if (m_rqpipe < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
+		return false;
+	}
 
 	was_idle = (m_tasks.Empty() && !m_current_aborted);
 	m_tasks.AppendItem(taskp->m_sdpt_links);
 	if (was_idle)
 		SdpNextQueue();
-	return 0;
+	return true;
 }
 
 void SdpAsyncTaskHandler::
@@ -275,8 +289,8 @@ SdpCancel(SdpTask *taskp)
 }
 
 
-int SdpAsyncTaskHandler::
-SdpCreateThread(void)
+bool SdpAsyncTaskHandler::
+SdpCreateThread(ErrorInfo *error)
 {
 	int rqpipe[2], rspipe[2];
 	pid_t cpid;
@@ -289,21 +303,36 @@ SdpCreateThread(void)
 	assert(!m_current_aborted);
 
 	if (pipe(rqpipe) < 0) {
-		return -errno;
+		fd = errno;
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "Create SDP request pipe: %s",
+				   strerror(fd));
+		return false;
 	}
 
 	if (pipe(rspipe) < 0) {
-		fd = -errno;
+		fd = errno;
 		close(rqpipe[0]); close(rqpipe[1]);
-		return fd;
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "Create SDP result pipe: %s",
+				   strerror(fd));
+		return false;
 	}
 
 	cpid = fork();
 	if (cpid < 0) {
-		fd = -errno;
+		fd = errno;
 		close(rqpipe[0]); close(rqpipe[1]);
 		close(rspipe[0]); close(rspipe[1]);
-		return fd;
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "Fork SDP handler: %s", strerror(fd));
+		return false;
 	}
 
 	if (cpid > 0) {
@@ -318,12 +347,14 @@ SdpCreateThread(void)
 			close(m_rspipe);
 			m_rspipe = -1;
 			SdpShutdown();
-			return -ENOMEM;
+			if (error)
+				error->SetNoMem();
+			return false;
 		}
 
 		m_rspipe_not->Register(this, &SdpAsyncTaskHandler::
 				       SdpDataReadyNot);
-		return 0;
+		return true;
 	}
 
 	/*
@@ -338,7 +369,7 @@ SdpCreateThread(void)
 
 	SdpTaskThread(rqpipe[0], rspipe[1]);
 	exit(0);
-	return -EIO;
+	return false;
 }
 
 void SdpAsyncTaskHandler::
@@ -359,11 +390,11 @@ SdpShutdown(void)
 		int err, status;
 		err = kill(m_pid, SIGKILL);
 		if (err)
-			m_ei->LogWarn("Send sig to SDP helper process: %s\n",
+			m_ei->LogWarn("Send sig to SDP helper process: %s",
 				      strerror(errno));
 		err = waitpid(m_pid, &status, 0);
 		if (err < 0)
-			m_ei->LogWarn("Reap SDP helper process: %s\n",
+			m_ei->LogWarn("Reap SDP helper process: %s",
 				      strerror(errno));
 		m_pid = -1;
 	}
@@ -381,6 +412,17 @@ SdpShutdown(void)
 	}
 }
 
+void BtHci::
+HciSetStatus(HciTask *taskp, int hcistatus)
+{
+	if (!hcistatus) {
+		taskp->m_error.Clear();
+		return;
+	}
+	taskp->m_error.Set(LIBHFP_ERROR_SUBSYS_BT,
+			   LIBHFP_ERROR_BT_HCI,
+			   "HCI command failed with status %d", hcistatus);
+}
 
 void BtHci::
 HciDataReadyNot(SocketNotifier *notp, int fh)
@@ -394,6 +436,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 	uint8_t count = 0;
 	ssize_t ret;
 	bool inq_result_rssi = false;
+	ErrorInfo error;
 
 	assert(fh == m_hci_fh);
 	assert(notp == m_hci_not);
@@ -406,15 +449,21 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		    (errno == ENOBUFS))
 			return;
 
-		GetDi()->LogWarn("HCI socket read error: %s\n",
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "HCI socket read error: %s",
 				 strerror(errno));
-		GetHub()->InvoluntaryStop();
+		GetHub()->InvoluntaryStop(&error);
 		return;
 	}
 
 	if (!ret) {
-		GetDi()->LogWarn("HCI socket spontaneously closed\n");
-		GetHub()->InvoluntaryStop();
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "HCI socket spontaneously closed");
+		GetHub()->InvoluntaryStop(&error);
 		return;
 	}
 
@@ -422,17 +471,23 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		return;
 
 	if (ret < (1 + HCI_EVENT_HDR_SIZE)) {
-		GetDi()->LogError("HCI short read, expect: %d got: %zd\n",
+		GetDi()->LogError(&error,
+				  LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "HCI short read, expect: %d got: %zd",
 				  HCI_EVENT_HDR_SIZE + 1, ret);
-		GetHub()->InvoluntaryStop();
+		GetHub()->InvoluntaryStop(&error);
 		return;
 	}
 
 	hdr = (hci_event_hdr *) &evbuf[1];
 	if (ret < (1 + HCI_EVENT_HDR_SIZE + hdr->plen)) {
-		GetDi()->LogError("HCI short read, expect: %d got: %zd\n",
+		GetDi()->LogError(&error,
+				  LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "HCI short read, expect: %d got: %zd",
 				  HCI_EVENT_HDR_SIZE + hdr->plen + 1, ret);
-		GetHub()->InvoluntaryStop();
+		GetHub()->InvoluntaryStop(&error);
 		return;
 	}
 
@@ -443,7 +498,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 		if (hdr->plen != ret)
 			goto invalid_struct;
 
-		GetDi()->LogDebug("HCI Command status: 0x%02x 0x%02x 0x%04x\n",
+		GetDi()->LogDebug("HCI Command status: 0x%02x 0x%02x 0x%04x",
 				  statusp->status, statusp->ncmd,
 				  statusp->opcode);
 
@@ -485,8 +540,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 
 			/* End the task and return the error */
 			taskp->m_complete = true;
-			taskp->m_errno = EIO;
-			taskp->m_hci_status = statusp->status;
+			HciSetStatus(taskp, statusp->status);
 			taskp->m_hcit_links.UnlinkOnly();
 			tasks_done.AppendItem(taskp->m_hcit_links);
 		}
@@ -522,8 +576,6 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 
 			if (taskp->m_tasktype == HciTask::HT_INQUIRY) {
 				taskp->m_complete = false;
-				taskp->m_errno = EAGAIN;
-				taskp->m_hci_status = 0;
 				bacpy(&taskp->m_bdaddr, &infop->bdaddr);
 				taskp->m_pscan = infop->pscan_mode;
 				taskp->m_pscan_rep = infop->pscan_rep_mode;
@@ -562,8 +614,6 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 
 			if (taskp->m_tasktype == HciTask::HT_INQUIRY) {
 				taskp->m_complete = false;
-				taskp->m_errno = EAGAIN;
-				taskp->m_hci_status = 0;
 				bacpy(&taskp->m_bdaddr, &rssip->bdaddr);
 				taskp->m_pscan_rep = rssip->pscan_rep_mode;
 				taskp->m_clkoff = rssip->clock_offset;
@@ -584,7 +634,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 			goto invalid_struct;
 		st = *(uint8_t *) (hdr + 1);
 
-		GetDi()->LogDebug("HCI Inquiry complete: 0x%02x\n", st);
+		GetDi()->LogDebug("HCI Inquiry complete: 0x%02x", st);
 
 		listp = m_hci_tasks.next;
 		while (listp != &m_hci_tasks) {
@@ -593,8 +643,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 
 			if (taskp->m_tasktype == HciTask::HT_INQUIRY) {
 				taskp->m_complete = true;
-				taskp->m_errno = st ? EIO : 0;
-				taskp->m_hci_status = st;
+				HciSetStatus(taskp, st);
 				taskp->m_hcit_links.UnlinkOnly();
 				tasks_done.AppendItem(taskp->m_hcit_links);
 			}
@@ -615,7 +664,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 			char addr[32];
 			ba2str(&namep->bdaddr, addr);
 			GetDi()->LogDebug("HCI Name request complete (%d): "
-					  "\"%s\" -> \"%s\"\n",
+					  "\"%s\" -> \"%s\"",
 					  namep->status, addr, namep->name);
 		}
 
@@ -627,8 +676,7 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 			if ((taskp->m_tasktype == HciTask::HT_READ_NAME) &&
 			    !bacmp(&taskp->m_bdaddr, &namep->bdaddr)) {
 				taskp->m_complete = true;
-				taskp->m_errno = namep->status ? EIO : 0;
-				taskp->m_hci_status = namep->status;
+				HciSetStatus(taskp, namep->status);
 				strcpy(taskp->m_name, (char *) namep->name);
 				taskp->m_hcit_links.UnlinkOnly();
 				tasks_done.AppendItem(taskp->m_hcit_links);
@@ -658,24 +706,31 @@ HciDataReadyNot(SocketNotifier *notp, int fh)
 	return;
 
 invalid_struct:
-	GetDi()->LogError("HCI structure size mismatch, expect: %d got: %zd\n",
+	GetDi()->LogError(&error,
+			  LIBHFP_ERROR_SUBSYS_BT,
+			  LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
+			  "HCI structure size mismatch, expect: %d got: %zd",
 			  hdr->plen, ret);
-	GetHub()->InvoluntaryStop();
+	GetHub()->InvoluntaryStop(&error);
 }
 
 
-int BtHci::
-HciSend(int fh, HciTask *taskp, void *data, size_t len)
+bool BtHci::
+HciSend(int fh, HciTask *taskp, void *data, size_t len, ErrorInfo *error)
 {
 	uint8_t *buf;
 	hci_command_hdr *hdrp;
 	ssize_t expect;
 	ssize_t ret;
+	int es;
 
 	expect = 1 + sizeof(*hdrp) + len;
 	buf = (uint8_t *) malloc(expect);
-	if (!buf)
-		return -ENOMEM;
+	if (!buf) {
+		if (error)
+			error->SetNoMem();
+		return false;
+	}
 
 	buf[0] = HCI_COMMAND_PKT;
 	hdrp = (hci_command_hdr *) &buf[1];
@@ -684,7 +739,7 @@ HciSend(int fh, HciTask *taskp, void *data, size_t len)
 	if (len)
 		memcpy(hdrp + 1, data, len);
 
-	GetDi()->LogDebug("HCI Submit 0x%04x\n", hdrp->opcode);
+	GetDi()->LogDebug("HCI Submit 0x%04x", hdrp->opcode);
 
 	while (1) {
 		ret = send(fh, buf, expect, MSG_NOSIGNAL);
@@ -701,22 +756,28 @@ HciSend(int fh, HciTask *taskp, void *data, size_t len)
 	free(buf);
 
 	if (ret < 0) {
-		GetDi()->LogError("HCI write failed: %s\n", strerror(errno));
-		return -errno;
+		es = errno;
+		GetDi()->LogError(error,
+				  LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "HCI write failed: %s", strerror(es));
+		return false;
 	}
 
 	if (ret != expect) {
-		GetDi()->LogError("HCI short write: expected: %zd got: %zd\n",
-			       expect, ret);
-		GetHub()->InvoluntaryStop();
-		return -EIO;
+		GetDi()->LogError(error,
+				  LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "HCI short write: expected: %zd got: %zd",
+				  expect, ret);
+		return false;
 	}
 
-	return 0;
+	return true;
 }
 
-int BtHci::
-HciSubmit(int fh, HciTask *taskp)
+bool BtHci::
+HciSubmit(int fh, HciTask *taskp, ErrorInfo *error)
 {
 	switch (taskp->m_tasktype) {
 	case HciTask::HT_INQUIRY: {
@@ -728,7 +789,7 @@ HciSubmit(int fh, HciTask *taskp)
 		req.lap[2] = 0x9e;
 		req.length = (taskp->m_timeout_ms + 1279) / 1280;
 		req.num_rsp = 0;
-		return HciSend(fh, taskp, &req, sizeof(req));
+		return HciSend(fh, taskp, &req, sizeof(req), error);
 	}
 	case HciTask::HT_READ_NAME: {
 		remote_name_req_cp req;
@@ -739,7 +800,7 @@ HciSubmit(int fh, HciTask *taskp)
 		req.pscan_mode = taskp->m_pscan;
 		req.pscan_rep_mode = taskp->m_pscan_rep;
 		req.clock_offset = taskp->m_clkoff;
-		return HciSend(fh, taskp, &req, sizeof(req));
+		return HciSend(fh, taskp, &req, sizeof(req), error);
 	}
 	default:
 		abort();
@@ -765,12 +826,12 @@ HciResubmit(TimerNotifier *notp)
 			continue;
 
 		taskp->m_resubmit = false;
-		(void) HciSubmit(m_hci_fh, taskp);
+		(void) HciSubmit(m_hci_fh, taskp, 0);
 	}
 }
 
-int BtHci::
-HciInit(int hci_id)
+bool BtHci::
+HciInit(int hci_id, ErrorInfo *error)
 {
 	struct hci_filter flt;
 	int fh, err;
@@ -781,17 +842,23 @@ HciInit(int hci_id)
 
 	fh = hci_open_dev(hci_id);
 	if (fh < 0) {
-		err = -errno;
-		GetDi()->LogWarn("Could not open HCI: %s\n", strerror(-err));
-		return err;
+		err = errno;
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Could not open HCI: %s", strerror(err));
+		return false;
 	}
 
 	if (hci_devba(hci_id, &m_bdaddr) < 0) {
-		err = -errno;
+		err = errno;
 		close(fh);
-		GetDi()->LogWarn("Get HCI adapter address: %s\n",
-				 strerror(-err));
-		return err;
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Get HCI adapter address: %s",
+				 strerror(err));
+		return false;
 	}
 
 	hci_filter_clear(&flt);
@@ -803,17 +870,22 @@ HciInit(int hci_id)
 	hci_filter_set_event(EVT_REMOTE_NAME_REQ_COMPLETE, &flt);
 
 	if (setsockopt(fh, SOL_HCI, HCI_FILTER, &flt, sizeof(flt)) < 0) {
-		err = -errno;
-		GetDi()->LogWarn("Could not set filter on HCI: %s\n",
-				 strerror(errno));
+		err = errno;
 		close(fh);
-		return err;
+		GetDi()->LogWarn(error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Could not set filter on HCI: %s",
+				 strerror(err));
+		return false;
 	}
 
 	m_hci_not = GetDi()->NewSocket(fh, false);
 	if (!m_hci_not) {
 		close(fh);
-		return -ENOMEM;
+		if (error)
+			error->SetNoMem();
+		return false;
 	}
 
 	m_resubmit = GetDi()->NewTimer();
@@ -821,7 +893,9 @@ HciInit(int hci_id)
 		close(fh);
 		delete m_hci_not;
 		m_hci_not = 0;
-		return -ENOMEM;
+		if (error)
+			error->SetNoMem();
+		return false;
 	}
 
 	m_resubmit->Register(this, &BtHci::HciResubmit);
@@ -829,7 +903,7 @@ HciInit(int hci_id)
 
 	m_hci_id = hci_id;
 	m_hci_fh = fh;
-	return 0;
+	return true;
 }
 
 void BtHci::
@@ -855,30 +929,37 @@ HciShutdown(void)
 		HciTask *taskp;
 		taskp = GetContainer(m_hci_tasks.next, HciTask, m_hcit_links);
 		taskp->m_complete = true;
-		taskp->m_errno = ECONNRESET;
+		taskp->m_error.Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth HCI disconnected");
 		taskp->m_hcit_links.Unlink();
 		taskp->cb_Result(taskp);
 	}
 }
 
 
-int BtHci::
-Queue(HciTask *taskp)
+bool BtHci::
+Queue(HciTask *taskp, ErrorInfo *error)
 {
-	int res;
-
 	assert(taskp->cb_Result.Registered());
 	assert(taskp->m_hcit_links.Empty());
 
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
+	if (m_hci_fh < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth HCI disconnected");
+		return false;
+	}
 
-	res = HciSubmit(m_hci_fh, taskp);
-	if (res)
-		return res;
+	if (!HciSubmit(m_hci_fh, taskp, error)) {
+		assert(!error || error->IsSet());
+		return false;
+	}
 
 	m_hci_tasks.AppendItem(taskp->m_hcit_links);
-	return 0;
+	assert(!error || !error->IsSet());
+	return true;
 }
 
 void BtHci::
@@ -892,68 +973,110 @@ Cancel(HciTask *taskp)
 		/* Send an INQUIRY CANCEL command to the HCI */
 		taskp->m_opcode = htobs(cmd_opcode_pack(OGF_LINK_CTL,
 							OCF_INQUIRY_CANCEL));
-		(void) HciSend(m_hci_fh, taskp, 0, 0);
+		(void) HciSend(m_hci_fh, taskp, 0, 0, 0);
 	}
 }
 
-int BtHci::
-GetScoMtu(uint16_t &mtu, uint16_t &pkts)
+bool BtHci::
+GetScoMtu(uint16_t &mtu, uint16_t &pkts, ErrorInfo *error)
 {
 	hci_dev_info di;
 
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
+	if (m_hci_fh < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
+		return false;
+	}
 
 	di.dev_id = m_hci_id;
-	if (ioctl(m_hci_fh, HCIGETDEVINFO, (void *) &di) < 0)
-		return -errno;
+	if (ioctl(m_hci_fh, HCIGETDEVINFO, (void *) &di) < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "HCIGETDEVINFO: %s", strerror(errno));
+		return false;
+	}
 
 	mtu = di.sco_mtu;
 	pkts = di.sco_pkts;
-	return 0;
+	return true;
 }
 
 /* This only works as superuser */
-int BtHci::
-SetScoMtu(uint16_t mtu, uint16_t pkts)
+bool BtHci::
+SetScoMtu(uint16_t mtu, uint16_t pkts, ErrorInfo *error)
 {
 	hci_dev_req dr;
 	uint16_t *mtup;
 
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
+	if (m_hci_fh < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
+		return false;
+	}
 
 	dr.dev_id = m_hci_id;
 	mtup = (uint16_t *) &dr.dev_opt;
 	mtup[0] = htobs(mtu);
 	mtup[1] = htobs(pkts);
-	if (ioctl(m_hci_fh, HCISETSCOMTU, (void *) &dr) < 0)
-		return -errno;
+	if (ioctl(m_hci_fh, HCISETSCOMTU, (void *) &dr) < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "HCISETSCOMTU: %s", strerror(errno));
+		return false;
+	}
 
-	return 0;
+	return true;
 }
 
-int BtHci::
-GetScoVoiceSetting(uint16_t &vs)
+bool BtHci::
+GetScoVoiceSetting(uint16_t &vs, ErrorInfo *error)
 {
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
+	if (m_hci_fh < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
+		return false;
+	}
 
-	if (hci_read_voice_setting(m_hci_fh, &vs, 1000))
-		return -errno;
-	return 0;
+	if (hci_read_voice_setting(m_hci_fh, &vs, 1000)) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "hci_read_voice_setting: %s",
+				   strerror(errno));
+		return false;
+	}
+	return true;
 }
 
 /* This only works as superuser */
-int BtHci::
-SetScoVoiceSetting(uint16_t vs)
+bool BtHci::
+SetScoVoiceSetting(uint16_t vs, ErrorInfo *error)
 {
-	if (m_hci_fh < 0)
-		return -ESHUTDOWN;
+	if (m_hci_fh < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
+		return false;
+	}
 
-	if (hci_write_voice_setting(m_hci_fh, vs, 1000))
-		return -errno;
-	return 0;
+	if (hci_write_voice_setting(m_hci_fh, vs, 1000)) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "hci_write_voice_setting: %s",
+				   strerror(errno));
+		return false;
+	}
+	return true;
 }
 
 bool BtHci::
@@ -1034,20 +1157,22 @@ BtHub::
 }
 
 bool BtHub::
-AddService(BtService *svcp)
+AddService(BtService *svcp, ErrorInfo *error)
 {
 	ListItem unstarted;
 
+	assert(!error || !error->IsSet());
 	assert(svcp->m_links.Empty());
 	assert(!svcp->m_hub);
 	svcp->m_hub = this;
 
 	if (IsStarted()) {
 		unstarted.AppendItem(svcp->m_links);
-		if (!svcp->Start()) {
+		if (!svcp->Start(error)) {
 			if (!svcp->m_links.Empty())
 				svcp->m_links.Unlink();
 			svcp->m_hub = 0;
+			assert(!error || error->IsSet());
 			return false;
 		}
 
@@ -1071,11 +1196,13 @@ RemoveService(BtService *svcp)
 }
 
 bool BtHub::
-Start(void)
+Start(ErrorInfo *error)
 {
 	ListItem unstarted;
 	BtService *svcp;
-	int res, hci_id;
+	int hci_id;
+
+	assert(!error || !error->IsSet());
 
 	if (IsStarted())
 		return true;
@@ -1086,44 +1213,51 @@ Start(void)
 	hci_id = hci_get_route(NULL);
 	if (hci_id < 0) {
 		if (errno == EAFNOSUPPORT) {
-			m_ei->LogError("Your kernel is not configured with "
-				       "support for Bluetooth.\n");
+			m_ei->LogError(error,
+				       LIBHFP_ERROR_SUBSYS_BT,
+				       LIBHFP_ERROR_BT_NO_SUPPORT,
+				       "Your kernel is not configured with "
+				       "support for Bluetooth.");
 			SetAutoRestart(false);
 			return false;
 		}
 
-		m_ei->LogDebug("Error retrieving HCI route: %s\n",
-			       strerror(errno));
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "Error retrieving HCI route: %s",
+				   strerror(errno));
 		return false;
 	}
 
 	m_sdp = sdp_connect(BDADDR_ANY, BDADDR_LOCAL, SDP_RETRY_IF_BUSY);
 	if (m_sdp == NULL) {
 		/* Common enough to put in the debug pile */
-		m_ei->LogDebug("Error connecting to local SDP\n");
+		m_ei->LogDebug(error,
+			       LIBHFP_ERROR_SUBSYS_BT,
+			       LIBHFP_ERROR_BT_SYSCALL,
+			       "Error connecting to local SDP");
 		return false;
 	}
 
-	res = m_sdp_handler.SdpCreateThread();
-	if (res) {
-		m_ei->LogWarn("Could not create SDP task thread: %s\n",
-			      strerror(-res));
+	if (!m_sdp_handler.SdpCreateThread(error))
 		goto failed;
-	}
 
 	m_hci = new BtHci(this);
-	if (!m_hci)
-		goto failed;
-	res = m_hci->HciInit(hci_id);
-	if (res) {
-		m_ei->LogWarn("Could not create HCI task handler: %s\n",
-			      strerror(-res));
+	if (!m_hci) {
+		if (error)
+			error->SetNoMem();
 		goto failed;
 	}
+	if (!m_hci->HciInit(hci_id, error))
+		goto failed;
 
 	m_sdp_not = m_ei->NewSocket(sdp_get_socket(m_sdp), false);
-	if (m_sdp_not == 0)
+	if (m_sdp_not == 0) {
+		if (error)
+			error->SetNoMem();
 		goto failed;
+	}
 	m_sdp_not->Register(this, &BtHub::SdpConnectionLost);
 
 	/* Start registered services */
@@ -1135,7 +1269,7 @@ Start(void)
 		svcp->m_links.UnlinkOnly();
 		m_services.AppendItem(svcp->m_links);
 
-		if (!svcp->Start()) {
+		if (!svcp->Start(error)) {
 
 			/* Ugh */
 			ListItem started;
@@ -1176,6 +1310,7 @@ failed:
 	}
 	sdp_close(m_sdp);
 	m_sdp = NULL;
+	assert(!error || error->IsSet());
 	return false;
 }
 
@@ -1248,16 +1383,21 @@ SetAutoRestart(bool autorestart)
 void BtHub::
 SdpConnectionLost(SocketNotifier *notp, int fh)
 {
+	ErrorInfo error;
+
 	assert(fh == sdp_get_socket(m_sdp));
 	assert(notp == m_sdp_not);
 
 	/* Lost our SDP connection?  Bad business */
-	m_ei->LogWarn("Lost local SDP connection\n");
-	InvoluntaryStop();
+	m_ei->LogWarn(&error,
+		      LIBHFP_ERROR_SUBSYS_BT,
+		      LIBHFP_ERROR_BT_SHUTDOWN,
+		      "Lost local SDP connection");
+	InvoluntaryStop(&error);
 }
 
 void BtHub::
-InvoluntaryStop(void)
+InvoluntaryStop(ErrorInfo *reason)
 {
 	ListItem *listp;
 	bool was_started = IsStarted();
@@ -1274,12 +1414,12 @@ InvoluntaryStop(void)
 	}
 	ListForEach(listp, &m_devices) {
 		BtDevice *devp = GetContainer(listp, BtDevice, m_index_links);
-		devp->__DisconnectAll(true);
+		devp->__DisconnectAll(reason);
 		if (IsStarted())
 			return;
 	}
 	if (was_started && cb_NotifySystemState.Registered())
-		cb_NotifySystemState();
+		cb_NotifySystemState(reason);
 }
 
 void BtHub::
@@ -1302,57 +1442,58 @@ HciInquiryResult(HciTask *taskp)
 	assert(taskp == m_inquiry_task);
 
 	if (taskp->m_complete) {
-		if (taskp->m_errno) {
-			if (taskp->m_errno == EIO)
-				m_ei->LogWarn("Inquiry failed: %s (%d)\n",
-					      strerror(taskp->m_errno),
-					      taskp->m_hci_status);
-			else
-				m_ei->LogWarn("Inquiry failed: %s\n",
-					      strerror(taskp->m_errno));
+		if (taskp->m_error.IsSet()) {
+			m_ei->LogWarn("Inquiry aborted: %s",
+				      taskp->m_error.Desc());
 		}
-		delete taskp;
-		m_inquiry_task = 0;
 
+		m_inquiry_task = 0;
 		ClearInquiryFlags();
 
-		cb_InquiryResult(0, taskp->m_errno);
+		cb_InquiryResult(0, taskp->m_error.IsSet()
+				 ? &taskp->m_error : 0);
+		delete taskp;
 		return;
 	}
 
-	if (taskp->m_errno == EAGAIN) {
-		/* Look up the device, maybe create it */
-		devp = GetDevice(taskp->m_bdaddr, true);
-		if (!devp)
-			return;
-		if (devp->m_inquiry_found) {
-			devp->Put();
-			return;
-		}
-
-		devp->m_inquiry_found = true;
-		devp->m_inquiry_pscan = taskp->m_pscan;
-		devp->m_inquiry_pscan_rep = taskp->m_pscan_rep;
-		devp->m_inquiry_clkoff = taskp->m_clkoff;
-		devp->m_inquiry_class = taskp->m_devclass;
-		cb_InquiryResult(devp, 0);
+	/* Look up the device, maybe create it */
+	devp = GetDevice(taskp->m_bdaddr, true);
+	if (!devp)
+		return;
+	if (devp->m_inquiry_found) {
+		devp->Put();
 		return;
 	}
 
-	assert(!taskp->m_errno);
+	devp->m_inquiry_found = true;
+	devp->m_inquiry_pscan = taskp->m_pscan;
+	devp->m_inquiry_pscan_rep = taskp->m_pscan_rep;
+	devp->m_inquiry_clkoff = taskp->m_clkoff;
+	devp->m_inquiry_class = taskp->m_devclass;
+	cb_InquiryResult(devp, 0);
+	return;
 }
 
-int BtHub::
-StartInquiry(int timeout_ms)
+bool BtHub::
+StartInquiry(int timeout_ms, ErrorInfo *error)
 {
 	HciTask *taskp;
-	int res;
 
-	if (!IsStarted())
-		return -ESHUTDOWN;
+	if (!IsStarted()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
+		return false;
+	}
 
-	if (m_inquiry_task)
-		return -EALREADY;
+	if (m_inquiry_task) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_ALREADY_STARTED,
+				   "Inquiry already in progress");
+		return false;
+	}
 
 	/*
 	 * If the client is going to request a scan, they had
@@ -1361,33 +1502,32 @@ StartInquiry(int timeout_ms)
 	assert(cb_InquiryResult.Registered());
 
 	taskp = new HciTask;
-	if (taskp == 0)
-		return -ENOMEM;
+	if (taskp == 0) {
+		if (error)
+			error->SetNoMem();
+		return false;
+	}
 
 	taskp->m_tasktype = HciTask::HT_INQUIRY;
 	taskp->m_timeout_ms = timeout_ms;
 	taskp->cb_Result.Register(this, &BtHub::HciInquiryResult);
 
-	res = m_hci->Queue(taskp);
-	if (res) {
+	if (!m_hci->Queue(taskp)) {
 		delete taskp;
-		return res;
+		return false;
 	}
 
 	m_inquiry_task = taskp;
-	return 0;
+	return true;
 }
 
-int BtHub::
+void BtHub::
 StopInquiry(void)
 {
 	HciTask *taskp;
 
-	if (!IsStarted())
-		return -ESHUTDOWN;
-
-	if (!m_inquiry_task)
-		return -EALREADY;
+	if (!IsStarted() || !m_inquiry_task)
+		return;
 
 	taskp = m_inquiry_task;
 	m_inquiry_task = 0;
@@ -1395,19 +1535,22 @@ StopInquiry(void)
 	m_hci->Cancel(taskp);
 	delete taskp;
 	ClearInquiryFlags();
-
-	return 0;
 }
 
-int BtHub::
-SdpTaskSubmit(SdpTask *taskp)
+bool BtHub::
+SdpTaskSubmit(SdpTask *taskp, ErrorInfo *error)
 {
 	assert(taskp->cb_Result.Registered());
 
-	if (!IsStarted())
-		return -ESHUTDOWN;
+	if (!IsStarted()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
+		return false;
+	}
 
-	return m_sdp_handler.SdpQueue(taskp);
+	return m_sdp_handler.SdpQueue(taskp, error);
 }
 
 void BtHub::
@@ -1421,19 +1564,32 @@ SdpTaskCancel(SdpTask *taskp)
  * waiting on the local SDP daemon
  */
 bool BtHub::
-SdpRecordRegister(sdp_record_t *recp)
+SdpRecordRegister(sdp_record_t *recp, ErrorInfo *error)
 {
-	if (!m_sdp)
+	if (!m_sdp) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
 		return false;
+	}
 
-	return (sdp_record_register(m_sdp, recp, 0) >= 0);
+	if (sdp_record_register(m_sdp, recp, 0) < 0) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SYSCALL,
+				   "Register SDP record: %s", strerror(errno));
+		return false;
+	}
+
+	return true;
 }
 
 void BtHub::
 SdpRecordUnregister(sdp_record_t *recp)
 {
 	if (!m_sdp || sdp_record_unregister(m_sdp, recp) < 0)
-		GetDi()->LogDebug("Failed to unregister SDP record\n");
+		GetDi()->LogDebug("Failed to unregister SDP record");
 }
 
 BtDevice *BtHub::
@@ -1458,7 +1614,7 @@ CreateClientDev(bdaddr_t const &bdaddr)
 	char buf[32];
 
 	ba2str(&bdaddr, buf);
-	m_ei->LogDebug("Creating record for BDADDR %s\n", buf);
+	m_ei->LogDebug("Creating record for BDADDR %s", buf);
 
 	/* Call the factory */
 	if (cb_BtDeviceFactory.Registered())
@@ -1544,7 +1700,7 @@ Timeout(TimerNotifier *notp)
 		/* Do or do not.  There is no try. */
 		Start();
 		if (IsStarted() && cb_NotifySystemState.Registered())
-			cb_NotifySystemState();
+			cb_NotifySystemState(0);
 	}
 
 	while (!m_dead_objs.Empty()) {
@@ -1581,7 +1737,7 @@ BtDevice::
 	BtHci *hcip;
 
 	assert(!m_inquiry_found);
-	GetDi()->LogDebug("Destroying record for %s\n", GetName());
+	GetDi()->LogDebug("Destroying record for %s", GetName());
 	if (!m_index_links.Empty())
 		m_index_links.Unlink();
 	if (m_name_task) {
@@ -1600,7 +1756,7 @@ GetAddr(char (&namebuf)[32]) const
 }
 
 bool BtDevice::
-ResolveName(void)
+ResolveName(ErrorInfo *error)
 {
 	HciTask *taskp;
 	BtHci *hcip;
@@ -1608,9 +1764,21 @@ ResolveName(void)
 	if (m_name_task)
 		return true;
 
-	taskp = new HciTask;
-	if (taskp == 0)
+	hcip = GetHub()->GetHci();
+	if (!hcip) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_SHUTDOWN,
+				   "Bluetooth subsystem shut down");
 		return false;
+	}
+
+	taskp = new HciTask;
+	if (taskp == 0) {
+		if (error)
+			error->SetNoMem();
+		return false;
+	}
 
 	taskp->m_tasktype = HciTask::HT_READ_NAME;
 	bacpy(&taskp->m_bdaddr, &m_bdaddr);
@@ -1622,8 +1790,7 @@ ResolveName(void)
 	}
 	taskp->cb_Result.Register(this, &BtDevice::NameResolutionResult);
 
-	hcip = GetHub()->GetHci();
-	if (!hcip || (hcip->Queue(taskp) < 0)) {
+	if (!hcip->Queue(taskp, error)) {
 		delete taskp;
 		return false;
 	}
@@ -1638,7 +1805,7 @@ NameResolutionResult(HciTask *taskp)
 {
 	assert(taskp == m_name_task);
 
-	m_name_resolved = !taskp->m_errno;
+	m_name_resolved = !taskp->m_error.IsSet();
 
 	if (m_name_resolved) {
 		strncpy(m_dev_name, taskp->m_name, sizeof(m_dev_name));
@@ -1646,11 +1813,13 @@ NameResolutionResult(HciTask *taskp)
 	}
 
 	m_name_task = 0;
-	delete taskp;
 
 	if (cb_NotifyNameResolved.Registered())
-		cb_NotifyNameResolved(this, m_name_resolved
-				      ? m_dev_name : NULL);
+		cb_NotifyNameResolved(this,
+				      m_name_resolved ? m_dev_name : NULL,
+				      m_name_resolved ? 0 : &taskp->m_error);
+
+	delete taskp;
 }
 
 void BtDevice::
@@ -1686,7 +1855,7 @@ FindSession(BtService const *svcp) const
 }
 
 void BtDevice::
-__DisconnectAll(bool notify)
+__DisconnectAll(ErrorInfo *reason)
 {
 	ListItem sesslist;
 	BtSession *sessp;
@@ -1699,7 +1868,7 @@ __DisconnectAll(bool notify)
 		assert(sessp->m_dev == this);
 		sessp->m_dev_links.UnlinkOnly();
 		m_sessions.AppendItem(sessp->m_dev_links);
-		sessp->__Disconnect(notify);
+		sessp->__Disconnect(reason);
 	}
 }
 

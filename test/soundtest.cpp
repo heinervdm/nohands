@@ -67,7 +67,7 @@ main(int argc, char **argv)
 		soundio_format.packet_samps = 64;
 
 		sndp = SoundIoCreateAlsa(&g_dispatcher,
-					 "plughw:1");
+					 "plughw:1", 0);
 
 	} else {
 		sndp = SoundIoCreateFileHandler(&g_dispatcher,

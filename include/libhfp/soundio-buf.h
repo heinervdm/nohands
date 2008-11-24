@@ -70,7 +70,7 @@ struct VarBuf {
 		}
 		if ((m_size - m_end + m_start) >= nbytes) {
 			Defragment();
-			return m_buf;
+			return &m_buf[m_end];
 		}
 		return NULL;
 	}
@@ -321,7 +321,7 @@ public:
 	PacketSeq		m_input;
 	PacketSeq		m_output;
 	sio_sampnum_t		m_hw_outq;
-	bool			m_abort;
+	ErrorInfo		m_abort;
 	TimerNotifier		*m_abort_to;
 
 	struct AsyncState {
@@ -331,18 +331,18 @@ public:
 	SoundIoQueueState	m_qs;
 
 	SoundIoBufferBase(void)
-		: m_input(), m_output(), m_hw_outq(0), m_abort(false),
+		: m_input(), m_output(), m_hw_outq(0),
 		  m_abort_to(0), m_async_state(0) {}
 	virtual ~SoundIoBufferBase() {
 		BufCancelAbort();
 	}
 
-	/* Override these with methods that fill the FIFOs */
+	/* Override these with methods that fill and drain the FIFOs */
 	virtual void SndPushInput(bool nonblock) = 0;
 	virtual void SndPushOutput(bool nonblock) = 0;
 
 	void BufCancelAbort(void) {
-		m_abort = false;
+		m_abort.Clear();
 		if (m_abort_to) {
 			m_abort_to->Cancel();
 			m_abort_to->Unregister();
@@ -351,11 +351,11 @@ public:
 		}
 	}
 
-	virtual void SndHandleAbort(void) {
+	virtual void SndHandleAbort(ErrorInfo error) {
 		BufCancelAbort();
 		this->SndAsyncStop();
-		if (cb_NotifyPacket.Registered())
-			cb_NotifyPacket(this, NULL);
+		if (cb_NotifyAsyncStop.Registered())
+			cb_NotifyAsyncStop(this, error);
 	}
 
 	virtual void SndGetIBuf(SoundIoBuffer &fillme) {
@@ -368,6 +368,7 @@ public:
 
 	virtual void SndDequeueIBuf(sio_sampnum_t samps) {
 		m_input.Dequeue(samps);
+		m_qs.in_overflow = false;
 	}
 
 	virtual void SndGetOBuf(SoundIoBuffer &fillme) {
@@ -376,6 +377,7 @@ public:
 
 	virtual void SndQueueOBuf(sio_sampnum_t samps) {
 		m_output.PutUnfilled(samps);
+		m_qs.out_underflow = false;
 		if (!m_async_state) {
 			SndPushOutput(SndIsAsyncStarted());
 		}
@@ -392,7 +394,11 @@ public:
 		m_input.SetPacketSize(packetsize, bps);
 		m_output.SetPacketSize(packetsize, bps);
 		m_hw_outq = 0;
-		m_abort = false;
+		m_qs.in_queued = 0;
+		m_qs.out_queued = 0;
+		m_qs.in_overflow = false;
+		m_qs.out_underflow = false;
+		m_abort.Clear();
 	}
 
 	void BufClose(void) {
@@ -400,6 +406,12 @@ public:
 		BufStop();
 		m_input.Clear();
 		m_output.Clear();
+
+		m_hw_outq = 0;
+		m_qs.in_queued = 0;
+		m_qs.out_queued = 0;
+		m_qs.in_overflow = false;
+		m_qs.out_underflow = false;
 	}
 
 	bool BufProcess(sio_sampnum_t out_queued,
@@ -408,19 +420,21 @@ public:
 		AsyncState as;
 		as.m_stopped = false;
 		m_hw_outq = out_queued;
+		m_qs.in_overflow |= in_overrun;
+		m_qs.out_underflow |= out_underrun;
 		SndGetQueueState(ss);
 		m_async_state = &as;
 		if (cb_NotifyPacket.Registered())
-			cb_NotifyPacket(this, &ss);
+			cb_NotifyPacket(this, ss);
 		if (as.m_stopped) { return false; }
-		if (!m_abort) {
+		if (!m_abort.IsSet()) {
 			SndPushOutput(true);
 			if (as.m_stopped) { return false; }
 		}
 		assert(m_async_state == &as);
 		m_async_state = 0;
-		if (m_abort) {
-			this->SndHandleAbort();
+		if (m_abort.IsSet()) {
+			this->SndHandleAbort(m_abort);
 			return false;
 		}
 		return true;
@@ -431,18 +445,20 @@ private:
 		m_abort_to->Unregister();
 		delete m_abort_to;
 		m_abort_to = 0;
-		if (m_abort)
-			SndHandleAbort();
+		if (m_abort.IsSet()) {
+			SndHandleAbort(m_abort);
+		}
 	}
 public:
-	void BufAbort(DispatchInterface *eip) {
-		if (!m_abort) {
-			m_abort = true;
+	void BufAbort(DispatchInterface *eip, ErrorInfo &error) {
+		assert(error.IsSet());
+		if (!m_abort.IsSet()) {
+			m_abort = error;
 			assert(!m_abort_to);
 			m_abort_to = eip->NewTimer();
 			m_abort_to->Register(this,
 				     &SoundIoBufferBase::BufAsyncAbort);
-			m_abort_to->Set(1);
+			m_abort_to->Set(0);
 		}
 	}
 

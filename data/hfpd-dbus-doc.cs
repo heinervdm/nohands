@@ -139,7 +139,7 @@
  * @section clients D-Bus Client Guide
  *
  * The purpose of an HFPD D-Bus client is to implement the very high-level
- * logic of managing audio gateway devices and voice connections, and of
+ * logic of managing audio gateway devices and audio connections, and of
  * course, presenting status information to the user.  It is possible to
  * create a complete D-Bus client for HFPD that is very simple.  Such a
  * program might implement the following:
@@ -151,12 +151,12 @@
  *	- Set the net.sf.nohands.hfpd.AudioGateway.AutoReconnect property
  *	  to @c true.
  *	- Register to receive the
- *	  net.sf.nohands.hfpd.AudioGateway.VoiceStateChanged signal, and use
+ *	  net.sf.nohands.hfpd.AudioGateway.AudiotateChanged signal, and use
  *	  the signal handler to start streaming audio to and from the audio
  *	  gateway device, using
  *	  net.sf.nohands.hfpd.SoundIo.AudioGatewayStart(), or failing that,
  *	  close the audio connection with
- *	  net.sf.nohands.hfpd.AudioGateway.CloseVoice().
+ *	  net.sf.nohands.hfpd.AudioGateway.CloseAudio().
  *	- Register to receive the
  *	  net.sf.nohands.hfpd.AudioGateway.StateChanged and
  *	  net.sf.nohands.hfpd.AudioGateway.CallStateChanged signals, and
@@ -179,7 +179,6 @@ namespace net.sf.nohands.hfpd {
 	 *
 	 * The HFPD process will instantiate one object that implements
 	 * this interface at path @b @c /net/sf/nohands/hfpd
-	 *
 	 */
 
 	interface HandsFree {
@@ -198,14 +197,15 @@ namespace net.sf.nohands.hfpd {
 		 * If the Bluetooth service is already started, this
 		 * method will do nothing.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown for
-		 * uninteresting errors.  See the failure string for
-		 * more information.  For example, lack of a Bluetooth
-		 * dongle is reported using this exception.
-		 * @throw net.sf.nohands.hfpd.FatalStartError Thrown
-		 * for more specific errors that will require user
-		 * attention to resolve.  For example, lack of kernel
-		 * support for Bluetooth is reported using this exception.
+		 * @throw net.sf.nohands.hfpd.Error Thrown for
+		 * uninteresting errors.
+		 * @throw net.sf.nohands.hfpd.Error.BtNoKernelSupport
+		 * Kernel lacks required Bluetooth support.
+		 * @throw net.sf.nohands.hfpd.Error.BtServiceConflict
+		 * Another service has claimed the SCO listening socket.
+		 * @throw net.sf.nohands.hfpd.Error.BtScoConfigError
+		 * The attached HCI has misconfigured SCO settings, which
+		 * can only be resolved by a superuser.
 		 */
 		public Start();
 
@@ -236,7 +236,7 @@ namespace net.sf.nohands.hfpd {
 		 * will be terminated, which will cause an
 		 * InquiryStateChanged() signal to be generated.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown if an
+		 * @throw net.sf.nohands.hfpd.Error Thrown if an
 		 * inquiry could not be started, i.e. because one is
 		 * already in progress or the Bluetooth service has not
 		 * been started.
@@ -252,11 +252,6 @@ namespace net.sf.nohands.hfpd {
 		 * progress when this method was invoked, and was
 		 * successfully stopped, an InquiryStateChanged() signal
 		 * will be generated.
-		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown if an
-		 * inquiry could not be stopped, i.e. because one was
-		 * not in progress or the Bluetooth service had not been
-		 * started.
 		 *
 		 * @sa StartInquiry(), InquiryStateChanged(), InquiryResult()
 		 */
@@ -275,7 +270,7 @@ namespace net.sf.nohands.hfpd {
 		 * @param[out] name Name of the device as read, returned
 		 * as a string, e.g. "Motorola Phone"
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method may take an extended period of time
@@ -319,24 +314,24 @@ namespace net.sf.nohands.hfpd {
 		 * devices are automatically released and reverted to the
 		 * unclaimed state.  The following set of actions will be
 		 * taken on devices claimed by disconnected D-Bus clients:
-		 * - If the device has a voice connection open, the voice
+		 * - If the device has an audio connection open, the audio
 		 * connection will be closed, unless HandsFree.VoicePersist
 		 * is set to @c true.
 		 * - If the device is connecting or connected, and is not
 		 * permanently known to HFPD, and does not have a persisting
-		 * voice connection as above, it will be disconnected.
+		 * audio connection as above, it will be disconnected.
 		 *
 		 * @param[in] address Bluetooth address of the target device,
 		 * in colon-separated form, e.g. "01:23:45:67:89:AB"
 		 * @param[in] set_known Set to @c true to mark the device as
 		 * permanently known to HFPD, so that it may connect
-		 * to HFPD and open a voice channel when not claimed by a
+		 * to HFPD and open an audio channel when not claimed by a
 		 * D-Bus client.  This mark will be saved to HFPD's
 		 * configuration file and will be persistent.
 		 * @param[out] object D-Bus path to the AudioGateway
 		 * object created to represent the device.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @sa RemoveDevice()
@@ -355,7 +350,7 @@ namespace net.sf.nohands.hfpd {
 		 * have its claim released, in colon-separated form, e.g.
 		 * "01:23:45:67:89:AB"
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * This method will fail if it is provided the address
@@ -378,7 +373,7 @@ namespace net.sf.nohands.hfpd {
 		 * It is not necessary to call this method if the
 		 * HandsFree.AutoSave property is set to @c true.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown if
+		 * @throw net.sf.nohands.hfpd.Error Thrown if
 		 * the configuration file could not be created or
 		 * overwritten.
 		 */
@@ -562,7 +557,7 @@ namespace net.sf.nohands.hfpd {
 		bool AcceptUnknown;
 
 		/**
-		 * @brief Property controlling handling of voice connections
+		 * @brief Property controlling handling of audio connections
 		 * for unclaimed devices
 		 *
 		 * This property can be accessed using the
@@ -578,9 +573,9 @@ namespace net.sf.nohands.hfpd {
 		 * of devices in the aforementioned situation.
 		 *
 		 * If @c true, the device will remain connected until its
-		 * voice connection is dropped, either due to the device
+		 * audio connection is dropped, either due to the device
 		 * itself dropping the connection, or a sound card failure.
-		 * When the voice connection is dropped, the device will be
+		 * When the audio connection is dropped, the device will be
 		 * disconnected immediately.
 		 *
 		 * If @c false, the device will be disconnected immediately.
@@ -592,7 +587,7 @@ namespace net.sf.nohands.hfpd {
 		bool VoicePersist;
 
 		/**
-		 * @brief Property controlling handling of voice connections
+		 * @brief Property controlling handling of audio connections
 		 * from unclaimed but permanently known devices
 		 *
 		 * This property can be accessed using the
@@ -749,7 +744,7 @@ namespace net.sf.nohands.hfpd {
 		 * An AudioGateway object can be removed when:
 		 * - It is not claimed by any D-Bus client
 		 * - It is not marked permanently known to HFPD
-		 * - It does not have a persisting voice connection
+		 * - It does not have a persisting audio connection
 		 *
 		 * The removed AudioGateway object is also removed from
 		 * HandsFree.AudioGateways.
@@ -815,7 +810,7 @@ namespace net.sf.nohands.hfpd {
 		 * human-readable description of the device, if available,
 		 * e.g. @c "Intel HD Audio"
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 */
 		public ProbeDevices(in string drivername,
@@ -861,7 +856,7 @@ namespace net.sf.nohands.hfpd {
 		 * initiated if needed, @c false to only use an existing
 		 * audio connection to the device.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * Audio gateway devices will typically perform all
@@ -869,7 +864,7 @@ namespace net.sf.nohands.hfpd {
 		 * D-Bus clients should not need to direct HFPD to initiate
 		 * audio connections.  D-Bus clients can be informed of
 		 * remotely-initiated audio connections by the
-		 * AudioGateway.VoiceStateChanged() signal, and should
+		 * AudioGateway.AudioStateChanged() signal, and should
 		 * typically invoke this method (AudioGatewayStart) on
 		 * reception of that signal.
 		 */
@@ -891,7 +886,7 @@ namespace net.sf.nohands.hfpd {
 		 * device, the operation will be aborted similar to
 		 * Stop().
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 */
 		public LoopbackStart();
@@ -927,7 +922,7 @@ namespace net.sf.nohands.hfpd {
 		 * Setting this value too small may overload the D-Bus
 		 * daemon process.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 */
 		public MembufStart(in bool capture, in bool playback,
@@ -1288,8 +1283,32 @@ namespace net.sf.nohands.hfpd {
 		 * read from the SoundIo.State property.  See the documentation
 		 * for that property for more information on the meaning of
 		 * the state values.
+		 *
+		 * A state change to the Stopped state may also be
+		 * indicated by the StreamAborted() signal, which also
+		 * includes information about the failure that caused the
+		 * asynchronous abort.
 		 */
 		public signal StateChanged(out byte state);
+
+		/**
+		 * @brief Notification of asynchronous stream abort of
+		 * the SoundIo
+		 *
+		 * This signal apprises D-Bus clients that a SoundIo object
+		 * that was streaming has transitioned to the Stopped state
+		 * due to a failure that occurred asynchronously.
+		 *
+		 * Other changes to SoundIo.State, including transitions to
+		 * the Stopped state not caused by asynchronous failures,
+		 * are indicated by the StateChanged() signal.
+		 *
+		 * @param[out] error_name Name of the D-Bus exception
+		 * equivalent to the cause of the asynchronous failure.
+		 * @param[out] description Explanation of the failure.
+		 */
+		public signal StreamAborted(out string error_name,
+					    out string description);
 
 		/**
 		 * @brief Notification of change of the mute state of the
@@ -1313,12 +1332,55 @@ namespace net.sf.nohands.hfpd {
 		 * been deconfigured from the SoundIo when the state of the
 		 * SoundIo changes back to stopped or deconfigured.
 		 *
+		 * This signal will precede a StateChanged() signal, in
+		 * cases when the state is changing to Audio Gateway
+		 * configured or Audio Gateway connected.  For more
+		 * information on states, see SoundIo.State.
+		 *
 		 * @param[out] audio_gateway D-Bus path to the AudioGateway
 		 * object that has been configured as the streaming endpoint.
 		 * This value can also be accessed through the
 		 * SoundIo.AudioGateway property.
 		 */
 		public signal AudioGatewaySet(out objectpath audio_gateway);
+
+		/**
+		 * @brief Notification of audio clock skew
+		 *
+		 * When the SoundIo object is streaming, it is possible
+		 * that the different directions of an endpoint, or that
+		 * the two attached endpoints, have a slight difference
+		 * of sample clocks.  This has a negative effect on
+		 * audio quality, and it is useful to make this type of
+		 * problem clearly apparent to the user.
+		 *
+		 * @param[out] skew_type Type of skew detected.  Values
+		 * are described below.
+		 * @param[out] skew_value Detail of the skew.
+		 * - @em skew_type = 1: Number of buffer overrun/underrun
+		 * events that occurred in the last second.
+		 * - @em skew_type = 2: Value describes a sample rate
+		 * difference between the playback and capture halves of
+		 * the primary sound card.  If the value is positive, the
+		 * capture clock is faster than the playback clock, and
+		 * vice-versa if the value is negative.  The magnitude
+		 * of the value is the percentage difference of the
+		 * slower clock relative to the faster clock.
+		 * - @em skew_type = 3: Value describes a sample rate
+		 * difference between the playback and capture halves of
+		 * the attached endpoint, e.g. the audio gateway.  The
+		 * value has the same interpretation as with
+		 * @em skew_type = 2.
+		 * - @em skew_type = 4: Value describes an overall sample
+		 * rate difference between the primary sound card and the
+		 * attached endpoint.  If the value is positive, the
+		 * clock of the attached endpoint is faster than the
+		 * primary sound card, and vice-versa if negative.  The
+		 * magnitude of the value is the percentage difference
+		 * of the slower clock relative to the faster clock.
+		 */
+		public signal SkewNotify(out byte skew_type,
+					 out double skew_value);
 
 		/**
 		 * @brief Notification of audio stream progress
@@ -1354,7 +1416,7 @@ namespace net.sf.nohands.hfpd {
 		 * or the device is already connected, this method will
 		 * succeed and do nothing.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * This method may cause a StateChanged() signal to be
@@ -1377,7 +1439,7 @@ namespace net.sf.nohands.hfpd {
 		 * will succeed and do nothing.
 		 *
 		 * This method may cause StateChanged() and possibly
-		 * VoiceStateChanged() and SoundIo.StateChanged() signals
+		 * AudioStateChanged() and SoundIo.StateChanged() signals
 		 * to be emitted.
 		 */
 		public Disconnect();
@@ -1385,7 +1447,7 @@ namespace net.sf.nohands.hfpd {
 		/**
 		 * @brief Close the service-level connection to the device
 		 *
-		 * This method will force the device to the voice
+		 * This method will force the device to the audio
 		 * disconnected state.
 		 *
 		 * If an audio connection to the device is in progress, it
@@ -1396,10 +1458,10 @@ namespace net.sf.nohands.hfpd {
 		 * connection to the device is already disconnected, this
 		 * method will succeed and do nothing.
 		 *
-		 * This method may cause VoiceStateChanged() and 
+		 * This method may cause AudioStateChanged() and 
 		 * SoundIo.StateChanged() signals to be emitted.
 		 */
-		public CloseVoice();
+		public CloseAudio();
 
 		/**
 		 * @brief Send a dial command to the audio gateway
@@ -1410,7 +1472,7 @@ namespace net.sf.nohands.hfpd {
 		 * @param[in] phone_num Phone number to request the audio
 		 * gateway to dial.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1433,7 +1495,7 @@ namespace net.sf.nohands.hfpd {
 		 * whether it was submitted by a Dial() command or dialed
 		 * directly on the keypad of the audio gateway.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1459,7 +1521,7 @@ namespace net.sf.nohands.hfpd {
 		 * has an incoming, incomplete, ringing call, the call
 		 * will be rejected.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1479,13 +1541,13 @@ namespace net.sf.nohands.hfpd {
 		 * This method causes a DTMF tone generation command to be
 		 * sent to the audio gateway.  The audio gateway will
 		 * generate the DTMF tone appropriate for the code and
-		 * play it over the voice connection.  This is useful for
+		 * play it over the audio connection.  This is useful for
 		 * navigating menu systems such as for voice mail.
 		 *
 		 * @param[in] code DTMF code to generate.  Must be a
 		 * decimal number, a letter A-D, #, or *.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1506,7 +1568,7 @@ namespace net.sf.nohands.hfpd {
 		 * incoming, incomplete, ringing call, the call will be
 		 * answered and will become the active call.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1535,7 +1597,7 @@ namespace net.sf.nohands.hfpd {
 		 * by the @c "DropHeldUdub" feature in the
 		 * AudioGateway.Features property being @c true.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1563,7 +1625,7 @@ namespace net.sf.nohands.hfpd {
 		 * by the @c "SwapDropActive" feature in the
 		 * AudioGateway.Features property being @c true.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1591,7 +1653,7 @@ namespace net.sf.nohands.hfpd {
 		 * by the @c "SwapHoldActive" feature in the
 		 * AudioGateway.Features property being @c true.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1616,7 +1678,7 @@ namespace net.sf.nohands.hfpd {
 		 * by the @c "Link" feature in the
 		 * AudioGateway.Features property being @c true.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1641,7 +1703,7 @@ namespace net.sf.nohands.hfpd {
 		 * by the @c "Transfer" feature in the
 		 * AudioGateway.Features property being @c true.
 		 *
-		 * @throw org.freedesktop.DBus.Error.Failed Thrown on any
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
@@ -1716,9 +1778,9 @@ namespace net.sf.nohands.hfpd {
 		 * - 3 = Audio connection is established
 		 *
 		 * Changes to this value are reported by the
-		 * VoiceStateChanged() signal.
+		 * AudioStateChanged() signal.
 		 */
-		const byte VoiceState;
+		const byte AudioState;
 
 		/**
 		 * @brief D-Bus ownership state of the device
@@ -1931,12 +1993,12 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * This signal is emitted whenever the audio connection
 		 * state of the device changes.  This can be caused by
-		 * calls to SoundIo.AudioGatewayStart() or CloseVoice(),
+		 * calls to SoundIo.AudioGatewayStart() or CloseAudio(),
 		 * a service-level disconnection, or a number of
 		 * other events.
 		 *
-		 * @param[out] voice_state New value of the audio
-		 * connection state.  See AudioGateway.VoiceState for
+		 * @param[out] audio_state New value of the audio
+		 * connection state.  See AudioGateway.AudioState for
 		 * more information.
 		 *
 		 * An open audio connection to an audio gateway device
@@ -1947,7 +2009,7 @@ namespace net.sf.nohands.hfpd {
 		 * - Start streaming audio between the audio gateway
 		 * and the local sound card.  See
 		 * SoundIo.AudioGatewayStart().
-		 * - Drop the audio connection.  See CloseVoice().
+		 * - Drop the audio connection.  See CloseAudio().
 		 *
 		 * It is @b highly @b undesirable to leave an audio gateway
 		 * device sitting with an open audio connection, without
@@ -1965,7 +2027,7 @@ namespace net.sf.nohands.hfpd {
 		 * connection, the device's D-Bus owner will be informed
 		 * of it only by this signal.
 		 */
-		public signal VoiceStateChanged(out byte voice_state);
+		public signal AudioStateChanged(out byte audio_state);
 
 		/**
 		 * @brief Notification of the AudioGateway being claimed or

@@ -33,6 +33,17 @@
 #define HFPD_HANDSFREE_OBJECT "/net/sf/nohands/hfpd"
 #define HFPD_SOUNDIO_OBJECT "/net/sf/nohands/hfpd/soundio"
 
+#define HFPD_ERROR_FAILED		 				\
+	"net.sf.nohands.hfpd.Error"
+#define HFPD_ERROR_BT_NO_KERNEL_SUPPORT 				\
+	"net.sf.nohands.hfpd.Error.BtNoKernelSupport"
+#define HFPD_ERROR_BT_SERVICE_CONFLICT					\
+	"net.sf.nohands.hfpd.Error.BtServiceConflict"
+#define HFPD_ERROR_BT_BAD_SCO_CONFIG					\
+	"net.sf.nohands.hfpd.Error.BtScoConfigError"
+#define HFPD_ERROR_SOUNDIO_SOUNDCARD_FAILED				\
+	"net.sf.nohands.hfpd.Error.SoundIoSoundCardFailed"
+
 enum AudioGatewayState {
 	HFPD_AG_INVALID = 0,
 	HFPD_AG_DESTROYED,
@@ -50,11 +61,11 @@ enum AudioGatewayCallState {
 	HFPD_AG_CALL_ESTAB_WAITING,
 };
 
-enum AudioGatewayVoiceState {
-	HFPD_AG_VOICE_INVALID = 0,
-	HFPD_AG_VOICE_DISCONNECTED,
-	HFPD_AG_VOICE_CONNECTING,
-	HFPD_AG_VOICE_CONNECTED,
+enum AudioGatewayAudioState {
+	HFPD_AG_AUDIO_INVALID = 0,
+	HFPD_AG_AUDIO_DISCONNECTED,
+	HFPD_AG_AUDIO_CONNECTING,
+	HFPD_AG_AUDIO_CONNECTED,
 };
 
 enum SoundIoState {
