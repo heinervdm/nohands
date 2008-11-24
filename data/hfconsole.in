@@ -1352,7 +1352,11 @@ class HfConsole:
 			gobject.source_remove(self.config_skew_timeout)
 			del self.config_skew_timeout
 	def config_skew_notify(self, skewtype, count):
-		if skewtype == 1:
+		timeout = 1500
+		if skewtype == 0:
+			msg = 'Sound Card Failure'
+			timeout = 5000
+		elif skewtype == 1:
 			msg = 'Sound Card Overrun/Underrun: %d/sec' % count
 		elif skewtype == 2:
 			if count < 0:
@@ -1369,7 +1373,7 @@ class HfConsole:
 		self['ConfigSkewNoticeLabel'].show()
 		self['ConfigSkewNoticeLabel'].set_text(msg)
 		self.config_skew_timeout = gobject.timeout_add(
-			1500, self.config_skew_clear, True)
+			timeout, self.config_skew_clear, True)
 
 	def config_denoise_changed(self, widget):
 		value = widget.get_active()	
@@ -1601,6 +1605,8 @@ class HfConsole:
 		    'net.sf.nohands.hfpd.Error.SoundIoSoundCardFailed'):
 			self.soundio_status_msg('Primary Sound Card Failure',
 						5000)
+		if self.soundio_skew_monitor:
+			self.soundio_skew_monitor(0, 0)
 		self.soundio_state_changed(2)
 
 	def soundio_mute_changed(self, state):
@@ -1609,10 +1615,10 @@ class HfConsole:
 		self.setprop_soundio('Mute', but.get_active())
 
 	def soundio_status_msg_clear(self):
-		if hasattr(self, 'soundio_status_timeout'):
+		if hasattr(self, 'soundio_status_msgid'):
 			self['StatusBar'].remove(self.soundio_status_ctx,
-						 self.soundio_status_msg)
-			del self.soundio_status_msg
+						 self.soundio_status_msgid)
+			del self.soundio_status_msgid
 		if hasattr(self, 'soundio_status_timeout'):
 			gobject.source_remove(self.soundio_status_timeout)
 			del self.soundio_status_timeout
@@ -1620,7 +1626,7 @@ class HfConsole:
 			del self.soundio_skew_type
 	def soundio_status_msg(self, msg, timeout):
 		self.soundio_status_msg_clear()
-		self.soundio_status_msg = self['StatusBar'].push(
+		self.soundio_status_msgid = self['StatusBar'].push(
 			self.soundio_status_ctx,
 			msg);
 		if timeout:
