@@ -1092,7 +1092,8 @@ class HfConsole:
 		for x in savecfg['drivers']:
 			self['ConfigDriver'].append_text(x)
 		self['ConfigDriver'].set_active(savecfg['driver'])
-		self['ConfigDriverOpts'].set_text(savecfg['driveropts'])
+		self['ConfigDriverDevList'].child.set_text(
+			savecfg['driveropts'])
 		self.config_packet_interval(savecfg['packetinterval'])
 		self.config_min_out_buffer(savecfg['minbufferfill'])
 		self['ConfigDenoise'].set_active(savecfg['denoise'])
@@ -1175,7 +1176,8 @@ class HfConsole:
 		self.setprop_hfpd('VoicePersist', dbus.Boolean(
 			self['ConfigVoicePersist'].get_active()))
 		self.soundio.SetDriver(self['ConfigDriver'].get_active_text(),
-				       self['ConfigDriverOpts'].get_text())
+				       self['ConfigDriverDevList'].child.
+				       get_text())
 		self.hfpd.SaveSettings()
 		self.autoreconnect = self['ConfigAutoReconnect'].get_active()
 		cmd = self['ConfigAudioAttachCommand'].get_text()
@@ -1307,7 +1309,8 @@ class HfConsole:
 					self.soundio.SetDriver(self[
 						'ConfigDriver'].
 					       get_active_text(),
-				       self['ConfigDriverOpts'].get_text())
+				       self['ConfigDriverDevList'].child.
+							       get_text())
 				except:
 					widget.set_active(False)
 					self.error_message('Cannot Apply ' +
@@ -1463,7 +1466,8 @@ class HfConsole:
 		try:
 			self.soundio.SetDriver(self['ConfigDriver'].
 					       get_active_text(),
-				       self['ConfigDriverOpts'].get_text())
+				       self['ConfigDriverDevList'].child.
+					       get_text())
 		except:
 			self.error_message('Cannot Apply Sound Driver Settings')
 			return
@@ -1636,7 +1640,7 @@ class HfConsole:
 			msg = 'Severe Sound Card / Bluetooth Clock Skew'
 		else:
 			return
-		self.soundio_status_msg(msg, skewtype, 5000)
+		self.soundio_status_msg(msg, 5000)
 		self.soundio_skew_type = skewtype;
 		if self.soundio_skew_monitor:
 			self.soundio_skew_monitor(skewtype, count)
