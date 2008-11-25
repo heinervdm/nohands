@@ -428,7 +428,7 @@ protected:
 	marshall_t     	m_marshall;
 	CallTarget	*m_targ;
 	fake_mfp_t	m_method;
-	char		m_save[4 * sizeof(void*)];
+	uint8_t		m_save[4 * sizeof(void*)];
 
 	TRet InvokeRet(InArgset &ia) {
 		return (*m_marshall)(*(InArgset*)m_save, m_targ, m_method, ia);

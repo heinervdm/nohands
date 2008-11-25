@@ -872,14 +872,41 @@ namespace net.sf.nohands.hfpd {
 					 in bool initiate_connection);
 
 		/**
+		 * @brief Start a WAV file audio stream
+		 *
+		 * Opens a .WAV file and initiates unidirectional
+		 * streaming either from the file to the primary sound
+		 * card or from the primary sound card to the file.
+		 *
+		 * This mode of streaming is useful for playing a
+		 * ring tone, or for recording a voice note.
+		 *
+		 * @param[in] file_path Path to WAV file to be created
+		 * and streamed to, or existing WAV file to be played
+		 * back.
+		 * @param[in] write Set to @c true to cause the file to
+		 * be streamed into and created if necessary, @c false
+		 * to play back from the file.
+		 *
+		 * If the local sound card is already streaming, or
+		 * preparing to stream with an audio gateway, the
+		 * operation in progress will be aborted similar to
+		 * Stop().
+		 *
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
+		 * sort of error, unspecific of the reason of failure.
+		 */
+		public FileStart(in string file_path, in bool write);
+
+		/**
 		 * @brief Start a loopback audio stream
 		 *
 		 * Starts streaming the input from the local sound card
-		 * into the output of the local sound card.
+		 * to the output to the local sound card.
 		 *
-		 * This mode of streaming is useful to test the local
-		 * sound card configuration and subjectively evaluate the
-		 * latency resulting from the buffering settings.
+		 * This mode of streaming is useful for testing the local
+		 * sound card configuration and to subjectively evaluate
+		 * the latency resulting from the buffering settings.
 		 *
 		 * If the local sound card is already streaming, or
 		 * preparing to stream with a different audio gateway
@@ -940,6 +967,42 @@ namespace net.sf.nohands.hfpd {
 		public MembufClear();
 
 		/**
+		 * @brief Configure a WAV file to receive audio pump
+		 * traffic
+		 *
+		 * The HFPD audio handling components support snooping
+		 * the stream traffic to a WAV file.  This can be used
+		 * to create voice notes and recordings of telephony
+		 * sessions.  Each time the stream is started, if a snoop
+		 * file is configured, it is created, or truncated if it
+		 * already exists, and filled with stream data as it is
+		 * received.
+		 *
+		 * The snoop file can be configured to receive audio data
+		 * from one or both directions of the stream.  If configured
+		 * to receive both directions, the audio data will be
+		 * mixed before being saved to the target file.
+		 *
+		 * @param[in] filename Path and name of snoop file.  If
+		 * this value is zero-length, snooping is disabled.
+		 * @param[in] capture If @c true, data captured from the
+		 * local sound card will be snooped.
+		 * @param[in] playback If @c true, data played through the
+		 * local sound card will be snooped.
+		 * 
+		 * @note If the contents of the snoop file are to be
+		 * preserved, the snoop file should be deconfigured after
+		 * streaming has been stopped to avoid having the file
+		 * overwritten the next time streaming is started.
+		 * @note Check local laws before creating recordings of
+		 * telephone calls.
+		 *
+		 * @sa SoundIo.SnoopFileName
+		 */
+		public SetSnoopFile(in string filename,
+				    in bool capture, in bool playback);
+
+		/**
 		 * @brief State of the SoundIo object
 		 *
 		 * This property can be accessed using the
@@ -954,12 +1017,13 @@ namespace net.sf.nohands.hfpd {
 		 * - 2 = Stopped, not streaming
 		 * - 3 = Audio gateway configured but awaiting connection
 		 * - 4 = Audio gateway connected and streaming
-		 * - 5 = Loopback endpoint streaming
-		 * - 6 = Memory buffer endpoint streaming
+		 * - 5 = File endpoint streaming
+		 * - 6 = Loopback endpoint streaming
+		 * - 7 = Memory buffer endpoint streaming
 		 *
 		 * The state cannot be modified directly.  Instead use the
-		 * methods Stop(), AudioGatewayStart(), LoopbackStart(),
-		 * and MembufStart().
+		 * methods Stop(), AudioGatewayStart(), FileStart(),
+		 * LoopbackStart(), and MembufStart().
 		 */
 		const byte State;
 
@@ -1004,6 +1068,13 @@ namespace net.sf.nohands.hfpd {
 		 * use AudioGatewayStart() or Stop().
 		 */
 		const variant AudioGateway;
+
+		/**
+		 * @brief Target file for stream snooper
+		 *
+		 * See SetSnoopFile().
+		 */
+		const string SnoopFileName;
 
 		/**
 		 * @brief List of available local sound card drivers

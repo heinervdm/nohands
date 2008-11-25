@@ -49,6 +49,8 @@ enum {
 	LIBHFP_ERROR_SOUNDIO_SYSCALL,
 	/** Error internal to audio module */
 	LIBHFP_ERROR_SOUNDIO_INTERNAL,
+	/** Function not supported */
+	LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
 	/** Device is already open */
 	LIBHFP_ERROR_SOUNDIO_ALREADY_OPEN,
 	/** Function not supported because endpoint does not have a clock */
@@ -723,18 +725,19 @@ extern SoundIoDeviceList *SoundIoGetDeviceListAlsa(ErrorInfo *error);
  * The object can also operate in full-duplex mode, in which case it
  * will present separate playback and capture buffers.
  *
- * @param fmt Initial format to set on the object.
- * @param nsamps Buffer size to use when creating new buffers.  To
+ * @param[in] fmt Initial format to set on the object.
+ * @param[in] nsamps Buffer size to use when creating new buffers.  To
  * convert from seconds, multiply the number of seconds by
  * SoundIoFormat::samplerate.
  *
  * @return A newly constructed SoundIo memory buffer handler object
- * associated with @em filename, or NULL on failure.
+ * associated with @em filename, or @c 0 on memory allocation failure.
  *
  * @note This object was created to aid in system testing, to observe
  * the effects of filters and signal processing settings.
  */
-SoundIo *SoundIoCreateMembuf(const SoundIoFormat *fmt, sio_sampnum_t nsamps);
+extern SoundIo *SoundIoCreateMembuf(const SoundIoFormat *fmt,
+				    sio_sampnum_t nsamps);
 
 /**
  * @brief Construct a SoundIo object backed by a disk file
@@ -750,17 +753,21 @@ SoundIo *SoundIoCreateMembuf(const SoundIoFormat *fmt, sio_sampnum_t nsamps);
  * For reading, SoundIo::SndGetFormat() will only report meaningful
  * results after the file has been opened.
  *
- * @param ei Pointer to dispatcher interface object for the environment.
+ * @param[in] ei Pointer to dispatcher interface object for the environment.
  * This is used for logging errors.
- * @param filename Name of the audio file to associate the object with.
- * @param create Set to @em true to allow the file to be created if it
+ * @param[in] filename Name of the audio file to associate the object with.
+ * @param[in] create Set to @em true to allow the file to be created if it
  * is opened for output and does not exist.
+ * @param[out] error Error information structure.  If this method
+ * fails and returns @c 0, and @em error is not 0, @em error
+ * will be filled out with information on the cause of the failure.
  *
  * @return A newly constructed SoundIo disk file handler object
- * associated with @em filename, or NULL on failure.
+ * associated with @em filename, or @c 0 on failure.
  */
-SoundIo *SoundIoCreateFileHandler(DispatchInterface *ei,
-				  const char *filename, bool create);
+extern SoundIo *SoundIoCreateFileHandler(DispatchInterface *ei,
+					 const char *filename, bool create,
+					 ErrorInfo *error = 0);
 
 /**
  * @brief Audio Filtering and Signal Processing Interface
@@ -849,6 +856,48 @@ public:
 						SoundIoBuffer &dest) = 0;
 };
 
+/**
+ * @brief Construct a stream snooping filter
+ * @ingroup soundio
+ *
+ * The stream snooper is an installable filter that outputs data
+ * passing through it to a slave SoundIo object.  When the snooper is
+ * configured as an installed filter by SoundIoPump, the snooper will set
+ * the format of its slave to the configured streaming format and open the
+ * slave in sink mode.  When the snooper is deconfigured, it will close
+ * the slave.
+ *
+ * If bidirectional snooping mode is set -- both the @em up and @em dn
+ * parameters are @em true, and the stream is operating in bidirectional
+ * mode, the output to the slave endpoint will be a mix of the packet data
+ * from both directions.  Otherwise the output will be the packet data
+ * from one direction, or if not streaming in any configured directions,
+ * no output data.  In the latter case, the slave endpoint will not
+ * even be opened.
+ *
+ * The intended use of the snooper object is for recording stream
+ * sessions to files.  The intended slave endpoint is a file sink,
+ * e.g. one produced by SoundIoCreateFileHandler().  The use of a clocked
+ * endpoint as the slave is not recommended, as no rate matching is
+ * attempted by the snooper object.
+ *
+ * @param[in] target Slave endpoint to receive snooped sample data.
+ * @param[in] up Set to @c true to snoop audio data streaming upward,
+ * @c false to ignore data streaming upward.
+ * @param[in] dn Set to @c true to snoop audio data streaming downward,
+ * @c false to ignore data streaming downward.
+ *
+ * @return A newly constructed snoop filter configured with the target
+ * endpoint, or @c 0 on memory allocation failure.
+ *
+ * @note The snoop filter does not perform any life cycle management on
+ * the specified slave endpoint.  Clients are responsible for managing the
+ * life cycle of the slave endpoint, and should take care to destroy the
+ * snoop filter before destroying the slave endpoint.
+ */
+extern SoundIoFilter *SoundIoCreateSnooper(SoundIo *target,
+					   bool up = true, bool dn = true);
+
 
 /**
  * @brief Signal processing configuration for SoundIoFltSpeex
@@ -901,7 +950,7 @@ public:
  * effective, this filter should either be the bottom-most filter, or
  * no filters placed below it should alter the data stream.
  *
- * @param ei Pointer to dispatcher interface object for the environment.
+ * @param[in] ei Pointer to dispatcher interface object for the environment.
  * This is used for logging errors.
  *
  * To use this filter:
@@ -1056,7 +1105,7 @@ private:
 		bool			bottom_roe, top_roe;
 		bool			pump_down, pump_up;
 		bool			warn_loss;
-		char			watchdog_strikes;
+		int8_t			watchdog_strikes;
 		unsigned int		watchdog_to;
 		sio_sampnum_t		watchdog_min_progress;
 		sio_sampnum_t		watchdog_max_progress;
@@ -1074,12 +1123,12 @@ private:
 	bool			m_bottom_loss_tolerate, m_top_loss_tolerate;
 
 	/* For the watchdog */
-	char			m_bottom_strikes, m_top_strikes;
+	bool			m_async_entered;
+	int8_t			m_bottom_strikes, m_top_strikes;
+	int8_t			m_bottom_in_strikes, m_top_in_strikes;
+	int8_t			m_bottom_out_strikes, m_top_out_strikes;
 	sio_sampnum_t		m_bottom_in_count, m_top_in_count;
 	sio_sampnum_t	      	m_bottom_out_count, m_top_out_count;
-	char			m_bottom_in_strikes, m_top_in_strikes;
-	char			m_bottom_out_strikes, m_top_out_strikes;
-	bool			m_async_entered;
 
 	uint8_t			m_bo_last[c_sampsize], m_bi_last[c_sampsize];
 	uint8_t			m_to_last[c_sampsize], m_ti_last[c_sampsize];
@@ -1094,8 +1143,8 @@ private:
 	void DumpQueueState(bool start, bool top) const;
 	void AsyncProcess(SoundIo *subp, SoundIoQueueState &statep);
 	void AsyncStopped(SoundIo *subp, ErrorInfo &error);
-	bool WatchdogThreshold(sio_sampnum_t &count, char &strikes,
-			      const char *name, ErrorInfo &error);
+	bool WatchdogThreshold(sio_sampnum_t &count, int8_t &strikes,
+			       const char *name, ErrorInfo &error);
 	void Watchdog(TimerNotifier *notp);
 	void __Stop(ErrorInfo *reason = 0, SoundIo *offender = 0);
 
@@ -1641,7 +1690,7 @@ private:
 
 	Stats			*m_history;
 	int			m_history_count, m_history_pos;
-	char			m_pri_skew_strikes, m_sec_skew_strikes,
+	int8_t			m_pri_skew_strikes, m_sec_skew_strikes,
 				m_endpoint_skew_strikes;
 
 	int			m_stat_min_pri_duplex_skew;

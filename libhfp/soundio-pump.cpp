@@ -85,7 +85,7 @@ CopyIn(uint8_t *dest, SoundIoWorkingState *swsp, sio_sampnum_t nsamps)
 {
 	sio_sampnum_t rem;
 	uint8_t *end;
-	unsigned char bps = swsp->bpr;
+	uint8_t bps = swsp->bpr;
 
 	assert(nsamps);
 	if (swsp->in_buf.m_size) {
@@ -169,7 +169,7 @@ sio_sampnum_t SoundIoPump::
 CopyOut(SoundIoWorkingState *dwsp, const uint8_t *src, sio_sampnum_t nsamps)
 {
 	sio_sampnum_t rem;
-	unsigned char bps = dwsp->bpr;
+	uint8_t bps = dwsp->bpr;
 
 	assert(nsamps);
 
@@ -239,7 +239,7 @@ CopyCross(SoundIoWorkingState *dwsp, SoundIoWorkingState *swsp,
 	  sio_sampnum_t nsamps)
 {
 	sio_sampnum_t rem, in_pad = 0;
-	unsigned char bps = dwsp->bpr;
+	uint8_t bps = dwsp->bpr;
 
 	/* We maintain an in_pad count but do nothing with it */
 
@@ -325,7 +325,7 @@ sio_sampnum_t SoundIoPump::
 OutputSilence(SoundIoWorkingState *dwsp, sio_sampnum_t nsamps)
 {
 	sio_sampnum_t rem;
-	unsigned char bps = dwsp->bpr;
+	uint8_t bps = dwsp->bpr;
 	uint8_t *buf, *end;
 
 	if (dwsp->out_buf.m_size) {
@@ -381,7 +381,7 @@ ProcessOneWay(SoundIoWorkingState *swsp, SoundIoWorkingState *dwsp,
 	SoundIoBuffer bufs, bufd, *bufp;
 	SoundIoFilter *fltp;
 	uint8_t *dibuf = NULL;
-	unsigned char bps = dwsp->bpr;
+	uint8_t bps = dwsp->bpr;
 
 	/* Acquire a buffer from the source */
 	bufs.m_size = 0;
@@ -501,9 +501,9 @@ ProcessorLoop(SoundIoWorkingState &bws, SoundIoWorkingState &tws,
 struct xfer_bound {
 	sio_sampnum_t lower;
 	sio_sampnum_t upper;
-	char prio;
-	char under_cost;
-	char over_cost;
+	uint8_t prio;
+	uint8_t under_cost;
+	uint8_t over_cost;
 };
 
 sio_sampnum_t
@@ -715,6 +715,7 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState &state)
 					m_config.bottom_in_max))
 			? (m_bottom_qs.in_queued - m_config.bottom_in_max) : 0;
 		bounds[ncopy].upper = (!m_config.bottom_async &&
+				       m_bottom_qs.in_queued &&
 				       (m_bottom_qs.in_queued <
 					m_config.filter_packet_samps))
 			? m_config.filter_packet_samps : m_bottom_qs.in_queued;
@@ -725,6 +726,8 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState &state)
 		bounds[ncopy++].over_cost = 2;
 
 		bounds[ncopy].lower = (m_config.top_async &&
+				       (m_config.bottom_async ||
+					m_bottom_qs.in_queued) &&
 				       (m_top_qs.out_queued <
 					m_config.top_out_min))
 			? (m_config.top_out_min - m_top_qs.out_queued) : 0;
@@ -741,6 +744,7 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState &state)
 					m_config.top_in_max))
 			? (m_top_qs.in_queued - m_config.top_in_max) : 0;
 		bounds[ncopy].upper = (!m_config.top_async &&
+				       m_top_qs.in_queued &&
 				       (m_top_qs.in_queued <
 					m_config.filter_packet_samps))
 			? m_config.filter_packet_samps : m_top_qs.in_queued;
@@ -748,6 +752,8 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState &state)
 		bounds[ncopy].under_cost = 1;
 		bounds[ncopy++].over_cost = 2;
 		bounds[ncopy].lower = (m_config.bottom_async &&
+				       (m_config.top_async ||
+					m_top_qs.in_queued) &&
 				       (m_bottom_qs.out_queued <
 					m_config.bottom_out_min))
 			? (m_config.bottom_out_min -
@@ -951,8 +957,12 @@ done_copyback:
 	memcpy(m_ti_last, tws.in_silence, sizeof(m_ti_last));
 	memcpy(m_to_last, tws.out_silence, sizeof(m_to_last));
 
-	/* If silence padding is required, do it */
-	if (m_config.pump_up) {
+	/*
+	 * If silence padding is required, do it
+	 * Don't silence-pad if a remove-on-exhaust source is empty.
+	 */
+	if (m_config.pump_up &&
+	    (!m_config.bottom_roe || m_bottom_qs.in_queued)) {
 		nadj = m_top_qs.out_queued;
 		if (nadj < m_config.top_out_min) {
 			if (loss_debug && m_config.warn_loss) {
@@ -972,7 +982,8 @@ done_copyback:
 			did_loss = true;
 		}
 	}
-	if (m_config.pump_down) {
+	if (m_config.pump_down &&
+	    (!m_config.top_roe || m_top_qs.in_queued)) {
 		nadj = m_bottom_qs.out_queued;
 		if (nadj < m_config.bottom_out_min) {
 			if (loss_debug && m_config.warn_loss) {
@@ -1011,9 +1022,9 @@ done_copyback:
 	 */
 	if ((m_config.top_roe &&
 	     (!m_config.pump_up || tws.out_drop) &&
-	     (!m_config.pump_down || tws.in_silencepad)) ||
+	     (!m_config.pump_down || (!ncopy && m_bottom_qs.out_underflow))) ||
 	    (m_config.bottom_roe &&
-	     (!m_config.pump_up || bws.in_silencepad) &&
+	     (!m_config.pump_up || (!ncopy && m_top_qs.out_underflow)) &&
 	     (!m_config.pump_down || bws.out_drop))) {
 		ErrorInfo error;
 		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
@@ -1146,10 +1157,10 @@ AsyncStopped(SoundIo *subp, ErrorInfo &error)
 }
 
 bool SoundIoPump::
-WatchdogThreshold(sio_sampnum_t &count, char &strikes, const char *name,
+WatchdogThreshold(sio_sampnum_t &count, int8_t &strikes, const char *name,
 		  ErrorInfo &error)
 {
-	char res = 0;
+	int8_t res = 0;
 
 	if (count < m_config.watchdog_min_progress) {
 		GetDi()->LogDebug("SoundIoPump: %s underprocessed (%d < %d)",

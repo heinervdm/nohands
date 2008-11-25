@@ -131,9 +131,9 @@ public:
 	bool CallTransfer(DBusMessage *msgp);
 
 	/* D-Bus Property related methods */
-	bool GetState(DBusMessage *msgp, unsigned char &val);
-	bool GetCallState(DBusMessage *msgp, unsigned char &val);
-	bool GetAudioState(DBusMessage *msgp, unsigned char &val);
+	bool GetState(DBusMessage *msgp, uint8_t &val);
+	bool GetCallState(DBusMessage *msgp, uint8_t &val);
+	bool GetAudioState(DBusMessage *msgp, uint8_t &val);
 	bool GetClaimed(DBusMessage *msgp, bool &val);
 	bool GetVoluntaryDisconnect(DBusMessage *msgp, bool &val);
 	bool GetAddress(DBusMessage *msgp, const DbusProperty *propp,
@@ -183,11 +183,11 @@ static const DbusMethod g_AudioGateway_signals[] = {
  * representation, so we use a raw get method.
  */
 static const DbusProperty g_AudioGateway_properties[] = {
-	DbusPropertyMarshallImmutable(unsigned char, State, AudioGateway,
+	DbusPropertyMarshallImmutable(uint8_t, State, AudioGateway,
 				      GetState),
-	DbusPropertyMarshallImmutable(unsigned char, CallState, AudioGateway,
+	DbusPropertyMarshallImmutable(uint8_t, CallState, AudioGateway,
 				      GetCallState),
-	DbusPropertyMarshallImmutable(unsigned char, AudioState, AudioGateway,
+	DbusPropertyMarshallImmutable(uint8_t, AudioState, AudioGateway,
 				      GetAudioState),
 	DbusPropertyMarshallImmutable(bool, Claimed, AudioGateway,
 				      GetClaimed),
@@ -293,8 +293,8 @@ public:
 	bool GetSystemState(DBusMessage *msgp, bool &val);
 	bool GetAutoRestart(DBusMessage *msgp, bool &val);
 	bool SetAutoRestart(DBusMessage *msgp, const bool &val, bool &doreply);
-	bool GetSecMode(DBusMessage *msgp, unsigned char &val);
-	bool SetSecMode(DBusMessage *msgp, const unsigned char &val,
+	bool GetSecMode(DBusMessage *msgp, uint8_t &val);
+	bool SetSecMode(DBusMessage *msgp, const uint8_t &val,
 			bool &doreply);
 	bool GetAcceptUnknown(DBusMessage *msgp, bool &val);
 	bool SetAcceptUnknown(DBusMessage *msgp, const bool &val,
@@ -352,7 +352,7 @@ static const DbusProperty g_HandsFree_properties[] = {
 				      GetSystemState),
 	DbusPropertyMarshall(bool, AutoRestart, HandsFree,
 			     GetAutoRestart, SetAutoRestart),
-	DbusPropertyMarshall(unsigned char, SecMode, HandsFree,
+	DbusPropertyMarshall(uint8_t, SecMode, HandsFree,
 			     GetSecMode, SetSecMode),
 	DbusPropertyMarshall(bool, AcceptUnknown, HandsFree,
 			     GetAcceptUnknown, SetAcceptUnknown),
@@ -404,6 +404,10 @@ public:
 
 	AudioGateway			*m_bound_ag;
 
+	libhfp::SoundIoFilter		*m_snoop;
+	libhfp::SoundIo			*m_snoop_ep;
+	char				*m_snoop_filename;
+
 	libhfp::DispatchInterface *GetDi(void) const { return m_hf->GetDi(); }
 
 
@@ -415,6 +419,7 @@ public:
 
 	bool Init(DbusSession *dbusp);
 	void Cleanup(void);
+	void CleanupSnoop(void);
 	bool UpdateState(SoundIoState st, libhfp::ErrorInfo *reason = 0);
 
 	/*
@@ -427,6 +432,8 @@ public:
 			    libhfp::ErrorInfo *error);
 	bool EpAudioGatewayComplete(AudioGateway *agp,
 				    libhfp::ErrorInfo *error);
+	bool EpFile(const char *filename, bool writing,
+		    libhfp::ErrorInfo *error);
 	bool EpLoopback(libhfp::ErrorInfo *error);
 	bool EpMembuf(bool in, bool out, libhfp::SoundIoFilter *fltp,
 		      libhfp::ErrorInfo *error);
@@ -441,16 +448,19 @@ public:
 	bool ProbeDevices(DBusMessage *msgp);
 	bool Stop(DBusMessage *msgp);
 	bool AudioGatewayStart(DBusMessage *msgp);
+	bool FileStart(DBusMessage *msgp);
 	bool LoopbackStart(DBusMessage *msgp);
 	bool MembufClear(DBusMessage *msgp);
 	bool MembufStart(DBusMessage *msgp);
+	bool SetSnoopFile(DBusMessage *msgp);
 
 	/* D-Bus SoundIo property related methods */
-	bool GetState(DBusMessage *msgp, unsigned char &val);
+	bool GetState(DBusMessage *msgp, uint8_t &val);
 	bool GetAudioGateway(DBusMessage *msgp, const DbusProperty *propp,
 			     DBusMessageIter &mi);
 	bool GetMute(DBusMessage *msgp, bool &val);
 	bool SetMute(DBusMessage *msgp, const bool &val, bool &doreply);
+	bool GetSnoopFileName(DBusMessage *msgp, const char * &val);
 	bool GetDrivers(DBusMessage *msgp, const DbusProperty *propp,
 			     DBusMessageIter &mi);
 	bool GetDriverName(DBusMessage *msgp, const char * &val);
@@ -494,9 +504,11 @@ static const DbusMethod g_SoundIo_methods[] = {
 	DbusMethodEntry(SoundIoObj, ProbeDevices, "s", "a(ss)"),
 	DbusMethodEntry(SoundIoObj, Stop, "", ""),
 	DbusMethodEntry(SoundIoObj, AudioGatewayStart, "ob", ""),
+	DbusMethodEntry(SoundIoObj, FileStart, "sb", ""),
 	DbusMethodEntry(SoundIoObj, LoopbackStart, "", ""),
 	DbusMethodEntry(SoundIoObj, MembufStart, "bbuu", ""),
 	DbusMethodEntry(SoundIoObj, MembufClear, "", ""),
+	DbusMethodEntry(SoundIoObj, SetSnoopFile, "sbb", ""),
 	{ 0, }
 };
 
@@ -511,11 +523,13 @@ static const DbusMethod g_SoundIo_signals[] = {
 };
 
 static const DbusProperty g_SoundIo_properties[] = {
-	DbusPropertyMarshallImmutable(unsigned char, State, SoundIoObj,
+	DbusPropertyMarshallImmutable(uint8_t, State, SoundIoObj,
 				      GetState),
 	DbusPropertyRawImmutable("v", AudioGateway, SoundIoObj,
 				 GetAudioGateway),
 	DbusPropertyMarshall(bool, Mute, SoundIoObj, GetMute, SetMute),
+	DbusPropertyMarshallImmutable(const char *, SnoopFileName, SoundIoObj,
+				      GetSnoopFileName),
 	DbusPropertyRawImmutable("a(ss)", Drivers, SoundIoObj,
 				 GetDrivers),
 	DbusPropertyMarshallImmutable(const char *, DriverName, SoundIoObj,

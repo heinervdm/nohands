@@ -205,10 +205,15 @@ public:
 		fillme.m_data = m_sink_buf.GetSpace(nbytes);
 	}
 
-	void CheckOBuf(const uint8_t *buf, size_t len) {
+	void CheckOBuf(const uint8_t *ibuf, size_t ilen) {
 		int subsamp, bpr, count = 0;
+		const uint8_t *buf;
+		size_t len;
 		bool last_mismatch = false;
+		int mismatch_count = 0;
 
+		buf = ibuf;
+		len = ilen;
 		bpr = m_fmt.bytes_per_record;
 		assert(!(len % bpr));
 
@@ -224,6 +229,7 @@ public:
 				}
 				m_sink_seq = buf[0];
 				last_mismatch = true;
+				mismatch_count++;
 			} else {
 				last_mismatch = false;
 			}
@@ -236,6 +242,7 @@ public:
 						"expect: 0x%02x got: 0x%02x\n",
 						m_name, subsamp, m_sink_seq,
 						buf[subsamp]);
+					mismatch_count++;
 				}
 			}
 
@@ -307,15 +314,56 @@ public:
 };
 
 
+void
+run_test(SoundIoPump *pump, SoundIoTestEp *bot, SoundIoTestEp *top,
+	 SoundIoTestEp *div)
+{
+	bool res;
+	int i;
+
+	res = bot->SndOpen(true, true);
+	assert(res);
+	res = top->SndOpen(true, true);
+	assert(res);
+	res = pump->Start();
+	assert(res);
+	assert(bot->SndIsAsyncStarted());
+
+	for (i = 0; i < 10000; i++) {
+		bot->FillOutput();
+		bot->ConsumeInput();
+		bot->DoAsync();
+	
+		top->FillOutput();
+		top->ConsumeInput();
+		top->DoAsync();
+
+		if (div)
+			div->ConsumeInput();
+
+		assert(pump->IsStarted());
+	}
+
+	pump->Stop();
+	bot->SndClose();
+	top->SndClose();
+}
+
 int
 main(int argc, char **argv)
 {
 	IndepEventDispatcher disp;
-	SoundIoTestEp top("Top", 10000), bot("Bot", 10000);
+	SoundIoTestEp top("Top", 10000), bot("Bot", 10000), div("Div", 10000);
 	SoundIoPump pump(&disp, &bot);
+	SoundIoFilter *fltp, *snoopp;
 	SoundIoFormat xfmt;
 	bool res;
-	int i;
+
+	fltp = SoundIoFltCreateDummy();
+	assert(fltp);
+
+	snoopp = SoundIoCreateSnooper(&div, true, false);
+	assert(snoopp);
 
 	xfmt.samplerate = 10000;
 	xfmt.sampletype = SIO_PCM_U8;
@@ -327,31 +375,16 @@ main(int argc, char **argv)
 	top.SndSetFormat(xfmt);
 	res = pump.SetTop(&top);
 	assert(res);
-	res = bot.SndOpen(true, true);
+
+	res = pump.AddBottom(fltp);
 	assert(res);
-	res = top.SndOpen(true, true);
+
+	run_test(&pump, &bot, &top, 0);
+
+	res = pump.AddBottom(snoopp);
 	assert(res);
-	res = pump.Start();
-	assert(res);
-	assert(bot.SndIsAsyncStarted());
 
-	for (i = 0; i < 10000; i++) {
-
-		if (i == 309)
-			printf("Hi\n");
-
-		bot.FillOutput();
-		bot.ConsumeInput();
-		bot.DoAsync();
-	
-		top.FillOutput();
-		top.ConsumeInput();
-		top.DoAsync();
-
-		assert(pump.IsStarted());
-	}
-
-	pump.Stop();
+	run_test(&pump, &bot, &top, &div);
 
 	return 0;
 }

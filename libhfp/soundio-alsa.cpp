@@ -829,6 +829,10 @@ public:
 	virtual ~SoundIoAlsaProc() {}
 
 	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
+		if (play)
+			m_alsa.m_play_props.bufsize = 0;
+		if (capture)
+			m_alsa.m_rec_props.bufsize = 0;
 		if (m_alsa.OpenDevice(SND_PCM_ACCESS_RW_INTERLEAVED,
 				      play, capture, error)) {
 			m_play_nonblock = false;
@@ -851,6 +855,10 @@ public:
 
 	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
 		SndAsyncStop();
+		if (m_alsa.m_play_handle)
+			m_alsa.m_play_props.bufsize = 0;
+		if (m_alsa.m_rec_handle)
+			m_alsa.m_rec_props.bufsize = 0;
 		if (m_alsa.Reconfigure(&format,
 				       SND_PCM_ACCESS_RW_INTERLEAVED, error)) {
 			OpenBuf();

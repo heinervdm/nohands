@@ -72,6 +72,8 @@ class OssSoundIo : public SoundIoBufferBase {
 	bool				m_play_nonblock;
 	bool				m_rec_nonblock;
 
+	bool				m_no_interrupts;
+	
 	SoundIoFormat			m_format;
 	sio_sampnum_t			m_obuf_size;
 
@@ -347,7 +349,8 @@ public:
 				(void) SetupOss(m_play_fh, m_format, 0);
 				return false;
 			}
-			if ((m_rec_fh != m_play_fh) &&
+			if ((m_rec_fh >= 0) &&
+			    (m_rec_fh != m_play_fh) &&
 			    !SetupOss(m_rec_fh, format, error)) {
 				(void) SetupOss(m_play_fh, m_format, 0);
 				(void) SetupOssPlayback(m_play_fh, m_format,0);
@@ -367,6 +370,9 @@ public:
 		ssize_t err;
 		int res;
 		ErrorInfo error;
+
+		if (m_rec_fh < 0)
+			return;
 
 		if (m_rec_nonblock != nonblock) {
 			if (!SetNonBlock(m_rec_fh, nonblock)) {
@@ -405,6 +411,9 @@ public:
 		ssize_t err;
 		int res;
 		ErrorInfo error;
+
+		if (m_play_fh < 0)
+			return;
 
 		if (m_play_nonblock != nonblock) {
 			if (!SetNonBlock(m_play_fh, nonblock)) {
@@ -445,6 +454,9 @@ public:
 
 	void AsyncProcess(SocketNotifier *notp, int fh) {
 		int delay = 0;
+		struct count_info count;
+		bool play_xrun = false;
+		bool rec_xrun = false;
 
 		if (m_play_fh >= 0) {
 			if (ioctl(m_play_fh, SNDCTL_DSP_GETODELAY,
@@ -455,10 +467,22 @@ public:
 			} else {
 				delay /= m_format.bytes_per_record;
 			}
+
+			if (ioctl(m_play_fh, SNDCTL_DSP_GETOPTR, &count) < 0) {
+				m_ei->LogWarn("OSS GETOPTR: %s",
+					      strerror(errno));
+			} else if (!count.blocks && !m_no_interrupts) {
+				m_ei->LogWarn("*** OSS playback xrun ***");
+				play_xrun = true;
+			}
+
 		}
 
-		SndPushInput(true);
-		BufProcess(delay, false, false);
+		if (m_rec_fh >= 0)
+			SndPushInput(true);
+
+		m_no_interrupts = false;
+		BufProcess(delay, rec_xrun, play_xrun);
 	}
 
 	virtual bool SndAsyncStart(bool playback, bool capture,
@@ -497,13 +521,14 @@ public:
 		if (!m_not) {
 			m_not = m_ei->NewSocket(capture
 						    ? m_rec_fh
-						    : m_play_fh, false);
+						    : m_play_fh, !capture);
 			if (!m_not) {
 				if (error)
 					error->SetNoMem();
 				return false;
 			}
 			m_not->Register(this, &OssSoundIo::AsyncProcess);
+			m_no_interrupts = true;
 		}
 		return true;
 	}

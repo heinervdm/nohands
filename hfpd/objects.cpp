@@ -367,7 +367,7 @@ AudioState(void)
 bool AudioGateway::
 UpdateState(AudioGatewayState st)
 {
-	const unsigned char state = (char) st;
+	const uint8_t state = (uint8_t) st;
 	dbus_bool_t dc;
 
 	dc = ((st == HFPD_AG_DISCONNECTED) &&
@@ -388,7 +388,7 @@ UpdateState(AudioGatewayState st)
 bool AudioGateway::
 UpdateCallState(AudioGatewayCallState st)
 {
-	const unsigned char state = (char) st;
+	const uint8_t state = (uint8_t) st;
 	if ((st != m_call_state) &&
 	    !SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
 			    "CallStateChanged",
@@ -403,7 +403,7 @@ UpdateCallState(AudioGatewayCallState st)
 bool AudioGateway::
 UpdateAudioState(AudioGatewayAudioState st)
 {
-	const unsigned char state = (char) st;
+	const uint8_t state = (uint8_t) st;
 	if ((st != m_audio_state) &&
 	    !SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
 			    "AudioStateChanged",
@@ -813,21 +813,21 @@ CallTransfer(DBusMessage *msgp)
 
 
 bool AudioGateway::
-GetState(DBusMessage *msgp, unsigned char &val)
+GetState(DBusMessage *msgp, uint8_t &val)
 {
 	val = State();
 	return true;
 }
 
 bool AudioGateway::
-GetCallState(DBusMessage *msgp, unsigned char &val)
+GetCallState(DBusMessage *msgp, uint8_t &val)
 {
 	val = CallState();
 	return true;
 }
 
 bool AudioGateway::
-GetAudioState(DBusMessage *msgp, unsigned char &val)
+GetAudioState(DBusMessage *msgp, uint8_t &val)
 {
 	val = AudioState();
 	return true;
@@ -1856,14 +1856,14 @@ SetAutoRestart(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
-GetSecMode(DBusMessage *msgp, unsigned char &val)
+GetSecMode(DBusMessage *msgp, uint8_t &val)
 {
 	val = m_hfp->GetSecMode();
 	return true;
 }
 
 bool HandsFree::
-SetSecMode(DBusMessage *msgp, const unsigned char &val, bool &doreply)
+SetSecMode(DBusMessage *msgp, const uint8_t &val, bool &doreply)
 {
 	ErrorInfo error;
 	rfcomm_secmode_t old;
@@ -2157,7 +2157,8 @@ SoundIoObj(HandsFree *hfp)
 	  m_state(HFPD_SIO_DECONFIGURED), m_state_sent(HFPD_SIO_DECONFIGURED),
 	  m_ringtone(0), m_sigproc(0),
 	  m_membuf(0), m_membuf_size(0),
-	  m_config(hfp->m_config)
+	  m_config(hfp->m_config),
+	  m_snoop(0), m_snoop_ep(0), m_snoop_filename(0)
 {
 }
 
@@ -2271,6 +2272,7 @@ failed:
 void SoundIoObj::
 Cleanup(void)
 {
+	CleanupSnoop();
 	if (GetDbusSession()) {
 		GetDbusSession()->UnexportObject(this);
 	}
@@ -2281,6 +2283,24 @@ Cleanup(void)
 	if (m_sigproc) {
 		delete m_sigproc;
 		m_sigproc = 0;
+	}
+}
+
+void SoundIoObj::
+CleanupSnoop(void)
+{
+	if (m_snoop) {
+		m_sound->RemoveFilter(m_snoop);
+		delete m_snoop;
+		m_snoop = 0;
+	}
+	if (m_snoop_ep) {
+		delete m_snoop_ep;
+		m_snoop_ep = 0;
+	}
+	if (m_snoop_filename) {
+		free(m_snoop_filename);
+		m_snoop_filename = 0;
 	}
 }
 
@@ -2313,7 +2333,9 @@ UpdateState(SoundIoState st, ErrorInfo *reason)
 			return false;
 	}
 
-	if (reason) {
+	if (reason &&
+	    !reason->Matches(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			     LIBHFP_ERROR_SOUNDIO_DATA_EXHAUSTED)) {
 		assert(st == HFPD_SIO_STOPPED);
 
 		/*
@@ -2344,7 +2366,9 @@ UpdateState(SoundIoState st, ErrorInfo *reason)
 void SoundIoObj::
 EpRelease(SoundIoState st, ErrorInfo *reason)
 {
+	SoundIo *ep;
 	SoundIoFilter *fltp;
+	bool res;
 
 	if (st == HFPD_SIO_INVALID)
 		st = m_state;
@@ -2353,23 +2377,37 @@ EpRelease(SoundIoState st, ErrorInfo *reason)
 	case HFPD_SIO_STOPPED:
 		assert(!m_sound->IsStarted());
 		assert(!m_sound->GetSecondary());
+		assert(m_sound->IsDspEnabled());
 		assert(!m_bound_ag);
 		break;
 	case HFPD_SIO_AUDIOGATEWAY:
 		assert(m_bound_ag);
 		assert(m_sound->GetSecondary() == m_bound_ag->GetSoundIo());
+		assert(m_sound->IsDspEnabled());
 		m_sound->Stop();
 		m_sound->SetSecondary(0);
 		/* fall-thru */
 	case HFPD_SIO_AUDIOGATEWAY_CONNECTING:
 		assert(m_bound_ag);
 		assert(!m_sound->GetSecondary());
+		assert(m_sound->IsDspEnabled());
 		if (m_bound_ag->m_audio_bind == this)
 			m_bound_ag->m_audio_bind = 0;
 		m_bound_ag->GetSoundIo()->SndClose();
 		m_bound_ag->NotifyAudioConnection(0, 0);
 		m_bound_ag->Put();
 		m_bound_ag = 0;
+		break;
+	case HFPD_SIO_FILE:
+		ep = m_sound->GetSecondary();
+		assert(ep);
+		m_sound->Stop();
+		m_sound->SetSecondary(0);
+		assert(!m_sound->IsDspEnabled());
+		res = m_sound->SetDspEnabled(true);
+		assert(res);
+		ep->SndClose();
+		delete ep;
 		break;
 	case HFPD_SIO_LOOPBACK:
 		assert(!m_sound->GetSecondary());
@@ -2480,6 +2518,57 @@ EpAudioGatewayComplete(AudioGateway *agp, ErrorInfo *error)
 	}
 
 	(void) UpdateState(HFPD_SIO_AUDIOGATEWAY);
+	return true;
+}
+
+bool SoundIoObj::
+EpFile(const char *filename, bool writing, libhfp::ErrorInfo *error)
+{
+	static const SoundIoFormat file_out_fmt = {
+		SIO_PCM_S16_LE,
+		8000,
+		0,
+		1,
+		2
+	};
+
+	SoundIoFormat xfmt;
+	SoundIo *ep;
+	bool res;
+
+	ep = SoundIoCreateFileHandler(GetDi(), filename, writing, error);
+	if (!ep)
+		return false;
+
+	if (writing) {
+		memcpy(&xfmt, &file_out_fmt, sizeof(xfmt));
+		if (!ep->SndSetFormat(xfmt, error)) {
+			delete ep;
+			return false;
+		}
+	}
+
+	if (!ep->SndOpen(writing, !writing, error)) {
+		delete ep;
+		return false;
+	}
+
+	if (m_state != HFPD_SIO_STOPPED)
+		EpRelease();
+	assert(m_state == HFPD_SIO_STOPPED);
+	EpRelease();		/* Call again to run the assertions */
+
+	res = m_sound->SetDspEnabled(false);
+	assert(res);
+	res = m_sound->SetSecondary(ep);
+	assert(res);
+	if (!m_sound->Start(false, false, error)) {
+		GetDi()->LogWarn("Could not start stream in file %s mode",
+				 writing ? "capture" : "playback");
+		EpRelease(HFPD_SIO_FILE);
+		return false;
+	}
+	(void) UpdateState(HFPD_SIO_FILE);
 	return true;
 }
 
@@ -2772,6 +2861,35 @@ AudioGatewayStart(DBusMessage *msgp)
 }
 
 bool SoundIoObj::
+FileStart(DBusMessage *msgp)
+{
+	DBusMessageIter mi;
+	char *filename;
+	dbus_bool_t for_write;
+	ErrorInfo error;
+	bool res;
+
+	res = dbus_message_iter_init(msgp, &mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_STRING);
+	dbus_message_iter_get_basic(&mi, &filename);
+	res = dbus_message_iter_next(&mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BOOLEAN);
+	dbus_message_iter_get_basic(&mi, &for_write);
+
+	if (!EpFile(filename, for_write, &error))
+		return SendReplyErrorInfo(msgp, error);
+
+	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
+		EpRelease();
+		return false;
+	}
+
+	return true;
+}
+
+bool SoundIoObj::
 LoopbackStart(DBusMessage *msgp)
 {
 	ErrorInfo error;
@@ -2871,9 +2989,79 @@ MembufStart(DBusMessage *msgp)
 	return true;
 }
 
+bool SoundIoObj::
+SetSnoopFile(DBusMessage *msgp)
+{
+	DBusMessageIter mi;
+	char *filename, *fncopy;
+	dbus_bool_t in, out;
+	ErrorInfo error;
+	SoundIo *ep;
+	SoundIoFilter *fltp;
+	bool res;
+
+	res = dbus_message_iter_init(msgp, &mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_STRING);
+	dbus_message_iter_get_basic(&mi, &filename);
+	res = dbus_message_iter_next(&mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BOOLEAN);
+	dbus_message_iter_get_basic(&mi, &in);
+	res = dbus_message_iter_next(&mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BOOLEAN);
+	dbus_message_iter_get_basic(&mi, &out);
+
+	if (!filename || !filename[0]) {
+		if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID))
+			return false;
+		CleanupSnoop();
+		return true;
+	}
+
+	fncopy = strdup(filename);
+	if (!fncopy)
+		return false;
+
+	ep = SoundIoCreateFileHandler(GetDi(), fncopy, true, &error);
+	if (!ep) {
+		free(fncopy);
+		return SendReplyErrorInfo(msgp, error);
+	}
+
+	fltp = SoundIoCreateSnooper(ep, in, out);
+	if (!fltp) {
+		delete ep;
+		free(fncopy);
+		return false;
+	}
+
+	if (!m_sound->AddBottom(fltp, &error)) {
+		delete fltp;
+		delete ep;
+		free(fncopy);
+		return SendReplyErrorInfo(msgp, error);
+	}
+
+	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
+		m_sound->RemoveFilter(fltp);
+		delete fltp;
+		delete ep;
+		free(fncopy);
+		return false;
+	}
+
+	CleanupSnoop();
+	m_snoop = fltp;
+	m_snoop_ep = ep;
+	m_snoop_filename = fncopy;
+	return true;
+}
+
 
 bool SoundIoObj::
-GetState(DBusMessage *msgp, unsigned char &val)
+GetState(DBusMessage *msgp, uint8_t &val)
 {
 	val = m_state;
 	return true;
@@ -2934,6 +3122,15 @@ SetMute(DBusMessage *msgp, const bool &val, bool &doreply)
 			      "MuteChanged",
 			      DBUS_TYPE_BOOLEAN, &st,
 			      DBUS_TYPE_INVALID);
+	return true;
+}
+
+bool SoundIoObj::
+GetSnoopFileName(DBusMessage *msgp, const char * &val)
+{
+	val = m_snoop_filename;
+	if (!val)
+		val = "";
 	return true;
 }
 

@@ -432,6 +432,8 @@ public:
 
 	void SndClose(void) {
 		if (IsOpen()) {
+			if (m_write && m_offset)
+				(void) FlushPage();
 			afCloseFile(m_handle);
 			m_handle = AF_NULL_FILEHANDLE;
 		}
@@ -487,19 +489,35 @@ public:
 			afSeekFrame(m_handle, m_track, fc + samps);
 	}
 
+	bool FlushPage() {
+		int res;
+		if (m_offset) {
+			res = afWriteFrames(m_handle, m_track,
+					    m_buf, m_offset);
+			if (res <= 0)
+				return false;
+			assert(res <= (int) m_offset);
+		}
+		m_offset = 0;
+		return true;
+	}
+
 	void SndGetOBuf(SoundIoBuffer &map) {
 		if (!IsOpen() || !m_write) {
 			map.m_size = 0;
 			return;
 		}
-		/* TODO */
-		abort();
+
+		if (!map.m_size || (map.m_size > (m_buf_size - m_offset)))
+			map.m_size = m_buf_size - m_offset;
+		map.m_data = m_buf + (m_offset * m_fmt.bytes_per_record);
 	}
 
 	void SndQueueOBuf(sio_sampnum_t samps) {
-		assert(samps <= (m_length - m_offset));
-		/* TODO */
-		abort();
+		assert(samps <= (m_buf_size - m_offset));
+		m_offset += samps;
+		if (m_offset == m_buf_size)
+			(void) FlushPage();
 	}
 
 	void SndGetQueueState(SoundIoQueueState &qs) {
@@ -525,9 +543,8 @@ public:
 	void SndAsyncStop(void) {}
 	bool SndIsAsyncStarted(void) const { return false; }
 
-	SoundIoAudioFile(DispatchInterface *ei,
-			 const char *filename, bool create)
-		: m_ei(ei), m_filename(strdup(filename)), m_create(create),
+	SoundIoAudioFile(DispatchInterface *ei, char *filename, bool create)
+		: m_ei(ei), m_filename(filename), m_create(create),
 		  m_handle(AF_NULL_FILEHANDLE), m_buf(0), m_buf_size(0) {
 		memset(&m_fmt, 0, sizeof(m_fmt));
 	}
@@ -543,15 +560,209 @@ public:
 
 SoundIo *
 SoundIoCreateFileHandler(DispatchInterface *ei,
-			 const char *filename, bool create)
+			 const char *filename, bool create, ErrorInfo *error)
 {
-	SoundIo *siop = NULL;
-	if (!filename) return NULL;
+	SoundIo *siop = 0;
+
+	if (!filename || !filename[0]) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_EVENTS,
+				   LIBHFP_ERROR_EVENTS_BAD_PARAMETER,
+				   "Empty filename specified for audiofile");
+		return 0;
+	}
+
 #if defined(USE_AUDIOFILE)
-	siop = new SoundIoAudioFile(ei, filename, create);
-#endif
+	{
+		char *xfn;
+		xfn = strdup(filename);
+		if (!xfn) {
+			if (error)
+				error->SetNoMem();
+			return 0;
+		}
+		siop = new SoundIoAudioFile(ei, xfn, create);
+		if (!siop) {
+			free(xfn);
+			if (error)
+				error->SetNoMem();
+		}
+	}
 	return siop;
+#endif
+
+	if (error)
+		error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			   LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
+			   "Support for libaudiofile omitted");
+	return 0;
 }
+
+
+class SoundIoSnooper : public SoundIoFilter {
+	SoundIo		*m_output;
+	uint8_t		*m_buf;
+	bool		m_half;
+	SoundIoFormat	m_fmt;
+	bool		m_open;
+	bool		m_no_up, m_no_dn;
+
+public:
+	SoundIoSnooper(SoundIo *target, bool up, bool dn)
+		: m_output(target), m_buf(0), m_half(false),
+		  m_open(false), m_no_up(!up), m_no_dn(!dn) {}
+	~SoundIoSnooper() {}
+
+	virtual bool FltPrepare(SoundIoFormat const &fmt,
+				bool up, bool dn, ErrorInfo *error) {
+		SoundIoFormat fmt_copy(fmt);
+
+		if (up && !m_no_up && dn && !m_no_dn) {
+			switch (fmt.sampletype) {
+			case SIO_PCM_U8:
+			case SIO_PCM_S16_LE:
+				break;
+			default:
+				if (error)
+					error->Set(
+						LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					LIBHFP_ERROR_SOUNDIO_FORMAT_UNKNOWN,
+						"Format not recognized by "
+						"snooper");
+				return false;
+			}
+			m_buf = (uint8_t *) malloc(fmt.packet_samps *
+						   fmt.bytes_per_record);
+			if (!m_buf) {
+				if (error)
+					error->SetNoMem();
+				return false;
+			}
+		}
+
+		if ((up && !m_no_up) || (dn && !m_no_dn)) {
+			if (!m_output->SndSetFormat(fmt_copy, error) ||
+			    !m_output->SndOpen(true, false, error)) {
+				if (m_buf) {
+					free(m_buf);
+					m_buf = 0;
+				}
+				return false;
+			}
+			m_open = true;
+		}
+
+		m_fmt = fmt;
+		return true;
+	}
+
+	virtual void FltCleanup(void) {
+		if (m_open) {
+			m_output->SndClose();
+			m_open = false;
+		}
+		if (m_buf) {
+			free(m_buf);
+			m_buf = 0;
+		}
+	}
+
+	void MixBuffer(const uint8_t *buf, sio_sampnum_t size) {
+		size *= m_fmt.nchannels;
+
+		switch (m_fmt.sampletype) {
+		case SIO_PCM_U8: {
+			uint8_t *src = (uint8_t *) buf;
+			uint8_t *dest = (uint8_t *) m_buf;
+			int32_t tmp;
+			while (size) {
+				tmp = (((int) (*(src++)) - 128) +
+				       ((int) (*dest) - 128));
+				if (tmp < -128)
+					tmp = -128;
+				if (tmp > 127)
+					tmp = 127;
+				*(dest++) = tmp + 128;
+				size--;
+			}
+			break;
+		}
+		case SIO_PCM_S16_LE: {
+			int16_t *src = (int16_t *) buf;
+			int16_t *dest = (int16_t *) m_buf;
+			int32_t tmp;
+			while (size) {
+				tmp = *(src++) + *dest;
+				if (tmp < -32768)
+					tmp = -32768;
+				if (tmp > 32767)
+					tmp = -32767;
+				*(dest++) = tmp;
+				size--;
+			}
+			break;
+		}
+		default:
+			abort();
+		}
+	}
+
+	void OutputBuffer(const uint8_t *buf, sio_sampnum_t size) {
+		SoundIoBuffer xbuf;
+		while (size) {
+			xbuf.m_size = size;
+			m_output->SndGetOBuf(xbuf);
+			if (!xbuf.m_size)
+				/* Uh-oh! */
+				return;
+
+			memcpy(xbuf.m_data,
+			       buf,
+			       xbuf.m_size * m_fmt.bytes_per_record);
+			m_output->SndQueueOBuf(xbuf.m_size);
+			size -= xbuf.m_size;
+			buf += (xbuf.m_size * m_fmt.bytes_per_record);
+		}
+	}
+
+	virtual SoundIoBuffer const *FltProcess(bool up,
+						SoundIoBuffer const &src,
+						SoundIoBuffer &dest) {
+		if (!m_buf) {
+			if ((up && !m_no_up) || (!up && !m_no_dn)) {
+				assert(m_open);
+				OutputBuffer(src.m_data, src.m_size);
+			}
+			return &src;
+		}
+
+		assert(!m_no_up && !m_no_dn);
+
+		if (!up) {
+			assert(!m_half);
+			memcpy(m_buf,
+			       src.m_data,
+			       src.m_size * m_fmt.bytes_per_record);
+			m_half = true;
+			return &src;
+		}
+
+		assert(m_half);
+		m_half = 0;
+		MixBuffer(src.m_data, src.m_size);
+		OutputBuffer(m_buf, src.m_size);
+		return &src;
+	}
+};
+
+SoundIoFilter *
+SoundIoCreateSnooper(SoundIo *target, bool up, bool dn)
+{
+	assert(target);
+	assert(up || dn);
+	return new SoundIoSnooper(target, up, dn);
+}
+
 
 
 #if defined(USE_SPEEXDSP)
