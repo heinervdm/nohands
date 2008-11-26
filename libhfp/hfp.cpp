@@ -2044,7 +2044,7 @@ StartCommand(ErrorInfo *error)
 
 	GetDi()->LogDebug("<< %s", cmdp->m_command_text);
 
-	if (!sb.AppendFmt("%s\r\n", cmdp->m_command_text)) {
+	if (!sb.AppendFmt("%s\r", cmdp->m_command_text)) {
 		if (error)
 			error->SetNoMem();
 		return false;
