@@ -588,14 +588,13 @@ SoundIoCreateFileHandler(DispatchInterface *ei,
 				error->SetNoMem();
 		}
 	}
-	return siop;
 #endif
 
-	if (error)
+	if (!siop && error && !error->IsSet())
 		error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
 			   LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
 			   "Support for libaudiofile omitted");
-	return 0;
+	return siop;
 }
 
 
@@ -756,11 +755,16 @@ public:
 };
 
 SoundIoFilter *
-SoundIoCreateSnooper(SoundIo *target, bool up, bool dn)
+SoundIoCreateSnooper(SoundIo *target, bool up, bool dn, ErrorInfo *error)
 {
+	SoundIoFilter *fltp;
+
 	assert(target);
 	assert(up || dn);
-	return new SoundIoSnooper(target, up, dn);
+	fltp = new SoundIoSnooper(target, up, dn);
+	if (!fltp && error)
+		error->SetNoMem();
+	return fltp;
 }
 
 
@@ -997,13 +1001,22 @@ public:
 };
 #endif /* defined(USE_SPEEXDSP) */
 
-SoundIoFltSpeex *SoundIoFltCreateSpeex(DispatchInterface *ei)
+SoundIoFltSpeex *SoundIoFltCreateSpeex(DispatchInterface *ei,
+				       ErrorInfo *error)
 {
+	SoundIoFltSpeex *fltp;
+
 #if defined(USE_SPEEXDSP)
-	return new SoundIoFltSpeexImpl(ei);
-#else
-	return 0;
+	fltp = new SoundIoFltSpeexImpl(ei);
+	if (!fltp && error)
+		error->SetNoMem();
 #endif
+
+	if (!fltp && error && !error->IsSet())
+		error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			   LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
+			   "Support for speexdsp omitted");
+	return fltp;
 }
 
 

@@ -886,9 +886,14 @@ public:
  * @c false to ignore data streaming upward.
  * @param[in] dn Set to @c true to snoop audio data streaming downward,
  * @c false to ignore data streaming downward.
+ * @param[out] error Error information structure.  If this method
+ * fails and returns @c 0, and @em error is not 0, @em error
+ * will be filled out with information on the cause of the failure.
+ * Currently, the only reason for failure of this function is a memory
+ * allocation failure.
  *
  * @return A newly constructed snoop filter configured with the target
- * endpoint, or @c 0 on memory allocation failure.
+ * endpoint, or @c 0 on error
  *
  * @note The snoop filter does not perform any life cycle management on
  * the specified slave endpoint.  Clients are responsible for managing the
@@ -896,7 +901,8 @@ public:
  * snoop filter before destroying the slave endpoint.
  */
 extern SoundIoFilter *SoundIoCreateSnooper(SoundIo *target,
-					   bool up = true, bool dn = true);
+					   bool up = true, bool dn = true,
+					   ErrorInfo *error = 0);
 
 
 /**
@@ -952,6 +958,9 @@ public:
  *
  * @param[in] ei Pointer to dispatcher interface object for the environment.
  * This is used for logging errors.
+ * @param[out] error Error information structure.  If this method
+ * fails and returns @c 0, and @em error is not 0, @em error
+ * will be filled out with information on the cause of the failure.
  *
  * To use this filter:
  * -# Instantaite it with this function.
@@ -965,9 +974,10 @@ public:
  * configure it, see SoundIoSpeexProps and SoundIoFltSpeex::Configure().
  *
  * @return A newly constructed, unconfigured SoundIoFltSpeex object,
- * or NULL on error.
+ * or @c 0 on error.
  */
-SoundIoFltSpeex *SoundIoFltCreateSpeex(DispatchInterface *ei);
+extern SoundIoFltSpeex *SoundIoFltCreateSpeex(DispatchInterface *ei,
+					      ErrorInfo *error = 0);
 
 
 /**
