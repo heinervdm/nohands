@@ -645,6 +645,7 @@ CloseAudio(DBusMessage *msgp)
 	if (m_sess->SndIsAsyncStarted())
 		m_hf->m_sound->EpRelease();
 	m_sess->SndClose();
+	NotifyAudioConnection(m_sess, 0);
 
 	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
 }
