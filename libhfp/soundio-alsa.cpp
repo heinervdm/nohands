@@ -33,6 +33,8 @@
 #include <alsa/asoundlib.h>
 #endif
 
+#include "oplatency.h"
+
 /*
  * ALSA backend SoundIo implementation, including support for procedural
  * and mmap access.
@@ -363,6 +365,7 @@ public:
 	bool SetAvailMin(snd_pcm_t *pcmp, snd_pcm_uframes_t amin) {
 		int err;
 		snd_pcm_sw_params_t *swp;
+		OpLatencyMonitor lat(m_ei, "ALSA SetAvailMin");
 
 		snd_pcm_sw_params_alloca(&swp);
 
@@ -665,6 +668,7 @@ public:
 		struct pollfd *pollfds;
 		unsigned short revents;
 		int ndesc = 0, nused = 0, play_first;
+		OpLatencyMonitor lat(m_ei, "ALSA CheckNotifications");
 
 		if (m_rec_handle)
 			ndesc = snd_pcm_poll_descriptors_count(m_rec_handle);
@@ -875,6 +879,8 @@ public:
 		snd_pcm_sframes_t err, exp;
 
 		if (m_alsa.m_play_handle) {
+			OpLatencyMonitor lat(m_alsa.m_ei,
+					     "ALSA get playback queue state");
 			(void) snd_pcm_avail_update(m_alsa.m_play_handle);
 			err = snd_pcm_delay(m_alsa.m_play_handle, &exp);
 			if (err < 0) {
@@ -894,6 +900,7 @@ public:
 		uint8_t *buf;
 		snd_pcm_sframes_t exp, err;
 		ErrorInfo error;
+		OpLatencyMonitor lat(m_alsa.m_ei, "ALSA SndPushInput");
 
 		if (m_abort)
 			return;		/* Don't bother */
@@ -956,6 +963,7 @@ public:
 		uint8_t *buf;
 		ssize_t err;
 		ErrorInfo error;
+		OpLatencyMonitor lat(m_alsa.m_ei, "ALSA SndPushOutput");
 
 		if (m_abort)
 			return;		/* Don't bother */
@@ -1012,6 +1020,7 @@ public:
 		bool overrun = false, underrun = false;
 		int err;
 		snd_pcm_sframes_t exp = 0;
+		OpLatencyMonitor olat(m_alsa.m_ei, "ALSA async overall");
 
 		/*
 		 * We will explicitly test for xruns here.
@@ -1051,6 +1060,8 @@ public:
 		}
 
 		if (m_alsa.m_play_async) {
+			OpLatencyMonitor lat(m_alsa.m_ei,
+					     "ALSA check playback");
 			(void) snd_pcm_avail_update(m_alsa.m_play_handle);
 			underrun = m_alsa.m_play_xrun;
 			m_alsa.m_play_xrun = false;
