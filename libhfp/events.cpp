@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <unistd.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +29,22 @@
 #include <libhfp/events.h>
 
 namespace libhfp {
+
+bool
+SetNonBlock(int fh, bool nonblock)
+{
+	int flags = fcntl(fh, F_GETFL);
+	if (nonblock) {
+		if (flags & O_NONBLOCK) { return true; }
+		flags |= O_NONBLOCK;
+	} else {
+		if (!(flags & O_NONBLOCK)) { return true; }
+		flags &= ~O_NONBLOCK;
+	}
+
+	return (fcntl(fh, F_SETFL, flags) >= 0);
+}
+
 
 bool StringBuffer::
 Enlarge(void)

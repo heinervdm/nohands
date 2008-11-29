@@ -50,6 +50,8 @@ namespace libhfp {
  * condition through multiple layers of method calls.
  */
 
+extern bool SetNonBlock(int fh, bool nonblock);
+
 
 /**
  * @brief Dynamic-sized formatted string buffer

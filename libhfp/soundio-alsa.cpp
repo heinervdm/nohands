@@ -908,8 +908,13 @@ public:
 		if (m_rec_nonblock != nonblock) {
 			err = snd_pcm_nonblock(m_alsa.m_rec_handle, nonblock);
 			if (err < 0) {
-				m_alsa.m_ei->LogWarn("ALSA set nonblock: "
+				m_alsa.m_ei->LogWarn(&error,
+					     LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					     LIBHFP_ERROR_SOUNDIO_SYSCALL,
+						     "ALSA set rec nonblock: "
 						     "%ld", err);
+				BufAbort(m_alsa.m_ei, error);
+				return;
 			}
 			m_rec_nonblock = nonblock;
 		}
@@ -974,8 +979,13 @@ public:
 		if (m_play_nonblock != nonblock) {
 			err = snd_pcm_nonblock(m_alsa.m_play_handle, nonblock);
 			if (err < 0) {
-				m_alsa.m_ei->LogWarn("ALSA set nonblock: "
+				m_alsa.m_ei->LogWarn(&error,
+					     LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					     LIBHFP_ERROR_SOUNDIO_SYSCALL,
+						     "ALSA set play nonblock: "
 						     "%zd", err);
+				BufAbort(m_alsa.m_ei, error);
+				return;
 			}
 			m_play_nonblock = nonblock;
 		}
@@ -1640,13 +1650,22 @@ SoundIoGetDeviceListAlsa(ErrorInfo *error)
 
 #else  /* defined(USE_ALSA_SOUNDIO) */
 SoundIo *
-SoundIoCreateAlsa(DispatchInterface *dip, const char *devspec)
+SoundIoCreateAlsa(DispatchInterface *dip, const char *devspec,
+		  ErrorInfo *error)
 {
+	if (error)
+		error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			   LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
+			   "Support for ALSA omitted");
 	return 0;
 }
 SoundIoDeviceList *
-SoundIoGetDeviceListAlsa(void)
+SoundIoGetDeviceListAlsa(ErrorInfo *error)
 {
+	if (error)
+		error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			   LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
+			   "Support for ALSA omitted");
 	return 0;
 }
 #endif  /* defined(USE_ALSA_SOUNDIO) */

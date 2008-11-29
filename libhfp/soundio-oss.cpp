@@ -44,21 +44,6 @@ namespace libhfp {
 
 #if defined(USE_OSS_SOUNDIO)
 
-static bool
-SetNonBlock(int fh, bool nonblock)
-{
-	int flags = fcntl(fh, F_GETFL);
-	if (nonblock) {
-		if (flags & O_NONBLOCK) { return true; }
-		flags |= O_NONBLOCK;
-	} else {
-		if (!(flags & O_NONBLOCK)) { return true; }
-		flags &= ~O_NONBLOCK;
-	}
-
-	return (fcntl(fh, F_SETFL, flags) >= 0);
-}
-
 /*
  * Sound I/O routines for deprecated OSS.  Don't use this unless you have to.
  */
@@ -81,16 +66,10 @@ class OssSoundIo : public SoundIoBufferBase {
 	SocketNotifier			*m_not;
 
 public:
-	OssSoundIo(DispatchInterface *eip,
-		   const char *play_dev, const char *rec_dev)
+	OssSoundIo(DispatchInterface *eip, char *play_dev, char *rec_dev)
 		: m_play_fh(-1), m_rec_fh(-1),
-		  m_play_path(NULL), m_rec_path(NULL), m_obuf_size(0),
+		  m_play_path(play_dev), m_rec_path(rec_dev), m_obuf_size(0),
 		  m_ei(eip), m_not(NULL) {
-		if (play_dev)
-			m_play_path = strdup(play_dev);
-		if (rec_dev)
-			m_rec_path = strdup(rec_dev);
-
 		/* Set a default format */
 		memset(&m_format, 0, sizeof(m_format));
 		m_format.sampletype = SIO_PCM_S16_LE;
@@ -219,7 +198,7 @@ public:
 			m_ei->LogWarn(error,
 				      LIBHFP_ERROR_SUBSYS_SOUNDIO,
 				      LIBHFP_ERROR_SOUNDIO_SYSCALL,
-				      "OSS get output space: %s",
+				      "OSS GETOSPACE: %s",
 				      strerror(errno));
 			return false;
 		}
@@ -376,8 +355,13 @@ public:
 
 		if (m_rec_nonblock != nonblock) {
 			if (!SetNonBlock(m_rec_fh, nonblock)) {
-				m_ei->LogWarn("OSS set rec nonblock: %s",
+				m_ei->LogWarn(&error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "OSS set rec nonblock: %s",
 					      strerror(errno));
+				BufAbort(m_ei, error);
+				return;
 			}
 			m_rec_nonblock = nonblock;
 			if (m_play_fh == m_rec_fh)
@@ -417,8 +401,13 @@ public:
 
 		if (m_play_nonblock != nonblock) {
 			if (!SetNonBlock(m_play_fh, nonblock)) {
-				m_ei->LogWarn("OSS set play nonblock "
-					      "failed");
+				m_ei->LogWarn(&error,
+					      LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					      LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					      "OSS set play nonblock: %s",
+					      strerror(errno));
+				BufAbort(m_ei, error);
+				return;
 			}
 			m_play_nonblock = nonblock;
 			if (m_play_fh == m_rec_fh)
@@ -461,7 +450,7 @@ public:
 		if (m_play_fh >= 0) {
 			if (ioctl(m_play_fh, SNDCTL_DSP_GETODELAY,
 				  &delay) < 0) {
-				m_ei->LogWarn("OSS GETOSPACE: %s",
+				m_ei->LogWarn("OSS GETODELAY: %s",
 					      strerror(errno));
 				delay = m_hw_outq;
 			} else {
@@ -610,14 +599,33 @@ SoundIoCreateOss(DispatchInterface *dip, const char *driveropts,
 		tok = strtok_r(NULL, "&", &save);
 	}
 
-	ossp = new OssSoundIo(dip, outd, ind);
-
-	if (!ossp) {
+	tmp = strdup(outd);
+	if (!outd) {
+		free(tmp);
 		if (error)
 			error->SetNoMem();
-		return 0;
+		ossp = 0;
+		goto failed;
 	}
 
+	tok = strdup(ind);
+	if (!tok) {
+		if (error)
+			error->SetNoMem();
+		ossp = 0;
+		goto failed;
+	}
+
+	ossp = new OssSoundIo(dip, tmp, tok);
+	if (!ossp) {
+		free(tmp);
+		free(tok);
+		if (error)
+			error->SetNoMem();
+		goto failed;
+	}
+
+failed:
 	if (opts)
 		free(opts);
 	return ossp;
@@ -667,13 +675,22 @@ SoundIoGetDeviceListOss(ErrorInfo *error)
 
 #else  /* defined(USE_OSS_SOUNDIO) */
 SoundIo *
-SoundIoCreateOss(DispatchInterface *dip, const char *driveropts)
+SoundIoCreateOss(DispatchInterface *dip, const char *driveropts,
+		 ErrorInfo *error)
 {
+	if (error)
+		error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			   LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
+			   "Support for OSS omitted");
 	return 0;
 }
 SoundIoDeviceList *
-SoundIoGetDeviceInfoOss(void)
+SoundIoGetDeviceInfoOss(ErrorInfo *error)
 {
+	if (error)
+		error->Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+			   LIBHFP_ERROR_SOUNDIO_NOT_SUPPORTED,
+			   "Support for OSS omitted");
 	return 0;
 }
 #endif  /* defined(USE_OSS_SOUNDIO) */

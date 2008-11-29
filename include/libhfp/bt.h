@@ -36,8 +36,6 @@
 
 namespace libhfp {
 
-extern bool SetNonBlock(int fh, bool nonblock);
-
 /**
  * @defgroup hfp Bluetooth Hands-Free Profile Implementation
  *

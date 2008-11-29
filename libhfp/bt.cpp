@@ -50,22 +50,6 @@
 namespace libhfp {
 
 
-bool
-SetNonBlock(int fh, bool nonblock)
-{
-	int flags = fcntl(fh, F_GETFL);
-	if (nonblock) {
-		if (flags & O_NONBLOCK) { return true; }
-		flags |= O_NONBLOCK;
-	} else {
-		if (!(flags & O_NONBLOCK)) { return true; }
-		flags &= ~O_NONBLOCK;
-	}
-
-	return (fcntl(fh, F_SETFL, flags) >= 0);
-}
-
-
 /*
  * Communicating with SDP servers requires a lot more parsing logic
  * than using the HCI command/event interfaces.  The libbluetooth SDP
