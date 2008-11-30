@@ -99,6 +99,8 @@ private:
 
 	void Timeout(TimerNotifier*);
 
+	bool			m_sco_enable;
+
 	ListItem		m_autoreconnect_list;
 	int			m_autoreconnect_timeout;
 	bool			m_autoreconnect_set;
@@ -263,9 +265,13 @@ public:
 	 * -# Return the HfpSession.
 	 *
 	 * @param[in] devp BtDevice representing the target device.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @return The HfpSession object associated with raddr, which
-	 * is hopefully in the Connecting or Connected state.
+	 * is hopefully in the Connecting or Connected state, or @c 0
+	 * on failure.
 	 *
 	 * @note If a device is found or created successfully, it is
 	 * returned with an additional reference added to it, to prevent
@@ -275,7 +281,7 @@ public:
 	 *
 	 * @sa GetDevice(), HfpSession::Connect()
 	 */
-	HfpSession *Connect(BtDevice *devp);
+	HfpSession *Connect(BtDevice *devp, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Initiate a connection to an audio gateway device with
@@ -290,9 +296,13 @@ public:
 	 *
 	 * @param[in] addr Bluetooth address of the device to be created
 	 * and connected to.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @return The HfpSession object associated with raddr, which
-	 * is hopefully in the Connecting or Connected state.
+	 * is hopefully in the Connecting or Connected state, or @c 0
+	 * on failure.
 	 *
 	 * @note If a device is found or created successfully, it is
 	 * returned with an additional reference added to it, to prevent
@@ -302,7 +312,7 @@ public:
 	 *
 	 * @sa GetDevice(), HfpSession::Connect()
 	 */
-	HfpSession *Connect(bdaddr_t const &addr);
+	HfpSession *Connect(bdaddr_t const &addr, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Initiate a connection to an audio gateway device by
@@ -322,9 +332,13 @@ public:
 	 *
 	 * @param[in] addrstr Address of the device represented as a string,
 	 * e.g. "00:07:61:D2:55:37" but not "Motorola" or "Logitech."
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
 	 *
 	 * @return The HfpSession object associated with addrstr, which
-	 * is hopefully in the Connecting or Connected state.
+	 * is hopefully in the Connecting or Connected state, or @c 0
+	 * on failure.
 	 *
 	 * @note If a device is found or created successfully, it is
 	 * returned with an additional reference added to it, to prevent
@@ -341,7 +355,7 @@ public:
 	 *
 	 * @sa GetDevice(), HfpSession::Connect()
 	 */
-	HfpSession *Connect(const char *addrstr);
+	HfpSession *Connect(const char *addrstr, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Query the first session object
@@ -367,6 +381,56 @@ public:
 	HfpSession *GetNextSession(HfpSession *sessp) const
 		{ return (HfpSession *) BtService::
 				GetNextSession((BtSession *)sessp); }
+
+	/**
+	 * @brief Query whether SCO audio functionality is enabled
+	 *
+	 * This method retrieves the state of the SCO audio
+	 * functionality.  For more information, see SetScoEnabled().
+	 */
+	bool GetScoEnabled(void) const { return m_sco_enable; }
+
+	/**
+	 * @brief Set whether SCO audio functionality is enabled
+	 *
+	 * In some situations, it is desirable to use a different
+	 * subsystem to handle SCO audio connections and audio
+	 * processing.  This option allows SCO audio support to be
+	 * completely disabled, presumably so that libhfp may coexist
+	 * with another subsystem that already handles SCO audio.
+	 *
+	 * Unfortunately, this is not terribly useful.  Most packages
+	 * that implement SCO audio support do so properly in the sense
+	 * of only permitting it with a service-level connection of
+	 * some sort.  The BlueZ 4.x audio components are an example
+	 * of this.
+	 *
+	 * If SCO support is enabled:
+	 * - A SCO listener socket will be registered, and bound to
+	 * the local address of the selected HCI.
+	 * - Inbound SCO connections will be accepted for connected
+	 * sessions, and notified through the session's
+	 * HfpSession::cb_NotifyAudioConnection callback.  For
+	 * disconnected or incompletely connected sessions, SCO
+	 * audio connections will be refused.
+	 * - Outbound SCO connection requests from connected
+	 * HfpSession objects, through HfpSession::SndOpen(), will
+	 * not automatically fail.
+	 *
+	 * @param[in] sco_enable Set to @c true to enable SCO audio
+	 * handling support, @c false to disable.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @em false, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 *
+	 * @retval true SCO enablement value successfully changed
+	 * @retval false SCO enablement value could not be changed.
+	 * This can be caused by attempting to enable SCO support
+	 * when the HfpSession is active and the SCO listener socket
+	 * could not be created.  The reason for the failure will be
+	 * reported through @em error, if @em error is not @c 0.
+	 */
+	bool SetScoEnabled(bool sco_enable, ErrorInfo *error = 0);
 
 	int GetCaps(void) const { return m_brsf_my_caps; }
 	void SetCaps(int caps) { m_brsf_my_caps = caps; }
@@ -1450,6 +1514,9 @@ public:
 	 * @retval false Audio is either already connected, the
 	 * connection attempt failed, or the @em play and/or @em capture
 	 * parameters were @em false.
+	 *
+	 * @note If SCO audio support is disabled at the service level,
+	 * this method will fail.  See HfpService::SetScoEnabled().
 	 */
 	bool SndOpen(bool play, bool capture, ErrorInfo *error = 0);
 	/**

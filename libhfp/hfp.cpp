@@ -54,7 +54,7 @@ HfpService(int caps)
 	: RfcommService(HANDSFREE_AGW_SVCLASS_ID),
 	  m_sco_listen(-1), m_sco_listen_not(0),
 	  m_brsf_my_caps(caps), m_svc_name(0), m_svc_desc(0),
-	  m_sdp_rec(0), m_timer(0),
+	  m_sdp_rec(0), m_timer(0), m_sco_enable(true),
 	  m_autoreconnect_timeout(15000), m_autoreconnect_set(false),
 	  m_complaint_sco_mtu(false), m_complaint_sco_vs(false),
 	  m_complaint_sco_listen(false)
@@ -473,7 +473,7 @@ Start(ErrorInfo *error)
 	if (!RfcommListen(error))
 		goto failed;
 
-	if (!ScoListen(error))
+	if (m_sco_enable && !ScoListen(error))
 		goto failed;
 
 	if (!SdpRegister(error))
@@ -527,36 +527,71 @@ DefaultSessionFactory(BtDevice *devp)
 }
 
 HfpSession *HfpService::
-Connect(BtDevice *devp)
+Connect(BtDevice *devp, ErrorInfo *error)
 {
 	HfpSession *sessp = GetSession(devp);
-	if (sessp && !sessp->Connect()) {
+	if (!sessp) {
+		if (error)
+			error->SetNoMem();
+		return 0;
+	}
+	if (!sessp->Connect(error)) {
 		sessp->Put();
-		sessp = 0;
+		return 0;
 	}
 	return sessp;
 }
 
 HfpSession *HfpService::
-Connect(bdaddr_t const &bdaddr)
+Connect(bdaddr_t const &bdaddr, ErrorInfo *error)
 {
 	HfpSession *sessp = GetSession(bdaddr);
-	if (sessp && !sessp->Connect()) {
+	if (!sessp) {
+		if (error)
+			error->SetNoMem();
+		return 0;
+	}
+	if (!sessp->Connect(error)) {
 		sessp->Put();
-		sessp = 0;
+		return 0;
 	}
 	return sessp;
 }
 
 HfpSession *HfpService::
-Connect(const char *addrstr)
+Connect(const char *addrstr, ErrorInfo *error)
 {
 	HfpSession *sessp = GetSession(addrstr);
-	if (sessp && !sessp->Connect()) {
+	if (!sessp) {
+		if (error)
+			error->SetNoMem();
+		return 0;
+	}
+	if (!sessp->Connect(error)) {
 		sessp->Put();
-		sessp = 0;
+		return 0;
 	}
 	return sessp;
+}
+
+bool HfpService::
+SetScoEnabled(bool sco_enable, ErrorInfo *error)
+{
+	if (m_sco_enable == sco_enable)
+		return true;
+
+	if (GetHub()->IsStarted()) {
+		if (!sco_enable) {
+			ScoCleanup();
+
+		}
+		else if (!ScoListen(error)) {
+			return false;
+		}
+	}
+
+	m_sco_enable = sco_enable;
+	return true;
 }
 
 bool HfpService::
@@ -855,6 +890,15 @@ ScoConnect(ErrorInfo *error)
 	struct sockaddr_sco src, dest;
 	int ssock, err;
 	BtHci *hcip;
+
+	if (!GetService()->GetScoEnabled()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_BAD_SCO_CONFIG,
+				   "SCO audio support disabled by "
+				   "configuration");
+		return false;
+	}
 
 	if (!IsConnected()) {
 		if (error)
