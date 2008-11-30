@@ -1004,7 +1004,7 @@ public:
 SoundIoFltSpeex *SoundIoFltCreateSpeex(DispatchInterface *ei,
 				       ErrorInfo *error)
 {
-	SoundIoFltSpeex *fltp;
+	SoundIoFltSpeex *fltp = 0;
 
 #if defined(USE_SPEEXDSP)
 	fltp = new SoundIoFltSpeexImpl(ei);
