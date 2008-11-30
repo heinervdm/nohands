@@ -1138,6 +1138,9 @@ LoadDeviceConfig(void)
 	m_config->Get("daemon", "autorestart", autorestart, true);
 	m_hub->SetAutoRestart(autorestart);
 	m_config->Get("daemon", "acceptunknown", m_accept_unknown, false);
+	m_config->Get("daemon", "scoenabled", val, true);
+	val = m_hfp->SetScoEnabled(val);
+	assert(val);
 	m_config->Get("daemon", "voicepersist", m_voice_persist, false);
 	m_config->Get("daemon", "voiceautoconnect", m_voice_autoconnect,false);
 
@@ -1910,6 +1913,36 @@ SetAcceptUnknown(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
+GetScoEnabled(DBusMessage *msgp, bool &val)
+{
+	val = m_hfp->GetScoEnabled();
+	return true;
+}
+
+bool HandsFree::
+SetScoEnabled(DBusMessage *msgp, const bool &val, bool &doreply)
+{
+	ErrorInfo error;
+
+	if (m_hfp->GetScoEnabled() == val)
+		return true;
+
+	if (!m_hfp->SetScoEnabled(val, &error)) {
+		doreply = false;
+		return SendReplyErrorInfo(msgp, error);
+	}
+
+	if (!m_config->Set("daemon", "scoenabled", val, &error) ||
+	    !SaveConfig(&error)) {
+		(void) m_hfp->SetScoEnabled(!val);
+		doreply = false;
+		return SendReplyErrorInfo(msgp, error);
+	}
+
+	return true;
+}
+
+bool HandsFree::
 GetVoicePersist(DBusMessage *msgp, bool &val)
 {
 	val = m_voice_persist;
@@ -2159,7 +2192,8 @@ SoundIoObj(HandsFree *hfp)
 	  m_ringtone(0), m_sigproc(0),
 	  m_membuf(0), m_membuf_size(0),
 	  m_config(hfp->m_config),
-	  m_snoop(0), m_snoop_ep(0), m_snoop_filename(0)
+	  m_snoop(0), m_snoop_ep(0), m_snoop_filename(0),
+	  m_state_owner(0)
 {
 }
 
@@ -2364,6 +2398,53 @@ UpdateState(SoundIoState st, ErrorInfo *reason)
 	return true;
 }
 
+bool SoundIoObj::
+SetupStateOwner(DBusMessage *msgp)
+{
+	DbusPeer *peerp;
+	DbusPeerDisconnectNotifier *owner;
+
+	/*
+	 * Register a D-Bus peer as the owner of whatever
+	 * state the audio device is in.  If the owner disconnects
+	 * from D-Bus and does not issue a command to halt the audio
+	 * device itself, streaming will be halted and the audio
+	 * device released.
+	 *
+	 * This can get in the way of using the dbus-send command
+	 * line tool to control hfpd.  If support for this is
+	 * desired, just alter this method to return true without
+	 * doing anything.
+	 */
+
+	assert(!m_state_owner);
+
+	peerp = GetDbusSession()->GetPeer(msgp);
+	if (!peerp)
+		return false;
+
+	owner = peerp->NewDisconnectNotifier();
+	if (!owner) {
+		peerp->Put();
+		return false;
+	}
+
+	owner->Register(this, &SoundIoObj::StateOwnerDisconnectNotify);
+	m_state_owner = owner;
+	return true;
+}
+
+void SoundIoObj::
+StateOwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp)
+{
+	assert(notp == m_state_owner);
+
+	GetDi()->LogInfo("SoundIo: D-Bus state owner disconnected");
+
+	EpRelease();
+	assert(!m_state_owner);
+}
+
 void SoundIoObj::
 EpRelease(SoundIoState st, ErrorInfo *reason)
 {
@@ -2380,6 +2461,7 @@ EpRelease(SoundIoState st, ErrorInfo *reason)
 		assert(!m_sound->GetSecondary());
 		assert(m_sound->IsDspEnabled());
 		assert(!m_bound_ag);
+		assert(!m_state_owner);
 		break;
 	case HFPD_SIO_AUDIOGATEWAY:
 		assert(m_bound_ag);
@@ -2409,10 +2491,18 @@ EpRelease(SoundIoState st, ErrorInfo *reason)
 		assert(res);
 		ep->SndClose();
 		delete ep;
+		if (m_state_owner) {
+			delete m_state_owner;
+			m_state_owner = 0;
+		}
 		break;
 	case HFPD_SIO_LOOPBACK:
 		assert(!m_sound->GetSecondary());
 		m_sound->Stop();
+		if (m_state_owner) {
+			delete m_state_owner;
+			m_state_owner = 0;
+		}
 		break;
 	case HFPD_SIO_MEMBUF:
 		assert(m_membuf);
@@ -2423,6 +2513,10 @@ EpRelease(SoundIoState st, ErrorInfo *reason)
 		fltp = m_sound->RemoveTop();
 		if (fltp)
 			delete fltp;
+		if (m_state_owner) {
+			delete m_state_owner;
+			m_state_owner = 0;
+		}
 		break;
 	default:
 		abort();
@@ -2882,7 +2976,8 @@ FileStart(DBusMessage *msgp)
 	if (!EpFile(filename, for_write, &error))
 		return SendReplyErrorInfo(msgp, error);
 
-	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
+	if (!SetupStateOwner(msgp) ||
+	    !SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
 		EpRelease();
 		return false;
 	}
@@ -2898,7 +2993,8 @@ LoopbackStart(DBusMessage *msgp)
 	if (!EpLoopback(&error))
 		return SendReplyErrorInfo(msgp, error);
 
-	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
+	if (!SetupStateOwner(msgp) ||
+	    !SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
 		EpRelease();
 		return false;
 	}
@@ -2982,7 +3078,8 @@ MembufStart(DBusMessage *msgp)
 	if (!EpMembuf(in, out, fltp, &error))
 		return SendReplyErrorInfo(msgp, error);
 
-	if (!SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
+	if (!SetupStateOwner(msgp) ||
+	    !SendReplyArgs(msgp, DBUS_TYPE_INVALID)) {
 		EpRelease();
 		return false;
 	}

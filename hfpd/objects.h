@@ -299,6 +299,8 @@ public:
 	bool GetAcceptUnknown(DBusMessage *msgp, bool &val);
 	bool SetAcceptUnknown(DBusMessage *msgp, const bool &val,
 			      bool &doreply);
+	bool GetScoEnabled(DBusMessage *msgp, bool &val);
+	bool SetScoEnabled(DBusMessage *msgp, const bool &val, bool &doreply);
 	bool GetVoicePersist(DBusMessage *msgp, bool &val);
 	bool SetVoicePersist(DBusMessage *msgp, const bool &val,
 			     bool &doreply);
@@ -356,6 +358,8 @@ static const DbusProperty g_HandsFree_properties[] = {
 			     GetSecMode, SetSecMode),
 	DbusPropertyMarshall(bool, AcceptUnknown, HandsFree,
 			     GetAcceptUnknown, SetAcceptUnknown),
+	DbusPropertyMarshall(bool, ScoEnabled, HandsFree,
+			     GetScoEnabled, SetScoEnabled),
 	DbusPropertyMarshall(bool, VoicePersist, HandsFree,
 			     GetVoicePersist, SetVoicePersist),
 	DbusPropertyMarshall(bool, VoiceAutoConnect, HandsFree,
@@ -408,6 +412,8 @@ public:
 	libhfp::SoundIo			*m_snoop_ep;
 	char				*m_snoop_filename;
 
+	DbusPeerDisconnectNotifier	*m_state_owner;
+
 	libhfp::DispatchInterface *GetDi(void) const { return m_hf->GetDi(); }
 
 
@@ -421,6 +427,9 @@ public:
 	void Cleanup(void);
 	void CleanupSnoop(void);
 	bool UpdateState(SoundIoState st, libhfp::ErrorInfo *reason = 0);
+
+	bool SetupStateOwner(DBusMessage *msgp);
+	void StateOwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp);
 
 	/*
 	 * These internal methods connect the SoundIoManager to a
