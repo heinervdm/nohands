@@ -95,7 +95,8 @@
  * @section property D-Bus Properties
  *
  * HFPD D-Bus objects make extensive use of the standard D-Bus properties
- * interface, @c org.freedesktop.DBus.Properties.  Ideally, one would
+ * interface,  <a href="http://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces-properties">
+ * org.freedesktop.DBus.Properties</a>.  Ideally, one would
  * expect a D-Bus language binding for an object-oriented language to
  * expose properties as simple data members of the proxy objects.
  * For example, in Python, the following would make a lot of sense to
@@ -297,7 +298,8 @@ namespace net.sf.nohands.hfpd {
 		 * - Claimed devices may open an audio connection at any
 		 * time.  They will not be automatically attached to the
 		 * audio pump and routed through the local sound card --
-		 * this must be explicitly configured by the D-Bus client.
+		 * this must be explicitly configured by the D-Bus client,
+		 * typically using SoundIo.AudioGatewayStart().
 		 *
 		 * When HFPD starts, no devices are claimed.  The D-Bus
 		 * client must enumerate the list of devices it wishes to
@@ -555,6 +557,27 @@ namespace net.sf.nohands.hfpd {
 		 * to the HFPD configuration file.
 		 */
 		bool AcceptUnknown;
+
+		/**
+		 * @brief Property controlling whether SCO audio
+		 * functionality will be used.
+		 *
+		 * This property can be accessed using the
+		 * @ref property "standard D-Bus property interface".
+		 *
+		 * If @c true, SCO audio support is enabled.  This allows
+		 * voice audio data to be exchanged over Bluetooth, and
+		 * is the default.
+		 *
+		 * If @c false, SCO audio will not be used.  This may
+		 * permit hfpd to operate in environments where another
+		 * service provides support for streaming SCO audio to
+		 * the local sound card.
+		 *
+		 * @note ScoEnabled is a persistent option that is
+		 * saved to the HFPD configuration file.
+		 */
+		bool ScoEnabled;
 
 		/**
 		 * @brief Property controlling handling of audio connections
@@ -895,6 +918,12 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note A stream started using this method is bound to
+		 * the D-Bus client that made the method call.  If that
+		 * D-Bus client is disconnected from D-Bus before the
+		 * stream is halted, the stream will be automatically
+		 * halted, to clean up after the D-Bus client.
 		 */
 		public FileStart(in string file_path, in bool write);
 
@@ -915,6 +944,12 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note A stream started using this method is bound to
+		 * the D-Bus client that made the method call.  If that
+		 * D-Bus client is disconnected from D-Bus before the
+		 * stream is halted, the stream will be automatically
+		 * halted, to clean up after the D-Bus client.
 		 */
 		public LoopbackStart();
 
@@ -951,6 +986,12 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note A stream started using this method is bound to
+		 * the D-Bus client that made the method call.  If that
+		 * D-Bus client is disconnected from D-Bus before the
+		 * stream is halted, the stream will be automatically
+		 * halted, to clean up after the D-Bus client.
 		 */
 		public MembufStart(in bool capture, in bool playback,
 				   in uint32 membuf_size,
