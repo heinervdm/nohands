@@ -170,8 +170,19 @@ class HfConsole:
 
 			# Callbacks for the scan dialog
 			"on_ScanDialog_close" : gtk.main_quit,
+			"ScanOK_clicked_cb" : self.scan_ok_clicked,
+			"ScanCancel_clicked_cb" : self.scan_cancel_clicked,
+			"ScanHistory_clicked_cb" : self.scan_history_clicked,
+			"ScanRestart_clicked_cb" : self.scan_restart_clicked,
+
+			# Callbacks for the history dialog
+			"HistoryOK_clicked_cb" : self.history_ok_clicked,
+			"HistoryCancel_clicked_cb" :
+			self.history_cancel_clicked,
 
 			# Callbacks for the config dialog
+			"ConfigOk_clicked_cb" : self.config_ok_clicked,
+			"ConfigCancel_clicked_cb" : self.config_cancel_clicked,
 			"ConfigDriver_changed_cb" :
 			self.config_driver_changed,
 			"ConfigPacketIntervalHint_toggled_cb" :
@@ -303,6 +314,7 @@ class HfConsole:
 		except dbus.exceptions.DBusException, (ex):
 			self.fatal('Could not connect to D-Bus:\n' +
 				   str(ex))
+			return
 
 		try:
 			self.hfpd = dbus.Interface(
@@ -326,10 +338,11 @@ class HfConsole:
 				   str(ex) + '\n\n' +
 				   'Ensure that hfpd and its D-Bus service ' +
 				   'file are installed correctly.\n' +
-				   'If the problem persists, try starting '
+				   'If the problem persists, try starting ' +
 				   'hfpd manually, e.g. \"hfpd\", or out ' +
 				   ' of your build directory, e.g. ' +
 				    '\"hfpd/hfpd\"')
+			return
 
 		try:
 			v = self.getprop_hfpd('Version')
@@ -344,6 +357,7 @@ class HfConsole:
 			    'Ensure that hfpd is installed correctly.\n' +
 			    'If the problem persists, try \"killall hfpd\"') %
 				   (v, my_version))
+			return
 		elif v != my_version:
 			self.fatal(('Version mismatch with hfpd!\n'
 				    'hfpd version: %d\n' +
@@ -353,6 +367,7 @@ class HfConsole:
 		    'out of your build directory, e.g. ' +
 				    '\"data/hfconsole\"') %
 				   (v, my_version))
+			return
 
 		self.configfile_name = os.path.expanduser('~/.hfconsolerc')
 		self.configfile = ConfigParser.ConfigParser()
@@ -416,6 +431,7 @@ class HfConsole:
 				if (ex.get_dbus_name() !=
 				    'net.sf.nohands.hfpd.Error'):
 					self.fatal(ex.get_dbus_message())
+					return
 			self.setprop_hfpd('AutoRestart', True)
 		ags = self.getprop_hfpd('AudioGateways')
 		for x in ags:
@@ -435,13 +451,15 @@ class HfConsole:
 		dlg.set_title(self['MainWindow'].get_title())
 		dlg.set_transient_for(self['MainWindow'])
 		dlg.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
-		dlg.run()
-		dlg.hide()
+		dlg.show()
+		return dlg
 
-	def fatal(self, msg):
-		self.error_message(msg)
+	def fatal_closed(self, widget, response):
 		# dbus-python needs to fix its exception handler
 		os._exit(1)
+	def fatal(self, msg):
+		dlg = self.error_message(msg)
+		dlg.connect('response', self.fatal_closed)
 
 	class AudioGateway:
 		def image_button(self, toggle, stock, tip):
@@ -947,31 +965,12 @@ class HfConsole:
 
 	def scan_open(self, but):
 		dlg = self['ScanDialog']
-		result = 2
-
 		if not self.scan_restart():
 			self.error_message('Could not start inquiry')
 			return
-
-		while True:
-			dlg.show()
-			result = dlg.run()
-			if result == -1:
-				if not self.scan_restart():
-					self.error_message(
-						'Could not start inquiry')
-				continue
-			elif result == -2:
-				result = self.history_open()
-				if not result:
-					continue
-				(store, iter) = result
-				result = 0
-			elif result == 0:
-				assert (self.scanselect.count_selected_rows()
-					<= 1)
-				(store, iter) = self.scanselect.get_selected()
-			break
+		dlg.show()
+	def scan_close(self):
+		dlg = self['ScanDialog']
 		dlg.hide()
 		if self.inquiry:
 			try:
@@ -979,13 +978,24 @@ class HfConsole:
 			except:
 				pass
 		self.inquiry = False
-		if result != 0:
-			return
+	def scan_create_session(self, store, iter):
 		# Create a session for the selected bdaddr
+		self.scan_close()
 		assert store and iter
 		addr = store.get_value(iter, 2)
 		self.ag_add_to_config(addr)
 		self.add_audiogateway(addr)
+	def scan_ok_clicked(self, widget):
+		assert (self.scanselect.count_selected_rows() <= 1)
+		(store, iter) = self.scanselect.get_selected()
+		self.scan_create_session(store, iter)
+	def scan_cancel_clicked(self,widget):
+		self.scan_close()
+	def scan_history_clicked(self, widget):
+		self.history_open()
+	def scan_restart_clicked(self, widget):
+		if not self.scan_restart():
+			self.error_message('Could not start inquiry')
 	def scan_select(self, selection):
 		if not selection.count_selected_rows():
 			self['ScanOK'].set_sensitive(False)
@@ -1049,15 +1059,17 @@ class HfConsole:
 			else:
 				name = "%s (%s)" % (name, addr)
 			self.historyresults.append(row=[name, 0, addr])
-
 		dlg.show()
-		res = dlg.run()
+	def history_close(self):
+		dlg = self['HistoryDialog']
 		dlg.hide()
-		if res == 1:
-			return None
+	def history_ok_clicked(self, widget):
+		self.history_close()
 		assert self.historyselect.count_selected_rows() <= 1
-		return self.historyselect.get_selected()
-
+		(store, iter) = self.historyselect.get_selected()
+		self.scan_create_session(store, iter)
+	def history_cancel_clicked(self, widget):
+		self.history_close()
 	def history_select(self, selection):
 		if not selection.count_selected_rows():
 			self['HistoryOK'].set_sensitive(False)
@@ -1121,20 +1133,24 @@ class HfConsole:
 		cmd = self.command_audio_attach_dcmd
 		if cmd:
 			self['ConfigAudioDetachCommand'].set_text(cmd)
-
+		self.config_savecfg = savecfg
 		dlg.show()
-		result = dlg.run()
+	def config_close(self):
+		dlg = self['ConfigDialog']
 		dlg.hide()
 		self['ConfigFeedbackTest'].set_active(False)
-		if result == 1:
-			# Restore the save values
-			self.config_restore_vals(savecfg)
-		else:
-			self.config_save_vals()
 		del self.config
 		if hasattr(self, 'loopback_active'):
 			del self.loopback_active
-
+		if hasattr(self, 'config_savecfg'):
+			del self.config_savecfg
+	def config_ok_clicked(self, widget):
+		self.config_save_vals()
+		self.config_close()
+	def config_cancel_clicked(self, widget):
+		# Restore the save values
+		self.config_restore_vals(self.config_savecfg)
+		self.config_close()
 	def config_get_vals(self):
 		spr = self.soundio_props.GetAll('net.sf.nohands.hfpd.SoundIo')
 		hfpr = self.hfpd_props.GetAll('net.sf.nohands.hfpd.HandsFree')
@@ -1628,7 +1644,7 @@ class HfConsole:
 		self.soundio_status_msg_clear()
 		self.soundio_status_msgid = self['StatusBar'].push(
 			self.soundio_status_ctx,
-			msg);
+			msg)
 		if timeout:
 			self.soundio_status_timeout = gobject.timeout_add(
 				timeout, self.soundio_status_msg_clear)
@@ -1648,7 +1664,7 @@ class HfConsole:
 		else:
 			return
 		self.soundio_status_msg(msg, 5000)
-		self.soundio_skew_type = skewtype;
+		self.soundio_skew_type = skewtype
 		if self.soundio_skew_monitor:
 			self.soundio_skew_monitor(skewtype, count)
 
