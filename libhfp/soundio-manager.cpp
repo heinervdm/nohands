@@ -407,7 +407,7 @@ StartStats(SoundIoFormat &fmt, SoundIoProps &secprops, ErrorInfo *error)
 	m_stat_min_sec_duplex_skew = 200;
 	m_stat_min_endpoint_skew = 200;
 
-	m_use_process_values = true;  // m_top_loop;
+	m_use_process_values = m_top_loop;
 
 	if (!secprops.has_clock) {
 		m_stat_min_sec_duplex_skew = 0;

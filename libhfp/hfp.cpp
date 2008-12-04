@@ -927,7 +927,7 @@ ScoConnect(ErrorInfo *error)
 
 	memset(&src, 0, sizeof(src));
 	src.sco_family = AF_BLUETOOTH;
-	bacpy(&src.sco_bdaddr, &(hcip->GetAddr()));
+	bacpy(&src.sco_bdaddr, BDADDR_ANY);
 
 	memset(&dest, 0, sizeof(dest));
 	dest.sco_family = AF_BLUETOOTH;
