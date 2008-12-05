@@ -443,14 +443,19 @@ class HfConsole:
 	def __getitem__(self, key):
 		return self.widgets.get_widget(key)
 
-	def error_message(self, msg):
+	def error_closed(self, dlg, response):
+		dlg.hide()
+	def error_message(self, msg, window=None):
 		dlg = gtk.MessageDialog(None, gtk.DIALOG_MODAL,
 					gtk.MESSAGE_ERROR,
 					gtk.BUTTONS_OK,
 					msg)
-		dlg.set_title(self['MainWindow'].get_title())
-		dlg.set_transient_for(self['MainWindow'])
+		if not window:
+			window = self['MainWindow']
+		dlg.set_title(window.get_title())
+		dlg.set_transient_for(window)
 		dlg.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
+		dlg.connect('response', self.error_closed)
 		dlg.show()
 		return dlg
 
@@ -966,7 +971,8 @@ class HfConsole:
 	def scan_open(self, but):
 		dlg = self['ScanDialog']
 		if not self.scan_restart():
-			self.error_message('Could not start inquiry')
+			self.error_message('Could not start inquiry',
+					   self['ScanDialog'])
 			return
 		dlg.show()
 	def scan_close(self):
@@ -995,7 +1001,8 @@ class HfConsole:
 		self.history_open()
 	def scan_restart_clicked(self, widget):
 		if not self.scan_restart():
-			self.error_message('Could not start inquiry')
+			self.error_message('Could not start inquiry',
+					   self['ScanDialog'])
 	def scan_select(self, selection):
 		if not selection.count_selected_rows():
 			self['ScanOK'].set_sensitive(False)
@@ -1332,7 +1339,8 @@ class HfConsole:
 				except:
 					widget.set_active(False)
 					self.error_message('Cannot Apply ' +
-						   'Sound Driver Settings')
+						   'Sound Driver Settings',
+							self['ConfigDialog'])
 					return
 
 				try:
@@ -1344,7 +1352,8 @@ class HfConsole:
 					widget.set_active(False)
 					self.error_message('Could not open '+
 							   'Audio Device:\n' +
-							   str(ex))
+							   str(ex),
+							self['ConfigDialog'])
 					return
 
 				self.loopback_active = True
@@ -1491,7 +1500,9 @@ class HfConsole:
 				       self['ConfigDriverDevList'].child.
 					       get_text())
 		except:
-			self.error_message('Cannot Apply Sound Driver Settings')
+			self.error_message('Cannot Apply Sound Driver ' +
+					   'Settings',
+					   self['ConfigDialog'])
 			return
 		assist = self['DspTestAssistant']
 		assist.set_current_page(0)
@@ -1568,7 +1579,8 @@ class HfConsole:
 			except:
 				widget.set_active(False)
 				self.error_message('Could not open '+
-						   'Audio Device')
+						   'Audio Device',
+						   self['DspTestAssistant'])
 				return
 				
 			self.membuf_active = True
