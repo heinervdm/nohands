@@ -1138,7 +1138,6 @@ class HfConsole:
 	def config_close(self):
 		dlg = self['ConfigDialog']
 		dlg.hide()
-		self['ConfigFeedbackTest'].set_active(False)
 		del self.config
 		if hasattr(self, 'loopback_active'):
 			del self.loopback_active
@@ -1180,6 +1179,7 @@ class HfConsole:
 		vals['ringer'] = ''
 		return vals
 	def config_save_vals(self):
+		self['ConfigFeedbackTest'].set_active(False)
 		if self['ConfigSecNone'].get_active():
 			secmode = 0
 		elif self['ConfigSecAuth'].get_active():
@@ -1204,6 +1204,7 @@ class HfConsole:
 		self.configfile.set('options', 'detach_command', cmd)
 		self.configfile.write(open(self.configfile_name, 'w+'))
 	def config_restore_vals(self, vals):
+		self['ConfigFeedbackTest'].set_active(False)
 		self.soundio.SetDriver(self.config['drivers'][
 			self.config['driver']],
 				       self.config['driveropts'])
