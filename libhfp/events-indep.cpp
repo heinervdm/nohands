@@ -23,16 +23,113 @@
  * Useful for environments lacking a native event loop, e.g. SDL.
  */
 
-#include <stdio.h>
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
 
 #include <libhfp/events-indep.h>
 #include <libhfp/list.h>
 
 using namespace libhfp;
+
+namespace libhfp {
+
+#if defined(USE_PTHREADS)
+void IndepEventDispatcher::
+Lock(void)
+{
+	pthread_mutex_lock(&m_lock);
+}
+
+void IndepEventDispatcher::
+Unlock(bool wake)
+{
+	ssize_t res;
+	assert(pthread_mutex_trylock(&m_lock));
+	if (wake && m_sleeping && !m_wake_pending) {
+		res = write(m_wake_pipe[1], "\0", 1);
+		assert(res == 1);
+		m_wake_pending = true;
+	}
+	pthread_mutex_unlock(&m_lock);
+}
+
+void IndepEventDispatcher::
+WakeNotify(SocketNotifier *notp, int fh)
+{
+	char buf[1];
+	ssize_t res;
+
+	Lock();
+
+	assert(notp == m_wake);
+	assert(fh == m_wake_pipe[0]);
+	res = read(m_wake_pipe[0], buf, sizeof(buf));
+	if (res < 0) {
+		LogError("Dispatch: Pipe read failure: %s",
+			 strerror(errno));
+	}
+	else if (res != sizeof(buf)) {
+		LogError("Dispatch: Short pipe read: exp %zd got %zd",
+			 sizeof(buf), res);
+	}
+
+	m_wake_pending = false;
+	Unlock();
+}
+
+bool IndepEventDispatcher::
+WakeSetup(void)
+{
+	int res;
+	res = pthread_mutex_init(&m_lock, 0);
+	if (res)
+		return false;
+	res = pipe(m_wake_pipe);
+	if (res < 0) {
+		LogError("Dispatch: pipe: %s",
+			 strerror(errno));
+		res = pthread_mutex_destroy(&m_lock);
+		assert(!res);
+		return false;
+	}
+	(void) SetNonBlock(m_wake_pipe[0], true);
+	m_wake = NewSocket(m_wake_pipe[0], false);
+	if (!m_wake) {
+		LogError("Dispatch: Could not create wake pipe notifier");
+		close(m_wake_pipe[0]);
+		close(m_wake_pipe[1]);
+		res = pthread_mutex_destroy(&m_lock);
+		assert(!res);
+		return false;
+	}
+
+	m_wake->Register(this, &IndepEventDispatcher::WakeNotify);
+
+	return true;
+}
+
+void IndepEventDispatcher::
+WakeCleanup(void)
+{
+	int res;
+
+	if (m_wake) {
+		delete m_wake;
+		m_wake = 0;
+		close(m_wake_pipe[0]);
+		m_wake_pipe[0] = -1;
+		close(m_wake_pipe[1]);
+		m_wake_pipe[1] = -1;
+		res = pthread_mutex_destroy(&m_lock);
+		assert(!res);
+	}
+}
+#endif  /* defined(USE_PTHREADS) */
 
 /*
  * Timers are stored in a Pairing Heap structure with the values
@@ -41,7 +138,7 @@ using namespace libhfp;
  * m_msec_delta.
  */
 
-namespace libhfp {
+
 class IndepTimerNotifier : public TimerNotifier {
 public:
 	ListItem		m_links;
@@ -50,14 +147,18 @@ public:
 	IndepEventDispatcher	*m_dispatcher;
 
 	virtual void Set(int msec) {
+		m_dispatcher->Lock();
 		if (!m_links.Empty())
 			m_dispatcher->RemoveTimer(this);
 		m_msec_delta = msec;
 		m_dispatcher->AddTimer(this);
+		m_dispatcher->Unlock(true);
 	}
 	virtual void Cancel(void) {
+		m_dispatcher->Lock();
 		if (!m_links.Empty())
 			m_dispatcher->RemoveTimer(this);
+		m_dispatcher->Unlock();
 	}
 	IndepTimerNotifier(IndepEventDispatcher *disp)
 		: m_dispatcher(disp) {}
@@ -205,7 +306,9 @@ RunTimers(unsigned int ms_elapsed)
 		IndepTimerNotifier *to;
 		to = GetContainer(runlist.next, IndepTimerNotifier, m_links);
 		to->m_links.Unlink();
+		Unlock();
 		(*to)(to);
+		Lock();
 	}
 }
 
@@ -231,16 +334,22 @@ public:
 	IndepSocketNotifier(IndepEventDispatcher *disp, int fh, bool writable)
 		: m_dispatcher(disp), m_fh(fh), m_writable(writable) {}
 	virtual void SetEnabled(bool enable) {
-		if (!enable == m_links.Empty())
+		m_dispatcher->Lock();
+		if (!enable == m_links.Empty()) {
+			m_dispatcher->Unlock();
 			return;
+		}
 		if (enable)
 			m_dispatcher->AddSocket(this);
 		else
 			m_dispatcher->RemoveSocket(this);
+		m_dispatcher->Unlock(true);
 	}
 	virtual ~IndepSocketNotifier() {
+		m_dispatcher->Lock();
 		if (!m_links.Empty())
 			m_dispatcher->RemoveSocket(this);
+		m_dispatcher->Unlock();
 	}
 };
 } /* namespace libhfp */
@@ -270,7 +379,9 @@ NewSocket(int fh, bool writable)
 	IndepSocketNotifier *sockp;
 	sockp = new IndepSocketNotifier(this, fh, writable);
 
+	Lock();
 	AddSocket(sockp);
+	Unlock(true);
 	return sockp;
 }
 
@@ -295,12 +406,17 @@ RunOnce(int max_sleep_ms)
 	FD_ZERO(&readi);
 	FD_ZERO(&writei);
 
+	Lock();
+	assert(!m_sleeping);
+
 	/* Run nonwaiting timers */
 	RunTimers(0);
 
-	if (m_timers.Empty() && m_sockets.Empty() && (max_sleep_ms < 0))
+	if (m_timers.Empty() && m_sockets.Empty() && (max_sleep_ms < 0)) {
 		/* Nothing to wait for, we'll wait forever! */
+		Unlock();
 		return;
+	}
 
 	/* Move sockets to the I/O run list */
 	maxfh = 0;
@@ -362,7 +478,13 @@ RunOnce(int max_sleep_ms)
 		timeout.tv_usec = (ms_elapsed % 1000) * 1000;
 	}
 
+	m_sleeping = true;
+	Unlock();
+
 	res = select(maxfh + 1, &readi, &writei, NULL, top);
+
+	Lock();
+	m_sleeping = false;
 
 	/* Compute elapsed time */
 	gettimeofday(&etime, NULL);
@@ -394,16 +516,27 @@ RunOnce(int max_sleep_ms)
 		m_sockets.AppendItem(sp->m_links);
 
 		if ((sp->m_writable && FD_ISSET(sp->m_fh, &writei)) ||
-		    (!sp->m_writable && FD_ISSET(sp->m_fh, &readi)))
+		    (!sp->m_writable && FD_ISSET(sp->m_fh, &readi))) {
+			Unlock();
 			(*sp)(sp, sp->m_fh);
+			Lock();
+		}
 	}
+
+	Unlock();
 }
 
 void IndepEventDispatcher::
 Run(void)
 {
+	bool empty;
+
 	while (1) {
-		if (m_timers.Empty() && m_sockets.Empty())
+		Lock();
+		empty = (m_timers.Empty() && m_sockets.Empty());
+		Unlock();
+
+		if (empty)
 			return;
 
 		RunOnce(-1);
@@ -412,11 +545,15 @@ Run(void)
 
 IndepEventDispatcher::
 IndepEventDispatcher(void)
+	: m_sleeping(false)
 {
+	if (!WakeSetup())
+		abort();
 	gettimeofday(&m_last_run, NULL);
 }
 
 IndepEventDispatcher::
 ~IndepEventDispatcher()
 {
+	WakeCleanup();
 }

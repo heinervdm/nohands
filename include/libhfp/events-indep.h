@@ -29,6 +29,10 @@
 
 #include <sys/time.h>
 
+#if defined(USE_PTHREADS)
+#include <pthread.h>
+#endif
+
 #include <libhfp/events.h>
 #include <libhfp/list.h>
 
@@ -46,6 +50,25 @@ private:
 	ListItem	m_timers;
 	ListItem	m_sockets;
 	struct timeval	m_last_run;
+
+	bool		m_sleeping;
+
+#if defined(USE_PTHREADS)
+	pthread_mutex_t	m_lock;
+	int		m_wake_pipe[2];
+	SocketNotifier	*m_wake;
+	bool		m_wake_pending;
+	void Lock(void);
+	void Unlock(bool wake = false);
+	void WakeNotify(SocketNotifier *notp, int fh);
+	bool WakeSetup(void);
+	void WakeCleanup(void);
+#else
+	void Lock(void) {}
+	void Unlock(bool wake = false) {}
+	bool WakeSetup(void) { return true; }
+	void WakeCleanup(void) {}
+#endif
 
 	static void PairTimers(ListItem &siblings, ListItem &dest,
 			       unsigned int delta);
