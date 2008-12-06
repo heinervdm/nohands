@@ -247,15 +247,20 @@ if test $use_nghost = "yes"; then
 fi
 
 
-have_qt=no
+have_qt=maybe
 if test $want_qt != no; then
+	AC_PATH_X
+	if test "$no_x" = yes; then
+		have_qt=no
+ 	fi
+fi
+if test $have_qt = "maybe"; then
 	QT_CHECK_COMPILERS
 	QT_PATH
-	if test $have_qt = "no" -a $want_qt = "maybe"; then
-		want_qt=no
-	fi
 fi
-
+if test $have_qt = "no" -a $want_qt = "maybe"; then
+	want_qt=no
+fi
 if test $want_qt = "yes"; then
 	if test $have_qt = "no"; then
 	        AC_MSG_ERROR([[
