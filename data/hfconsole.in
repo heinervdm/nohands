@@ -813,6 +813,9 @@ class HfConsole:
 		if not self.selected_ag:
 			# Find another AG and select it
 			self.ag_select_search()
+			# If we still didn't find one, stop audio.
+			if not self.selected_ag:
+				self.ag_stop_audio_unselected()
 		elif ag == self.selected_ag:
 			# Maybe update buttons to reflect state
 			self.ag_select_changed(ag)
@@ -840,7 +843,8 @@ class HfConsole:
 			self.command_mode(2)
 		else:
 			self.command_mode(0)
-		self.ag_push_audio()
+		if ag:
+			self.ag_push_audio()
 
 	def ag_mine(self, ag):
 		if self.ags_added.has_key(ag.addr):
