@@ -1341,6 +1341,7 @@ SndPushOutput(bool nonblock)
 	while (1) {
 		nsamples = 0;
 		m_output.Peek(buf, nsamples);
+		nsamples -= (nsamples % m_sco_packet_samps);
 		if (!nsamples) { return; }
 
 		res = send(m_sco_sock, buf, nsamples * 2, MSG_NOSIGNAL);
