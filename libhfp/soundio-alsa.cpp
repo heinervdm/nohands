@@ -33,6 +33,11 @@
 #include <alsa/asoundlib.h>
 #endif
 
+#if defined(USE_PTHREADS)
+#define ALSA_THREADS
+#include <pthread.h>
+#endif
+
 #include "oplatency.h"
 
 /*
@@ -170,6 +175,7 @@ public:
 				CloseDevice();
 				return false;
 			}
+			m_play_xrun = false;
 		}
 
 		if (rec) {
@@ -195,6 +201,7 @@ public:
 				CloseDevice();
 				return false;
 			}
+			m_rec_xrun = false;
 		}
 
 		return true;
@@ -718,6 +725,43 @@ public:
 		return false;
 	}
 
+	bool CheckXrun(snd_pcm_t *handle, bool &xrun, ErrorInfo *error) {
+		bool *mxrun;
+		if (handle == m_play_handle)
+			mxrun = &m_play_xrun;
+		else if (handle == m_rec_handle)
+			mxrun = &m_rec_xrun;
+		else
+			abort();
+		xrun = *mxrun;
+		if (!xrun) {
+			xrun = (snd_pcm_state(handle) == SND_PCM_STATE_XRUN);
+			if (xrun && !HandleInterruption(handle, -EPIPE, error))
+				return false;
+		}
+		*mxrun = false;
+		return true;
+	}
+
+	snd_pcm_sframes_t GetPlaybackQueue(void) {
+		int err;
+		snd_pcm_sframes_t exp;
+		assert(m_play_handle);
+		err = snd_pcm_delay(m_play_handle, &exp);
+		if (err < 0) {
+			if (err != -EPIPE)
+				m_ei->LogWarn("ALSA playback: "
+					      "snd_pcm_delay: %s",
+					      strerror(-err));
+			exp = 0;
+		}
+		if (exp < 0) {
+			/* WTF?  Die broken alsa-lib plugins! */
+			exp = 0;
+		}
+		return exp;
+	}
+
 	bool HandleInterruption(snd_pcm_t *pcmp, snd_pcm_sframes_t res,
 				ErrorInfo *error) {
 		int err;
@@ -814,23 +858,25 @@ public:
 	}
 };
 
-
-class SoundIoAlsaProc : public SoundIoBufferBase {
+template <typename BaseT = SoundIoBufferBase>
+class SoundIoAlsaProcBase : public BaseT {
+protected:
 	AlsaIoBase		m_alsa;
 
 	bool			m_play_nonblock;
 	bool			m_rec_nonblock;
 
 	void OpenBuf(void) {
-		BufOpen(m_alsa.GetPacketSize(),
-			m_alsa.m_format.bytes_per_record);
+		this->BufOpen(m_alsa.GetPacketSize(),
+			      m_alsa.m_format.bytes_per_record);
 	}
 
 public:
-	SoundIoAlsaProc(DispatchInterface *eip,
-			const char *output_devspec, const char *input_devspec)
+	SoundIoAlsaProcBase(DispatchInterface *eip,
+			    const char *output_devspec,
+			    const char *input_devspec)
 		: m_alsa(eip, output_devspec, input_devspec) {}
-	virtual ~SoundIoAlsaProc() {}
+	virtual ~SoundIoAlsaProcBase() {}
 
 	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
 		if (play)
@@ -847,8 +893,8 @@ public:
 		return false;
 	}
 	virtual void SndClose(void) {
-		SndAsyncStop();
-		BufClose();
+		this->SndAsyncStop();
+		this->BufClose();
 		m_alsa.CloseDevice();
 	}
 
@@ -858,7 +904,7 @@ public:
 	}
 
 	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
-		SndAsyncStop();
+		this->SndAsyncStop();
 		if (m_alsa.m_play_handle)
 			m_alsa.m_play_props.bufsize = 0;
 		if (m_alsa.m_rec_handle)
@@ -874,23 +920,22 @@ public:
 	virtual void SndGetProps(SoundIoProps &props) const {
 		m_alsa.GetProps(props);
 	}
+};
+
+class SoundIoAlsaProcAsync : public SoundIoAlsaProcBase<SoundIoBufferBase> {
+public:
+	SoundIoAlsaProcAsync(DispatchInterface *eip,
+			     const char *output_devspec,
+			     const char *input_devspec)
+		: SoundIoAlsaProcBase<SoundIoBufferBase>(eip, output_devspec, input_devspec) {}
+	virtual ~SoundIoAlsaProcAsync() {}
 
 	virtual void SndGetQueueState(SoundIoQueueState &qs) {
-		snd_pcm_sframes_t err, exp;
-
 		if (m_alsa.m_play_handle) {
 			OpLatencyMonitor lat(m_alsa.m_ei,
 					     "ALSA get playback queue state");
 			(void) snd_pcm_avail_update(m_alsa.m_play_handle);
-			err = snd_pcm_delay(m_alsa.m_play_handle, &exp);
-			if (err < 0) {
-				exp = 0;
-			}
-			if (exp < 0) {
-				/* WTF?  Die broken alsa-lib plugins! */
-				exp = 0;
-			}
-			m_hw_outq = exp;
+			this->m_hw_outq = m_alsa.GetPlaybackQueue();
 		}
 		SoundIoBufferBase::SndGetQueueState(qs);
 	}
@@ -1028,7 +1073,6 @@ public:
 
 	void AsyncProcess(SocketNotifier *notp, int fh) {
 		bool overrun = false, underrun = false;
-		int err;
 		snd_pcm_sframes_t exp = 0;
 		OpLatencyMonitor olat(m_alsa.m_ei, "ALSA async overall");
 
@@ -1053,54 +1097,21 @@ public:
 					goto do_abort;
 			}
 
-			overrun = m_alsa.m_rec_xrun;
-			m_alsa.m_rec_xrun = false;
-			if (!overrun) {
-				overrun = (snd_pcm_state(m_alsa.
-							 m_rec_handle) ==
-					   SND_PCM_STATE_XRUN);
-				if (overrun &&
-				    !m_alsa.HandleInterruption(m_alsa.
-							       m_rec_handle,
-							       -EPIPE,
-							       &m_abort)) {
-					goto do_abort;
-				}
-			}
+			if (!m_alsa.CheckXrun(m_alsa.m_rec_handle,
+					      overrun,
+					      &m_abort))
+				goto do_abort;
 		}
 
 		if (m_alsa.m_play_async) {
 			OpLatencyMonitor lat(m_alsa.m_ei,
 					     "ALSA check playback");
 			(void) snd_pcm_avail_update(m_alsa.m_play_handle);
-			underrun = m_alsa.m_play_xrun;
-			m_alsa.m_play_xrun = false;
-			if (!underrun) {
-				underrun = (snd_pcm_state(m_alsa.
-							  m_play_handle) ==
-					    SND_PCM_STATE_XRUN);
-				if (underrun &&
-				    !m_alsa.HandleInterruption(m_alsa.
-							       m_play_handle,
-							       -EPIPE,
-							       &m_abort)) {
-					goto do_abort;
-				}
-			}
-
-			err = snd_pcm_delay(m_alsa.m_play_handle, &exp);
-			if (err < 0) {
-				if (!underrun || (err != -EPIPE))
-					m_alsa.m_ei->LogWarn(
-						"ALSA playback: "
-						"snd_pcm_delay: %s",
-						strerror(-err));
-				exp = 0;
-			}
-			if (exp < 0) {
-				/* WTF?  Die broken alsa-lib plugins! */
-				exp = 0;
-			}
+			if (!m_alsa.CheckXrun(m_alsa.m_play_handle,
+					      underrun,
+					      &m_abort))
+				goto do_abort;
+			exp = m_alsa.GetPlaybackQueue();
 		}
 
 		if (!BufProcess(exp, overrun, underrun))
@@ -1133,7 +1144,7 @@ public:
 					   m_alsa.m_play_props.bufsize -
 					   m_alsa.m_play_props.packetsize);
 		}
-		tmpl.Register(this, &SoundIoAlsaProc::AsyncProcess);
+		tmpl.Register(this, &SoundIoAlsaProcAsync::AsyncProcess);
 		if (!m_alsa.Prepare(playback, capture, error))
 			return false;
 		return m_alsa.CreatePcmNotifiers(playback, capture, tmpl,
@@ -1149,6 +1160,332 @@ public:
 		return m_alsa.HasNotifiers();
 	}
 };
+
+#if defined(ALSA_THREADS)
+class PthreadLock {
+	pthread_mutex_t mutex;
+	pthread_cond_t cond;
+public:
+	PthreadLock(void) {
+		int res;
+		res = pthread_mutex_init(&mutex, 0);
+		assert(!res);
+		res = pthread_cond_init(&cond, 0);
+		assert(!res);
+	}
+
+	~PthreadLock() {
+		int res;
+		res = pthread_mutex_destroy(&mutex);
+		assert(!res);
+		res = pthread_cond_destroy(&cond);
+		assert(!res);
+	}
+	void Lock(void) {
+		pthread_mutex_lock(&mutex);
+	}
+	void Unlock(void) {
+		pthread_mutex_unlock(&mutex);
+	}
+	void Wait(void) {
+		int res;
+		res = pthread_cond_wait(&cond, &mutex);
+		assert(!res);
+	}
+	void Signal(void) {
+		int res;
+		res = pthread_cond_signal(&cond);
+		assert(!res);
+	}
+};
+
+typedef SoundIoBufferBaseSync<PthreadLock> SoundIoBufferBaseThread;
+typedef SoundIoAlsaProcBase<SoundIoBufferBaseThread> SoundIoAlsaProcBaseThread;
+
+class SoundIoAlsaProcThread : public SoundIoAlsaProcBaseThread {
+	pthread_t	m_play_thread;
+	pthread_t	m_rec_thread;
+	TimerNotifier	*m_async_not;
+	bool		m_play_idle;
+
+	static void *PlayThreadHelper(void *arg) {
+		SoundIoAlsaProcThread *objp = (SoundIoAlsaProcThread *) arg;
+		objp->PlayThread();
+		return 0;
+	}
+	static void *RecThreadHelper(void *arg) {
+		SoundIoAlsaProcThread *objp = (SoundIoAlsaProcThread *) arg;
+		objp->RecThread();
+		return 0;
+	}
+
+public:
+	SoundIoAlsaProcThread(DispatchInterface *eip,
+			      const char *output_devspec,
+			      const char *input_devspec)
+		: SoundIoAlsaProcBaseThread(eip, output_devspec,
+					    input_devspec),
+		  m_play_thread(0), m_rec_thread(0), m_async_not(0) {}
+	virtual ~SoundIoAlsaProcThread() {}
+
+	void RecThread(void) {
+		unsigned int nsamples;
+		uint8_t *buf;
+		snd_pcm_sframes_t err;
+		int res;
+		ErrorInfo error;
+
+		m_lock.Lock();
+		if (m_rec_nonblock) {
+			res = snd_pcm_nonblock(m_alsa.m_rec_handle, false);
+			if (res < 0) {
+				m_lock.Unlock();
+				error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					  LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					  "ALSA set play nonblock: %s",
+					  strerror(-res));
+				BufAbort(m_alsa.m_ei, error);
+				return;
+			}
+			m_rec_nonblock = false;
+		}
+
+		while (m_async_not) {
+			nsamples = m_alsa.m_format.packet_samps;
+			m_input.GetUnfilled(buf, nsamples);
+			assert(nsamples);
+
+			m_lock.Unlock();
+			err = snd_pcm_readi(m_alsa.m_rec_handle, buf,nsamples);
+			m_lock.Lock();
+
+			if (err < 0) {
+				assert(err != -EAGAIN);
+				if (m_alsa.HandleInterruption(
+					    m_alsa.m_rec_handle, err,
+					    &error)) {
+					continue;
+				}
+				m_lock.Unlock();
+				BufAbort(m_alsa.m_ei, error);
+				return;
+			}
+
+			if (!err)
+				continue;
+
+			m_input.PutUnfilled(err);
+
+			/* Wake up the master thread */
+			if (m_async_not)
+				m_async_not->Set(0);
+		}
+
+		m_lock.Unlock();
+	}
+
+	void PlayThread(void) {
+		unsigned int nsamples;
+		uint8_t *buf;
+		int res;
+		snd_pcm_sframes_t err;
+		bool underrun;
+		ErrorInfo error;
+
+		m_lock.Lock();
+		if (m_play_nonblock) {
+			res = snd_pcm_nonblock(m_alsa.m_play_handle, false);
+			if (res < 0) {
+				m_lock.Unlock();
+				error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					  LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					  "ALSA set play nonblock: %s",
+					  strerror(-res));
+				BufAbort(m_alsa.m_ei, error);
+				return;
+			}
+			m_play_nonblock = false;
+		}
+
+		while (m_async_not) {
+			(void) snd_pcm_avail_update(m_alsa.m_play_handle);
+			if (!m_alsa.CheckXrun(m_alsa.m_play_handle,
+					      underrun,
+					      &error)) {
+				m_lock.Unlock();
+				BufAbort(m_alsa.m_ei, error);
+				return;
+			}
+			m_alsa.m_play_xrun = underrun;
+			m_hw_outq = m_alsa.GetPlaybackQueue();
+			nsamples = m_alsa.m_format.packet_samps;
+			m_output.Peek(buf, nsamples);
+			if (!nsamples) {
+				/*
+				 * Wait for the master thread
+				 * to submit more samples
+				 */
+				m_play_idle = true;
+				m_async_not->Set(0);
+				m_lock.Wait();
+				continue;
+			}
+
+			m_play_idle = false;
+			m_lock.Unlock();
+			err = snd_pcm_writei(m_alsa.m_play_handle,
+					     buf, nsamples);
+			m_lock.Lock();
+
+			if (err < 0) {
+				assert(err != -EAGAIN);
+				if (m_alsa.HandleInterruption(
+					    m_alsa.m_play_handle, err,
+					    &error))
+					continue;
+
+				m_lock.Unlock();
+				BufAbort(m_alsa.m_ei, error);
+				return;
+			}
+			if (!err) {
+				m_lock.Unlock();
+				error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					  LIBHFP_ERROR_SOUNDIO_SYSCALL,
+					  "ALSA pcm_writei result is 0?");
+				BufAbort(m_alsa.m_ei, error);
+				return;
+			}
+
+			m_output.Dequeue(err);
+			if (m_async_not)
+				m_async_not->Set(0);
+		}
+
+		m_lock.Unlock();
+	}
+
+	virtual void SndPushInput(bool nonblock) {
+		/* Nothing to do, except maybe wait for input to arrive */
+	}
+
+	virtual void SndPushOutput(bool nonblock) {
+		/* Wake up the output thread if it's sleeping */
+		m_lock.Lock();
+		if (m_play_idle)
+			m_lock.Signal();
+		m_lock.Unlock();
+	}
+
+	void AsyncProcess(TimerNotifier *notp) {
+		bool overrun = false, underrun = false;
+		OpLatencyMonitor olat(m_alsa.m_ei, "ALSA async overall");
+
+		m_lock.Lock();
+
+		if (m_abort)
+			goto do_abort;
+
+		if (m_rec_thread) {
+			overrun = m_alsa.m_rec_xrun;
+			m_alsa.m_rec_xrun = false;
+		}
+
+		if (m_play_thread) {
+			underrun = m_alsa.m_play_xrun;
+			m_alsa.m_play_xrun = false;
+		}
+
+		if (!BufProcess(m_hw_outq, overrun, underrun))
+			return;
+
+		m_lock.Unlock();
+		return;
+
+	do_abort:
+		SndHandleAbort(m_abort);
+		m_lock.Unlock();
+	}
+
+	virtual bool SndAsyncStart(bool playback, bool capture,
+				   ErrorInfo *error) {
+		int res;
+
+		m_async_not = m_alsa.m_ei->NewTimer();
+		if (!m_async_not) {
+			if (error)
+				error->SetNoMem();
+			return false;
+		}
+
+		m_async_not->Register(this,
+				      &SoundIoAlsaProcThread::AsyncProcess);
+
+		if (capture) {
+			res = pthread_create(&m_rec_thread, 0,
+				     &SoundIoAlsaProcThread::RecThreadHelper,
+					     this);
+			if (res) {
+				m_alsa.m_ei->LogWarn(error,
+					     LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					     LIBHFP_ERROR_SOUNDIO_SYSCALL,
+						     "ALSA create rec thread: "
+						     "%s", strerror(res));
+				SndAsyncStop();
+				return false;
+			}
+		}
+		if (playback) {
+			m_play_idle = true;
+			res = pthread_create(&m_play_thread, 0,
+				     &SoundIoAlsaProcThread::PlayThreadHelper,
+					     this);
+			if (res) {
+				m_alsa.m_ei->LogWarn(error,
+					     LIBHFP_ERROR_SUBSYS_SOUNDIO,
+					     LIBHFP_ERROR_SOUNDIO_SYSCALL,
+						     "ALSA create playback "
+						     "thread: %s",
+						     strerror(res));
+				SndAsyncStop();
+				return false;
+			}
+		}
+		return true;
+	}
+
+	virtual void SndAsyncStop(void) {
+		int res;
+
+		m_lock.Lock();
+		if (!m_async_not) {
+			m_lock.Unlock();
+			return;
+		}
+
+		delete m_async_not;
+		m_async_not = 0;
+		m_lock.Signal();
+		m_lock.Unlock();
+
+		if (m_rec_thread) {
+			res = pthread_join(m_rec_thread, 0);
+			assert(!res);
+			m_rec_thread = 0;
+		}
+		if (m_play_thread) {
+			res = pthread_join(m_play_thread, 0);
+			assert(!res);
+			m_play_thread = 0;
+		}
+		BufClose();
+	}
+
+	virtual bool SndIsAsyncStarted(void) const {
+		return m_async_not != 0;
+	}
+};
+#endif /* defined(ALSA_THREADS) */
 
 class SoundIoAlsaMmap : public SoundIo {
 	AlsaIoBase		m_alsa;
@@ -1169,8 +1506,9 @@ public:
 	virtual ~SoundIoAlsaMmap() {}
 
 	bool SetPacketSize(ErrorInfo *error) {
-		if (m_alsa.m_rec_props.packetsize !=
-		    m_alsa.m_play_props.packetsize) {
+		if (m_alsa.m_rec_handle && m_alsa.m_play_handle &&
+		    (m_alsa.m_rec_props.packetsize !=
+		     m_alsa.m_play_props.packetsize)) {
 			m_alsa.m_ei->LogWarn(error,
 					     LIBHFP_ERROR_SUBSYS_SOUNDIO,
 					     LIBHFP_ERROR_SOUNDIO_INTERNAL,
@@ -1399,6 +1737,7 @@ public:
 
 	virtual void SndGetQueueState(SoundIoQueueState &qs) {
 		snd_pcm_sframes_t val;
+		ErrorInfo error;
 
 		m_qs.in_queued = 0;
 		m_qs.out_queued = 0;
@@ -1407,15 +1746,18 @@ public:
 			val = snd_pcm_avail_update(m_alsa.m_rec_handle);
 			if (val > 0)
 				m_qs.in_queued = val;
+			if (!m_qs.in_overflow)
+				(void) m_alsa.CheckXrun(m_alsa.m_rec_handle,
+							m_qs.in_overflow,
+							&m_abort);
 		}
 		if (m_alsa.m_play_handle) {
 			snd_pcm_avail_update(m_alsa.m_play_handle);
-			if (!snd_pcm_delay(m_alsa.m_play_handle, &val)) {
-				if (val < 0) {
-					/* WTF? */
-					val = 0;
-				}
-				m_qs.out_queued = val;
+			if (m_qs.out_underflow ||
+			    m_alsa.CheckXrun(m_alsa.m_play_handle,
+					     m_qs.out_underflow,
+					     &m_abort)) {
+				m_qs.out_queued = m_alsa.GetPlaybackQueue();
 			}
 		}
 
@@ -1432,54 +1774,30 @@ public:
 
 	void AsyncProcess(SocketNotifier *notp, int fh) {
 		SoundIoQueueState qs;
-		bool overrun, underrun;
 		ErrorInfo error;
 
 		/*
 		 * We will explicitly test for xruns here.
 		 */
 
-		if (m_abort) {
-			SndHandleAbort(m_abort);
-			return;
-		}
+		if (m_abort)
+			goto do_abort;
 
 		if (!m_alsa.CheckNotifications())
 			return;
 
 		SndGetQueueState(qs);
 
-		underrun = m_alsa.m_play_xrun;
-		m_alsa.m_play_xrun = false;
-		if (!underrun && m_alsa.m_play_async) {
-			underrun = (snd_pcm_state(m_alsa.m_play_handle) ==
-				    SND_PCM_STATE_XRUN);
-			if (underrun &&
-			    !m_alsa.HandleInterruption(m_alsa.m_play_handle,
-						       -EPIPE, &error)) {
-				SndHandleAbort(error);
-				return;
-			}
-		}
-
-		overrun = m_alsa.m_rec_xrun;
-		m_alsa.m_rec_xrun = false;
-		if (!overrun && m_alsa.m_rec_async) {
-			overrun = (snd_pcm_state(m_alsa.m_rec_handle) ==
-				   SND_PCM_STATE_XRUN);
-			if (overrun &&
-			    !m_alsa.HandleInterruption(m_alsa.m_rec_handle,
-						       -EPIPE, &error)) {
-				SndHandleAbort(error);
-				return;
-			}
-		}
+		if (m_abort)
+			goto do_abort;
 
 		if (cb_NotifyPacket.Registered())
 			cb_NotifyPacket(this, qs);
 
-		if (m_abort)
+		if (m_abort) {
+		do_abort:
 			SndHandleAbort(m_abort);
+		}
 	}
 
 	virtual bool SndAsyncStart(bool playback, bool capture,
@@ -1519,6 +1837,7 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts,
 	char *opts = 0, *tok = 0, *save = 0, *tmp;
 	const char *ind, *outd;
 	bool do_mmap = false;
+	bool do_proc = true;
 	SoundIo *alsap = 0;
 
 	ind = "default";
@@ -1554,16 +1873,24 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts,
 			trim_trailing_ws(tmp);
 			ind = outd = tmp;
 		}
-		else if (!strncmp(tok, "mmap=", 5)) {
-			tmp = &tok[5];
+		else if (!strncmp(tok, "access=", 7)) {
+			tmp = &tok[7];
 			trim_leading_ws(tmp);
 			trim_trailing_ws(tmp);
-			if (!strcmp(tmp, "on")) {
+			if (!strcmp(tmp, "mmap")) {
 				do_mmap = true;
+				do_proc = false;
 			}
-			else if (!strcmp(tmp, "off")) {
+			else if (!strcmp(tmp, "proc")) {
 				do_mmap = false;
+				do_proc = true;
 			}
+#if defined(ALSA_THREADS)
+			else if (!strcmp(tmp, "thread")) {
+				do_mmap = false;
+				do_proc = false;
+			}
+#endif
 			else {
 				dip->LogWarn("ALSA: unrecognized mmap "
 					     "value \"%s\"", tmp);
@@ -1593,8 +1920,12 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts,
 
 	if (do_mmap)
 		alsap = new SoundIoAlsaMmap(dip, outd, ind);
+	else if (do_proc)
+		alsap = new SoundIoAlsaProcAsync(dip, outd, ind);
+#if defined(ALSA_THREADS)
 	else
-		alsap = new SoundIoAlsaProc(dip, outd, ind);
+		alsap = new SoundIoAlsaProcThread(dip, outd, ind);
+#endif
 
 	if (!alsap) {
 		if (error)

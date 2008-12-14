@@ -282,7 +282,8 @@ struct PacketSeq {
 			m_head_start += nbytes;
 			nbytes = 0;
 			if ((m_head == m_tail) &&
-			    (m_head_start == m_tail_end)) {
+			    (m_head_start == m_packetsize)) {
+				assert(m_head_start == m_tail_end);
 				m_head_start = m_tail_end = 0;
 				PutBuffer(DequeueFirst());
 			}
@@ -307,6 +308,12 @@ struct PacketSeq {
 	~PacketSeq() { Clear(); CollectBuffers(); }
 };
 
+class NullSync {
+public:
+	void Lock(void) {}
+	void Unlock(void) {}
+};
+
 /*
  * SoundIoBufferMgr
  *
@@ -315,9 +322,10 @@ struct PacketSeq {
  */
 
 /** @brief SoundIo skeleton with integrated buffer management */
-class SoundIoBufferBase : public SoundIo {
+template <typename SyncT = NullSync>
+class SoundIoBufferBaseSync : public SoundIo {
 public:
-
+	SyncT			m_lock;
 	PacketSeq		m_input;
 	PacketSeq		m_output;
 	sio_sampnum_t		m_hw_outq;
@@ -330,10 +338,10 @@ public:
 
 	SoundIoQueueState	m_qs;
 
-	SoundIoBufferBase(void)
+	SoundIoBufferBaseSync(void)
 		: m_input(), m_output(), m_hw_outq(0),
 		  m_abort_to(0), m_async_state(0) {}
-	virtual ~SoundIoBufferBase() {
+	virtual ~SoundIoBufferBaseSync() {
 		BufCancelAbort();
 	}
 
@@ -342,6 +350,7 @@ public:
 	virtual void SndPushOutput(bool nonblock) = 0;
 
 	void BufCancelAbort(void) {
+		m_lock.Lock();
 		m_abort.Clear();
 		if (m_abort_to) {
 			m_abort_to->Cancel();
@@ -349,6 +358,7 @@ public:
 			delete m_abort_to;
 			m_abort_to = 0;
 		}
+		m_lock.Unlock();
 	}
 
 	virtual void SndHandleAbort(ErrorInfo error) {
@@ -359,25 +369,33 @@ public:
 	}
 
 	virtual void SndGetIBuf(SoundIoBuffer &fillme) {
+		m_lock.Lock();
 		if (!m_input.m_npackets) {
 			SndPushInput((m_async_state != 0) ||
 				     SndIsAsyncStarted());
 		}
 		m_input.Peek(fillme.m_data, fillme.m_size);
+		m_lock.Unlock();
 	}
 
 	virtual void SndDequeueIBuf(sio_sampnum_t samps) {
+		m_lock.Lock();
 		m_input.Dequeue(samps);
 		m_qs.in_overflow = false;
+		m_lock.Unlock();
 	}
 
 	virtual void SndGetOBuf(SoundIoBuffer &fillme) {
+		m_lock.Lock();
 		m_output.GetUnfilled(fillme.m_data, fillme.m_size);
+		m_lock.Unlock();
 	}
 
 	virtual void SndQueueOBuf(sio_sampnum_t samps) {
+		m_lock.Lock();
 		m_output.PutUnfilled(samps);
 		m_qs.out_underflow = false;
+		m_lock.Unlock();
 		if (!m_async_state) {
 			SndPushOutput(SndIsAsyncStarted());
 		}
@@ -422,8 +440,9 @@ public:
 		m_hw_outq = out_queued;
 		m_qs.in_overflow |= in_overrun;
 		m_qs.out_underflow |= out_underrun;
-		SndGetQueueState(ss);
 		m_async_state = &as;
+		m_lock.Unlock();
+		SndGetQueueState(ss);
 		if (cb_NotifyPacket.Registered())
 			cb_NotifyPacket(this, ss);
 		if (as.m_stopped) { return false; }
@@ -431,9 +450,11 @@ public:
 			SndPushOutput(true);
 			if (as.m_stopped) { return false; }
 		}
+		m_lock.Lock();
 		assert(m_async_state == &as);
 		m_async_state = 0;
 		if (m_abort.IsSet()) {
+			m_lock.Unlock();
 			this->SndHandleAbort(m_abort);
 			return false;
 		}
@@ -441,25 +462,32 @@ public:
 	}
 private:
 	void BufAsyncAbort(TimerNotifier *notp) {
+		ErrorInfo myerror;
+		m_lock.Lock();
 		assert(notp == m_abort_to);
 		m_abort_to->Unregister();
 		delete m_abort_to;
 		m_abort_to = 0;
-		if (m_abort.IsSet()) {
-			SndHandleAbort(m_abort);
+		myerror = m_abort;
+		m_abort.Clear();
+		m_lock.Unlock();
+		if (myerror.IsSet()) {
+			SndHandleAbort(myerror);
 		}
 	}
 public:
 	void BufAbort(DispatchInterface *eip, ErrorInfo &error) {
+		m_lock.Lock();
 		assert(error.IsSet());
 		if (!m_abort.IsSet()) {
 			m_abort = error;
 			assert(!m_abort_to);
 			m_abort_to = eip->NewTimer();
 			m_abort_to->Register(this,
-				     &SoundIoBufferBase::BufAsyncAbort);
+				     &SoundIoBufferBaseSync<SyncT>::BufAsyncAbort);
 			m_abort_to->Set(0);
 		}
+		m_lock.Unlock();
 	}
 
 	void BufStop(void) {
@@ -470,6 +498,7 @@ public:
 	}
 };
 
+typedef class SoundIoBufferBaseSync<NullSync> SoundIoBufferBase;
 
 } /* namespace libhfp */
 #endif  /* !defined(__LIBHFP_SOUNDIO_BUF_H__) */

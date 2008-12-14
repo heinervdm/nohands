@@ -687,7 +687,7 @@ extern SoundIoDeviceList *SoundIoGetDeviceListOss(ErrorInfo *error);
  * - @c dev @c = @em devspec (sets both input and output devices)
  * - @c in @c = @em devspec (sets input device)
  * - @c out @c = @em devspec (sets output device)
- * - @c mmap @c = @em on|off (enables or disables mmap mode -- default off)
+ * - @c access @c = @em proc|thread|mmap (sets the access mode -- default proc)
  * @param[out] error Error information structure.  If this method
  * fails and returns 0, and @em error is not 0, @em error will be filled
  * out with information on the cause of the failure.
@@ -702,7 +702,7 @@ extern SoundIoDeviceList *SoundIoGetDeviceListOss(ErrorInfo *error);
  *
  * An example @c driveropts string:
  * @code
- * out=default&in=plughw:0&mmap=on
+ * out=default&in=plughw:0&access=mmap
  * @endcode
  */
 extern SoundIo *SoundIoCreateAlsa(DispatchInterface *dip,
@@ -1131,6 +1131,7 @@ private:
 
 	bool			m_bottom_async_started, m_top_async_started;
 	bool			m_bottom_loss_tolerate, m_top_loss_tolerate;
+	bool			m_bottom_out_exhaust, m_top_out_exhaust;
 
 	/* For the watchdog */
 	bool			m_async_entered;
