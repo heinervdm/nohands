@@ -709,6 +709,19 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState &state)
 	}
 
 	ncopy = 0;
+
+	/*
+	 * For bidirectional transfers to endpoints marked remove-on-exhaust,
+	 * we don't transfer anything when total exhaustion has been
+	 * observed, in order to properly flush the output side of the
+	 * other endpoint.
+	 */
+	if (m_config.pump_up && m_config.pump_down &&
+	    ((m_config.top_roe && !m_top_qs.in_queued && m_top_out_exhaust) ||
+	     (m_config.bottom_roe && !m_bottom_qs.in_queued &&
+	      m_bottom_out_exhaust)))
+		goto dont_copy;
+
 	if (m_config.pump_up) {
 		bounds[ncopy].lower = (m_config.bottom_async &&
 				       (m_bottom_qs.in_queued >
@@ -769,6 +782,8 @@ AsyncProcess(SoundIo *subp, SoundIoQueueState &state)
 
 	assert(ncopy);
 	ncopy = BestXfer(bounds, ncopy, m_config.filter_packet_samps);
+
+dont_copy:
 	assert(!(ncopy % m_config.filter_packet_samps));
 
 	if (m_config.top_loop) {
@@ -962,7 +977,8 @@ done_copyback:
 	 * Don't silence-pad if a remove-on-exhaust source is empty.
 	 */
 	if (m_config.pump_up &&
-	    (!m_config.bottom_roe || m_bottom_qs.in_queued)) {
+	    (!m_config.bottom_roe || m_bottom_qs.in_queued ||
+	     (m_config.pump_down && !m_bottom_out_exhaust))) {
 		nadj = m_top_qs.out_queued;
 		if (nadj < m_config.top_out_min) {
 			if (loss_debug && m_config.warn_loss) {
@@ -983,7 +999,8 @@ done_copyback:
 		}
 	}
 	if (m_config.pump_down &&
-	    (!m_config.top_roe || m_top_qs.in_queued)) {
+	    (!m_config.top_roe || m_top_qs.in_queued ||
+	     (m_config.pump_up && !m_top_out_exhaust))) {
 		nadj = m_bottom_qs.out_queued;
 		if (nadj < m_config.bottom_out_min) {
 			if (loss_debug && m_config.warn_loss) {
@@ -1020,12 +1037,23 @@ done_copyback:
 	 * If we have a static endpoint that has become exhausted
 	 * in all of its relevant directions, halt.
 	 */
+	if (m_config.bottom_roe &&
+	    (bws.out_xfer || (m_bottom_qs.out_queued ==
+			      m_config.bottom_out_max)))
+		m_bottom_out_exhaust = true;
+	if (m_config.top_roe &&
+	    (tws.out_xfer || (m_top_qs.out_queued >=
+			      m_config.top_out_max)))
+		m_top_out_exhaust = true;
+
 	if ((m_config.top_roe &&
-	     (!m_config.pump_up || tws.out_drop) &&
-	     (!m_config.pump_down || (!ncopy && m_bottom_qs.out_underflow))) ||
+	     (!m_config.pump_up || m_top_out_exhaust) &&
+	     (!m_config.pump_down ||
+	      (!m_top_qs.in_queued && m_bottom_qs.out_underflow))) ||
 	    (m_config.bottom_roe &&
-	     (!m_config.pump_up || (!ncopy && m_top_qs.out_underflow)) &&
-	     (!m_config.pump_down || bws.out_drop))) {
+	     (!m_config.pump_up ||
+	      (!m_bottom_qs.in_queued && m_top_qs.out_underflow)) &&
+	     (!m_config.pump_down || m_bottom_out_exhaust))) {
 		ErrorInfo error;
 		error.Set(LIBHFP_ERROR_SUBSYS_SOUNDIO,
 			  LIBHFP_ERROR_SOUNDIO_DATA_EXHAUSTED,
@@ -1497,8 +1525,8 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg,
 
 		/* Two packets acceptable fill window */
 		nsamps = config_window ? config_window : cfg.bottom_out_min;
-		if (nsamps < (max_packet * 3))
-			nsamps = (max_packet * 3);
+		if (nsamps < (max_packet * 2))
+			nsamps = (max_packet * 2);
 		cfg.bottom_out_max = cfg.bottom_out_min + nsamps;
 
 		if (bottom_props.outbuf_size &&
@@ -1552,8 +1580,8 @@ ConfigureEndpoints(SoundIo *bottom, SoundIo *top, SoundIoPumpConfig &cfg,
 
 		/* Two packets acceptable fill window */
 		nsamps = config_window ? config_window : cfg.top_out_min;
-		if (nsamps < (max_packet * 3))
-			nsamps = (max_packet * 3);
+		if (nsamps < (max_packet * 2))
+			nsamps = (max_packet * 2);
 		cfg.top_out_max = cfg.top_out_min + nsamps;
 
 		if (top_props.outbuf_size &&
@@ -1743,6 +1771,7 @@ SetBottom(SoundIo *newep, ErrorInfo *error)
 		oldep->cb_NotifyAsyncStop.Unregister();
 	}
 
+	m_bottom_out_exhaust = false;
 	return true;
 
 failed:
@@ -1814,6 +1843,7 @@ SetTop(SoundIo *newep, ErrorInfo *error)
 		oldep->cb_NotifyAsyncStop.Unregister();
 	}
 
+	m_top_out_exhaust = false;
 	return true;
 
 failed:
@@ -1926,6 +1956,9 @@ Start(ErrorInfo *error)
 		m_top_async_started = true;
 	}
 	m_top->SndGetQueueState(m_top_qs);
+
+	m_bottom_out_exhaust = false;
+	m_top_out_exhaust = false;
 
 	/*
 	 * Start the watchdog timer

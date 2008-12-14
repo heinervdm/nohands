@@ -183,7 +183,7 @@ public:
 		props.does_sink = m_do_sink;
 		props.does_loop = false;
 		props.remove_on_exhaust = true;
-		props.outbuf_size = m_source_buf.m_size;
+		props.outbuf_size = m_do_sink ? m_sink_buf.m_size : 0;
 	}
 
 	virtual void SndGetIBuf(SoundIoBuffer &fillme) {
