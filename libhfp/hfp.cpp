@@ -321,6 +321,7 @@ ScoListenNotify(SocketNotifier *notp, int fh)
 	al = sizeof(saddr);
 	ssock = accept(fh, (struct sockaddr*)&saddr, &al);
 	if (ssock < 0) {
+		GetDi()->LogDebug("SCO accept: %s", strerror(errno));
 		return;
 	}
 
