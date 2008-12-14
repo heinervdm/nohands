@@ -1843,6 +1843,10 @@ SoundIoCreateAlsa(DispatchInterface *dip, const char *driveropts,
 	ind = "default";
 	outd = "default";
 
+#if defined(ALSA_THREADS)
+	do_proc = false;
+#endif
+
 	if (driveropts) {
 		opts = strdup(driveropts);
 		if (!opts) {
