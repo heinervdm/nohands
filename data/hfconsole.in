@@ -1151,11 +1151,15 @@ class HfConsole:
 		if hasattr(self, 'config_savecfg'):
 			del self.config_savecfg
 	def config_ok_clicked(self, widget):
-		self.config_save_vals()
+		try: self.config_save_vals()
+		except dbus.exceptions.DBusException, (ex):
+			self.error_message(ex.get_dbus_message())
 		self.config_close()
 	def config_cancel_clicked(self, widget):
 		# Restore the save values
-		self.config_restore_vals(self.config_savecfg)
+		try: self.config_restore_vals(self.config_savecfg)
+		except dbus.exceptions.DBusException, (ex):
+			self.error_message(ex.get_dbus_message())
 		self.config_close()
 	def config_get_vals(self):
 		spr = self.soundio_props.GetAll('net.sf.nohands.hfpd.SoundIo')
