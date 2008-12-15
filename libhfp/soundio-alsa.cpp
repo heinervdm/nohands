@@ -1370,9 +1370,12 @@ public:
 	}
 
 	virtual void SndPushOutput(bool nonblock) {
-		/* Wake up the output thread if it's sleeping */
+		/*
+		 * Wake up the output thread if it's sleeping and
+		 * there's something for it to do
+		 */
 		m_lock.Lock();
-		if (m_play_idle)
+		if (m_play_idle && m_output.TotalFill())
 			m_lock.Signal();
 		m_lock.Unlock();
 	}
