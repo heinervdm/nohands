@@ -16,6 +16,9 @@ import gtk
 import gtk.glade
 import gobject
 
+import gettext
+_ = gettext.gettext
+
 class GtkAlerter:
 	def __getitem__(self, key):
 		return self.widgets.get_widget(key)
@@ -150,7 +153,7 @@ class HfConsole:
 				break
 
 		if not found:
-			print ('Could not find required Glade XML file %s' %
+			print (_('Could not find required Glade XML file %s') %
 			       gladefile)
 			exit(1)
 		
@@ -237,7 +240,7 @@ class HfConsole:
 
 		# Set a file filter for the ringer chooser
 		filt = gtk.FileFilter()
-		filt.set_name('WAV Audio Files')
+		filt.set_name(_('WAV Audio Files'))
 		filt.add_pattern('*.wav')
 		self["ConfigRingerFile"].add_filter(filt)
 
@@ -312,7 +315,7 @@ class HfConsole:
 						     '/org/freedesktop/DBus'),
 				dbus_interface='org.freedesktop.DBus')
 		except dbus.exceptions.DBusException, (ex):
-			self.fatal('Could not connect to D-Bus:\n' +
+			self.fatal(_('Could not connect to D-Bus:\n%s') %
 				   str(ex))
 			return
 
@@ -334,14 +337,13 @@ class HfConsole:
 					     '/net/sf/nohands/hfpd/soundio'),
 			      dbus_interface='org.freedesktop.DBus.Properties')
 		except dbus.exceptions.DBusException, (ex):
-			self.fatal('Could not connect to hfpd:\n' +
-				   str(ex) + '\n\n' +
-				   'Ensure that hfpd and its D-Bus service ' +
-				   'file are installed correctly.\n' +
-				   'If the problem persists, try starting ' +
-				   'hfpd manually, e.g. \"hfpd\", or out ' +
-				   ' of your build directory, e.g. ' +
-				    '\"hfpd/hfpd\"')
+			self.fatal(_('Could not connect to hfpd:\n%s\n\n'
+				     'Ensure that hfpd and its D-Bus '
+				     'service file are installed correctly.\n'
+				     'If the problem persists, try starting '
+				     'hfpd manually, e.g. \"hfpd\", or out of '
+				     'your build directory, e.g. '
+				     '\"hfpd/hfpd\"') % str(ex))
 			return
 
 		try:
@@ -351,22 +353,24 @@ class HfConsole:
 
 		my_version = 2
 		if v < my_version:
-			self.fatal(('Version mismatch with hfpd!\n'
-				    'hfpd version: %d\n' +
-				    'hfconsole version: %d\n\n'
-			    'Ensure that hfpd is installed correctly.\n' +
-			    'If the problem persists, try \"killall hfpd\"') %
-				   (v, my_version))
+			self.fatal(_('Version mismatch with hfpd!\n'
+				     'hfpd version: %(hfpdver)d\n'
+				     'hfconsole version: %(hfconsolever)d\n\n'
+				     'Ensure that hfpd is installed '
+				     'correctly.\n'
+				     'If the problem persists, try '
+				     '\"killall hfpd\"') %
+				   {'hfpdver': v, 'hfconsolever': my_version})
 			return
 		elif v != my_version:
-			self.fatal(('Version mismatch with hfpd!\n'
-				    'hfpd version: %d\n' +
-				    'hfconsole version: %d\n\n'
-		    'Ensure that hfconsole is installed correctly.\n' +
-		    'If the problem persists, try running hfconsole ' +
-		    'out of your build directory, e.g. ' +
+			self.fatal(_('Version mismatch with hfpd!\n'
+				    'hfpd version: %(hfpdver)d\n'
+				    'hfconsole version: %(hfconsolever)d\n\n'
+		    'Ensure that hfconsole is installed correctly.\n'
+		    'If the problem persists, try running hfconsole '
+		    'out of your build directory, e.g. '
 				    '\"data/hfconsole\"') %
-				   (v, my_version))
+				   {'hfpdver': v, 'hfconsolever': my_version})
 			return
 
 		self.configfile_name = os.path.expanduser('~/.hfconsolerc')
@@ -503,22 +507,22 @@ class HfConsole:
 			hbox.pack_start(lab, expand=True)
 			self.statelab = lab
 			but = self.image_button(False, gtk.STOCK_DELETE,
-						'Remove Device')
+						_('Remove Device'))
 			hbox.pack_end(but, expand=False)
 			but.connect('clicked', self.remove_clicked)
 			self.remove_but = but
 			but = self.image_button(False, gtk.STOCK_CONNECT,
-						'Connect Now')
+						_('Connect Now'))
 			hbox.pack_end(but, expand=False)
 			but.connect('clicked', self.connect_clicked)
 			self.connect_but = but
 			but = self.image_button(True, gtk.STOCK_APPLY,
-						'Set Device as Primary')
+						_('Set Device as Primary'))
 			hbox.pack_end(but, expand=False)
 			but.connect('toggled', self.select_toggled)
 			self.select_but = but
 			but = self.image_button(False, gtk.STOCK_ADD,
-						'Remember This Device')
+						_('Remember This Device'))
 			hbox.pack_end(but, expand=False)
 			but.connect('clicked', self.add_clicked)
 			self.add_but = but
@@ -576,13 +580,13 @@ class HfConsole:
 			self.remove_but.show()
 			if state != 4:
 				if state == 1:
-					lab = 'Destroyed\n'
+					lab = _('Destroyed') + '\n'
 				if state == 2:
-					lab = 'Detached\n'
+					lab = _('Detached') + '\n'
 					self.connect_but.show()
 					self.connect_but.set_sensitive(True)
 				if state == 3:
-					lab = 'Attaching\n'
+					lab = _('Attaching') + '\n'
 					self.connect_but.show()
 					self.connect_but.set_sensitive(False)
 				self.statelab.set_markup(lab)
@@ -592,19 +596,19 @@ class HfConsole:
 			self.connect_but.hide()
 			self.select_but.show()
 			if callstate == 1:
-				lab = 'Ready\n'
+				lab = _('Ready') + '\n'
 				if self.noservice:
-					lab = 'No Service\n'
+					lab = _('No Service') + '\n'
 			if callstate == 2:
-				lab = 'Dialing\n'
+				lab = _('Dialing') + '\n'
 			if callstate == 3:
-				lab = 'Call Established\n'
+				lab = _('Call Established') + '\n'
 			if callstate == 4:
-				lab = 'Ringing\n'
+				lab = _('Ringing') + '\n'
 			if callstate == 5:
-				lab = 'Waiting Call\n'
+				lab = _('Waiting Call') + '\n'
 			if self.has_audio():
-				lab += 'Audio Open'
+				lab += _('Audio Open')
 			self.statelab.set_markup(lab)
 			self.hfc.ag_state_changed(self)
 
@@ -694,7 +698,7 @@ class HfConsole:
 			self.hfc.ag_select(self, widget.get_active())
 
 		def command_failed(self, reason):
-			print "Command failed: %s" % reason
+			print _("Command failed: %s") % reason
 		def close_audio(self):
 			self.ag.CloseAudio()
 		def dial(self, number):
@@ -754,7 +758,7 @@ class HfConsole:
 	def hfpd_lost(self, name, old_owner, new_owner):
 		if name != 'net.sf.nohands.hfpd' or new_owner != '':
 			return
-		self.fatal('HFPD Process Disconnected')
+		self.fatal(_('HFPD Process Disconnected'))
 
 	def hfpd_ag_added(self, agpath):
 		if agpath not in self.ags:
@@ -798,7 +802,7 @@ class HfConsole:
 				self.command_audio_attach(True)
 			except:
 				self.soundio_status_msg(
-					'Failed to Open Primary Sound Card',
+					_('Failed to Open Primary Sound Card'),
 					5000)
 				if self.selected_ag.has_audio():
 					self.selected_ag.close_audio()
@@ -876,7 +880,7 @@ class HfConsole:
 			agpath = self.hfpd.AddDevice(addr, False)
 		except:
 			del self.ags_added[addr]
-			self.error_message('Could not attach Audio Gateway')
+			self.error_message(_('Could not attach Audio Gateway'))
 
 	def hfpd_log_message(self, level, msg):
 		print 'HFPD: ' + msg
@@ -959,7 +963,7 @@ class HfConsole:
 
 	def hfpd_system_state(self, state):
 		if not state:
-			self.hfpd_system_msg('Bluetooth Unavailable', None)
+			self.hfpd_system_msg(_('Bluetooth Unavailable'), None)
 		else:
 			self.hfpd_system_msg_clear()
 
@@ -975,7 +979,7 @@ class HfConsole:
 	def scan_open(self, but):
 		dlg = self['ScanDialog']
 		if not self.scan_restart():
-			self.error_message('Could not start inquiry',
+			self.error_message(_('Could not start inquiry'),
 					   self['ScanDialog'])
 			return
 		dlg.show()
@@ -1005,7 +1009,7 @@ class HfConsole:
 		self.history_open()
 	def scan_restart_clicked(self, widget):
 		if not self.scan_restart():
-			self.error_message('Could not start inquiry',
+			self.error_message(_('Could not start inquiry'),
 					   self['ScanDialog'])
 	def scan_select(self, selection):
 		if not selection.count_selected_rows():
@@ -1030,7 +1034,7 @@ class HfConsole:
 			while ix:
 				if self.store.get_value(ix, 2) == self.addr:
 					name = self.store.get_value(ix, 2)
-					name += ' (unknown name)'
+					name += ' ' + _('(unknown name)')
 					self.store.set_value(ix, 0, name)
 				ix = self.store.iter_next(ix)
 			self.hfc = None
@@ -1247,7 +1251,7 @@ class HfConsole:
 		try:
 			devlist = self.soundio.ProbeDevices(drivername)
 		except dbus.exceptions.DBusException, (ex):
-			print 'Device probe failed: ' + str(ex)
+			print _('Device probe failed: %s') % str(ex)
 		if devlist:
 			for x in devlist:
 				model.append([x[0], x[1]])
@@ -1263,13 +1267,15 @@ class HfConsole:
 	def value_untransform(self, val, exp, minv, maxv):
 		val = self.constrain(val, minv, maxv)
 		return pow(float(val - minv) / (maxv - minv), 1.0 / exp)
+	def format_ms(self, value):
+		return _('%dms') % value
 	def config_packet_interval(self, value):
 		self.nested = True
 		if value != 0:
 			value = self.constrain(value, 5, 1000)
 			self['ConfigPacketIntervalHint'].set_active(True)
 			self['ConfigPacketIntervalLabel'].set_text(
-				str(value) + 'ms')
+				self.format_ms(value))
 			self['ConfigPacketInterval'].set_sensitive(True)
 			self['ConfigPacketInterval'].set_value(
 				self.value_untransform(value, 3, 5, 1000))
@@ -1304,7 +1310,7 @@ class HfConsole:
 			value = self.constrain(value, 5, 1000)
 			self['ConfigMinOutBufferHint'].set_active(True)
 			self['ConfigMinOutBufferLabel'].set_text(
-				str(value) + 'ms')
+				self.format_ms(value))
 			self['ConfigMinOutBuffer'].set_sensitive(True)
 			self['ConfigMinOutBuffer'].set_value(
 				self.value_untransform(value, 3, 5, 1000))
@@ -1346,8 +1352,8 @@ class HfConsole:
 							       get_text())
 				except:
 					widget.set_active(False)
-					self.error_message('Cannot Apply ' +
-						   'Sound Driver Settings',
+					self.error_message(_('Cannot Apply '
+						     'Sound Driver Settings'),
 							self['ConfigDialog'])
 					return
 
@@ -1358,9 +1364,9 @@ class HfConsole:
 					self.soundio.LoopbackStart()
 				except dbus.exceptions.DBusException, (ex):
 					widget.set_active(False)
-					self.error_message('Could not open '+
-							   'Audio Device:\n' +
-							   str(ex),
+					self.error_message(_('Could not open '
+							     'Audio Device:\n'
+							     '%s') % str(ex),
 							self['ConfigDialog'])
 					return
 
@@ -1369,7 +1375,7 @@ class HfConsole:
 					self.config_skew_notify)
 				pkt = self.getprop_soundio('PacketInterval')
 				self['ConfigRealPacketSizeLabel'].set_text(
-					str(pkt) + 'ms')
+					self.format_ms(pkt))
 		else:
 			if self.loopback_active:
 				self.soundio.Stop()
@@ -1388,18 +1394,18 @@ class HfConsole:
 	def config_skew_notify(self, skewtype, count):
 		timeout = 1500
 		if skewtype == 0:
-			msg = 'Sound Card Failure'
+			msg = _('Sound Card Failure')
 			timeout = 5000
 		elif skewtype == 1:
-			msg = 'Sound Card Overrun/Underrun: %d/sec' % count
+			msg = _('Sound Card Overrun/Underrun: %d/sec') % count
 		elif skewtype == 2:
 			if count < 0:
-				submsg = '(Playback Slower)'
+				submsg = _('(Playback Slower)')
 				count = -count
 			else:
-				submsg = '(Capture Slower)'
-			msg = ('Sound Card Capture/Playback Skew: %1.3f%%\n%s'%
-			       (count, submsg))
+				submsg = _('(Capture Slower)')
+			msg = ((_('Sound Card Capture/Playback Skew: '
+				  '%1.3f%%') % count) + '\n' + submsg)
 		else:
 			return
 		self.config_skew_clear(False)
@@ -1420,7 +1426,7 @@ class HfConsole:
 			value = self.constrain(value, 5, 1000)
 			self['ConfigEchoCancel'].set_active(True)
 			self['ConfigEchoCancelTailLabel'].set_text(
-				str(value) + 'ms')
+				self.format_ms(value))
 			self['ConfigEchoCancelTail'].set_sensitive(True)
 			self['ConfigEchoCancelTail'].set_value(
 				self.value_untransform(value, 3, 5, 1000))
@@ -1508,8 +1514,8 @@ class HfConsole:
 				       self['ConfigDriverDevList'].child.
 					       get_text())
 		except:
-			self.error_message('Cannot Apply Sound Driver ' +
-					   'Settings',
+			self.error_message(_('Cannot Apply Sound Driver '
+					     'Settings'),
 					   self['ConfigDialog'])
 			return
 		assist = self['DspTestAssistant']
@@ -1586,8 +1592,8 @@ class HfConsole:
 							 80000, 500)
 			except:
 				widget.set_active(False)
-				self.error_message('Could not open '+
-						   'Audio Device',
+				self.error_message(_('Could not open '
+						     'Audio Device'),
 						   self['DspTestAssistant'])
 				return
 				
@@ -1640,8 +1646,8 @@ class HfConsole:
 	def soundio_stream_aborted(self, excode, descr):
 		if (excode ==
 		    'net.sf.nohands.hfpd.Error.SoundIoSoundCardFailed'):
-			self.soundio_status_msg('Primary Sound Card Failure',
-						5000)
+			self.soundio_status_msg(
+				_('Primary Sound Card Failure'), 5000)
 		if self.soundio_skew_monitor:
 			self.soundio_skew_monitor(0, 0)
 		self.soundio_state_changed(2)
@@ -1675,13 +1681,13 @@ class HfConsole:
 		    self.soundio_skew_type < skewtype):
 			return
 		if skewtype == 1:
-			msg = 'Sound Card Overrun/Underrun'
+			msg = _('Sound Card Overrun/Underrun')
 		elif skewtype == 2:
-			msg = 'Sound Card Playback/Capture Clock Skew'
+			msg = _('Sound Card Playback/Capture Clock Skew')
 		elif skewtype == 3:
-			msg = 'Severe Bluetooth Playback/Capture Clock Skew'
+			msg = _('Severe Bluetooth Playback/Capture Clock Skew')
 		elif skewtype == 4:
-			msg = 'Severe Sound Card / Bluetooth Clock Skew'
+			msg = _('Severe Sound Card / Bluetooth Clock Skew')
 		else:
 			return
 		self.soundio_status_msg(msg, 5000)
