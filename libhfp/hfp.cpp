@@ -54,8 +54,10 @@ HfpService(int caps)
 	: RfcommService(HANDSFREE_AGW_SVCLASS_ID),
 	  m_sco_listen(-1), m_sco_listen_not(0),
 	  m_brsf_my_caps(caps), m_svc_name(0), m_svc_desc(0),
-	  m_sdp_rec(0), m_timer(0), m_sco_enable(true),
+	  m_sdp_rec(0), m_sco_enable(true),
 	  m_autoreconnect_timeout(15000), m_autoreconnect_set(false),
+	  m_autoreconnect_timer(0),
+	  m_autoreconnect_now_set(false), m_autoreconnect_now_timer(0),
 	  m_complaint_sco_mtu(false), m_complaint_sco_vs(false),
 	  m_complaint_sco_listen(false)
 {
@@ -72,23 +74,33 @@ HfpService::
 		free(m_svc_desc);
 		m_svc_desc = 0;
 	}
-	assert(!m_timer);
+	assert(!m_autoreconnect_timer);
+	assert(!m_autoreconnect_now_timer);
 }
 
 void HfpService::
-Timeout(TimerNotifier *timerp)
+AutoReconnectTimeout(TimerNotifier *timerp)
 {
 	ListItem retrylist;
 
-	assert(timerp == m_timer);
-	assert(m_autoreconnect_set);
-	m_autoreconnect_set = false;
+	if (timerp == m_autoreconnect_timer) {
+		assert(m_autoreconnect_set);
+		m_autoreconnect_set = false;
+		retrylist.AppendItemsFrom(m_autoreconnect_list);
 
-	retrylist.AppendItemsFrom(m_autoreconnect_list);
+	} else {
+		assert(timerp == m_autoreconnect_now_timer);
+		assert(m_autoreconnect_now_set);
+		m_autoreconnect_now_set = false;
+		retrylist.AppendItemsFrom(m_autoreconnect_now_list);
+	}
+
 	while (!retrylist.Empty()) {
 		HfpSession *sessp = GetContainer(retrylist.next, HfpSession,
 						 m_autoreconnect_links);
 		sessp->m_autoreconnect_links.UnlinkOnly();
+
+		/* Always append to the delayed list */
 		m_autoreconnect_list.AppendItem(sessp->m_autoreconnect_links);
 
 		sessp->AutoReconnect();
@@ -96,21 +108,30 @@ Timeout(TimerNotifier *timerp)
 
 	if (!m_autoreconnect_list.Empty() && !m_autoreconnect_set) {
 		m_autoreconnect_set = true;
-		m_timer->Set(m_autoreconnect_timeout);
+		m_autoreconnect_timer->Set(m_autoreconnect_timeout);
 	}
 }
 
 void HfpService::
-AddAutoReconnect(HfpSession *sessp)
+AddAutoReconnect(HfpSession *sessp, bool now)
 {
 	assert(sessp->m_autoreconnect_links.Empty());
 	assert(!sessp->IsConnected() && !sessp->IsConnecting());
 
-	if (m_timer && !m_autoreconnect_set) {
-		m_autoreconnect_set = true;
-		m_timer->Set(m_autoreconnect_timeout);
+	if (now) {
+		if (m_autoreconnect_now_timer && !m_autoreconnect_now_set) {
+			m_autoreconnect_now_set = true;
+			m_autoreconnect_now_timer->Set(0);
+		}
+		m_autoreconnect_now_list.AppendItem(sessp->
+						    m_autoreconnect_links);
+	} else {
+		if (m_autoreconnect_timer && !m_autoreconnect_set) {
+			m_autoreconnect_set = true;
+			m_autoreconnect_timer->Set(m_autoreconnect_timeout);
+		}
+		m_autoreconnect_list.AppendItem(sessp->m_autoreconnect_links);
 	}
-	m_autoreconnect_list.AppendItem(sessp->m_autoreconnect_links);
 }
 
 void HfpService::
@@ -119,9 +140,18 @@ RemoveAutoReconnect(HfpSession *sessp)
 	assert(!sessp->m_autoreconnect_links.Empty());
 	sessp->m_autoreconnect_links.Unlink();
 
-	if (m_timer && m_autoreconnect_list.Empty() && m_autoreconnect_set) {
+	if (m_autoreconnect_timer &&
+	    m_autoreconnect_list.Empty() &&
+	    m_autoreconnect_set) {
 		m_autoreconnect_set = false;
-		m_timer->Cancel();
+		m_autoreconnect_timer->Cancel();
+	}
+
+	if (m_autoreconnect_now_timer &&
+	    m_autoreconnect_now_list.Empty() &&
+	    m_autoreconnect_now_set) {
+		m_autoreconnect_now_set = false;
+		m_autoreconnect_now_timer->Cancel();
 	}
 }
 
@@ -461,15 +491,26 @@ bool HfpService::
 Start(ErrorInfo *error)
 {
 	assert(GetHub());
-	assert(!m_timer);
-	m_timer = GetDi()->NewTimer();
-	if (!m_timer) {
+	assert(!m_autoreconnect_timer);
+	assert(!m_autoreconnect_now_timer);
+
+	m_autoreconnect_timer = GetDi()->NewTimer();
+	if (!m_autoreconnect_timer) {
 		if (error)
 			error->SetNoMem();
 		return false;
 	}
+	m_autoreconnect_timer->Register(this,
+					&HfpService::AutoReconnectTimeout);
 
-	m_timer->Register(this, &HfpService::Timeout);
+	m_autoreconnect_now_timer = GetDi()->NewTimer();
+	if (!m_autoreconnect_now_timer) {
+		if (error)
+			error->SetNoMem();
+		goto failed;
+	}
+	m_autoreconnect_now_timer->Register(this,
+					    &HfpService::AutoReconnectTimeout);
 
 	if (!RfcommListen(error))
 		goto failed;
@@ -482,7 +523,12 @@ Start(ErrorInfo *error)
 
 	if (!m_autoreconnect_list.Empty() && !m_autoreconnect_set) {
 		m_autoreconnect_set = true;
-		m_timer->Set(0);
+		m_autoreconnect_timer->Set(0);
+	}
+
+	if (!m_autoreconnect_now_list.Empty() && !m_autoreconnect_now_set) {
+		m_autoreconnect_now_set = true;
+		m_autoreconnect_now_timer->Set(0);
 	}
 
 	return true;
@@ -500,10 +546,15 @@ Stop(void)
 		SdpUnregister();
 	RfcommCleanup();
 	ScoCleanup();
-	if (m_timer) {
+	if (m_autoreconnect_timer) {
 		m_autoreconnect_set = false;
-		delete m_timer;
-		m_timer = 0;
+		delete m_autoreconnect_timer;
+		m_autoreconnect_timer = 0;
+	}
+	if (m_autoreconnect_now_timer) {
+		m_autoreconnect_now_set = false;
+		delete m_autoreconnect_now_timer;
+		m_autoreconnect_now_timer = 0;
 	}
 }
 
@@ -703,6 +754,9 @@ NotifyConnectionState(ErrorInfo *async_error)
 	if (IsRfcommConnecting()) {
 		assert(m_conn_state == BTS_Disconnected);
 		m_conn_state = BTS_RfcommConnecting;
+		assert(!async_error);
+		if (cb_NotifyConnection.Registered())
+			cb_NotifyConnection(this, 0);
 	}
 
 	else if (IsRfcommConnected()) {
@@ -802,7 +856,8 @@ AutoReconnect(void)
 	assert(m_conn_autoreconnect);
 	assert(m_conn_state == BTS_Disconnected);
 
-	(void) Connect();
+	if (Connect() && cb_NotifyConnection.Registered())
+		cb_NotifyConnection(this, 0);
 
 	/*
 	 * We could invoke cb_NotifyConnectionState here, but
@@ -819,10 +874,8 @@ SetAutoReconnect(bool enable)
 	if (enable && !m_conn_autoreconnect) {
 		Get();
 		m_conn_autoreconnect = true;
-		if (m_conn_state == BTS_Disconnected) {
-			GetService()->AddAutoReconnect(this);
-			(void) Connect();
-		}
+		if (m_conn_state == BTS_Disconnected)
+			GetService()->AddAutoReconnect(this, true);
 	}
 	else if (!enable && m_conn_autoreconnect) {
 		m_conn_autoreconnect = false;

@@ -481,7 +481,11 @@ NotifyConnection(libhfp::HfpSession *sessp, ErrorInfo *reason)
 		DoDisconnect();
 	}
 
-	else if (st == HFPD_AG_CONNECTING) {
+	else if (st == HFPD_AG_CONNECTED) {
+		char buf[32];
+		m_sess->GetDevice()->GetAddr(buf);
+		GetDi()->LogInfo("AG %s: Connected", buf);
+
 		/*
 		 * Trigger a name lookup if one would be helpful.
 		 * This is probably the best time to do it for
@@ -490,12 +494,6 @@ NotifyConnection(libhfp::HfpSession *sessp, ErrorInfo *reason)
 		 */
 		if (!sessp->GetDevice()->IsNameResolved())
 			(void) sessp->GetDevice()->ResolveName();
-	}
-
-	if (st == HFPD_AG_CONNECTED) {
-		char buf[32];
-		m_sess->GetDevice()->GetAddr(buf);
-		GetDi()->LogInfo("AG %s: Connected", buf);
 	}
 
 	UpdateState(st);

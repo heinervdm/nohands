@@ -95,21 +95,24 @@ private:
 	char			*m_svc_desc;
 	sdp_record_t		*m_sdp_rec;
 
-	TimerNotifier		*m_timer;
-
-	void Timeout(TimerNotifier*);
+	void AutoReconnectTimeout(TimerNotifier*);
 
 	bool			m_sco_enable;
 
 	ListItem		m_autoreconnect_list;
 	int			m_autoreconnect_timeout;
 	bool			m_autoreconnect_set;
+	TimerNotifier		*m_autoreconnect_timer;
+
+	ListItem		m_autoreconnect_now_list;
+	bool			m_autoreconnect_now_set;
+	TimerNotifier		*m_autoreconnect_now_timer;
 
 	bool			m_complaint_sco_mtu;
 	bool			m_complaint_sco_vs;
 	bool			m_complaint_sco_listen;
 
-	void AddAutoReconnect(HfpSession *sessp);
+	void AddAutoReconnect(HfpSession *sessp, bool now = false);
 	void RemoveAutoReconnect(HfpSession *sessp);
 
 	bool ScoListen(ErrorInfo *error);
