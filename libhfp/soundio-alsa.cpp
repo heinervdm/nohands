@@ -1207,6 +1207,7 @@ class SoundIoAlsaProcThread : public SoundIoAlsaProcBaseThread {
 	pthread_t	m_rec_thread;
 	TimerNotifier	*m_async_not;
 	bool		m_play_idle;
+	TimerNotifier	*m_play_wake;
 
 	static void *PlayThreadHelper(void *arg) {
 		SoundIoAlsaProcThread *objp = (SoundIoAlsaProcThread *) arg;
@@ -1225,7 +1226,8 @@ public:
 			      const char *input_devspec)
 		: SoundIoAlsaProcBaseThread(eip, output_devspec,
 					    input_devspec),
-		  m_play_thread(0), m_rec_thread(0), m_async_not(0) {}
+		  m_play_thread(0), m_rec_thread(0),
+		  m_async_not(0), m_play_wake(0) {}
 	virtual ~SoundIoAlsaProcThread() {}
 
 	void RecThread(void) {
@@ -1291,6 +1293,7 @@ public:
 		snd_pcm_sframes_t err;
 		bool underrun;
 		ErrorInfo error;
+		unsigned int msec;
 
 		m_lock.Lock();
 		if (m_play_nonblock) {
@@ -1307,7 +1310,11 @@ public:
 			m_play_nonblock = false;
 		}
 
+		msec = (m_alsa.m_format.packet_samps * 1000) /
+			m_alsa.m_format.samplerate;
+
 		while (m_async_not) {
+			m_async_not->Set(0);
 			(void) snd_pcm_avail_update(m_alsa.m_play_handle);
 			if (!m_alsa.CheckXrun(m_alsa.m_play_handle,
 					      underrun,
@@ -1323,15 +1330,20 @@ public:
 			if (!nsamples) {
 				/*
 				 * Wait for the master thread
-				 * to submit more samples
+				 * to submit more samples, or to
+				 * wake us up via PlayThreadWakeup.
 				 */
 				m_play_idle = true;
-				m_async_not->Set(0);
+				m_play_wake->Set(msec / 2);
 				m_lock.Wait();
 				continue;
 			}
 
-			m_play_idle = false;
+			if (m_play_idle) {
+				m_play_wake->Cancel();
+				m_play_idle = false;
+			}
+
 			m_lock.Unlock();
 			err = snd_pcm_writei(m_alsa.m_play_handle,
 					     buf, nsamples);
@@ -1358,10 +1370,17 @@ public:
 			}
 
 			m_output.Dequeue(err);
-			if (m_async_not)
-				m_async_not->Set(0);
 		}
 
+		m_lock.Unlock();
+	}
+
+	void PlayThreadWakeup(TimerNotifier *notp) {
+		m_lock.Lock();
+		if (m_play_idle) {
+			m_play_idle = false;
+			m_lock.Signal();
+		}
 		m_lock.Unlock();
 	}
 
@@ -1414,6 +1433,8 @@ public:
 				   ErrorInfo *error) {
 		int res;
 
+		m_play_idle = false;
+
 		m_async_not = m_alsa.m_ei->NewTimer();
 		if (!m_async_not) {
 			if (error)
@@ -1439,6 +1460,17 @@ public:
 			}
 		}
 		if (playback) {
+			m_play_wake = m_alsa.m_ei->NewTimer();
+			if (!m_play_wake) {
+				if (error)
+					error->SetNoMem();
+				SndAsyncStop();
+				return false;
+			}
+
+			m_play_wake->Register(this,
+				&SoundIoAlsaProcThread::PlayThreadWakeup);
+
 			m_play_idle = true;
 			res = pthread_create(&m_play_thread, 0,
 				     &SoundIoAlsaProcThread::PlayThreadHelper,
@@ -1482,6 +1514,11 @@ public:
 			m_play_thread = 0;
 		}
 		BufClose();
+
+		if (m_play_wake) {
+			delete m_play_wake;
+			m_play_wake = 0;
+		}
 	}
 
 	virtual bool SndIsAsyncStarted(void) const {
@@ -1541,9 +1578,17 @@ public:
 	}
 
 	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
-		return m_alsa.OpenDevice(SND_PCM_ACCESS_MMAP_INTERLEAVED,
-					 play, capture, error) &&
-			SetPacketSize(error);
+		if (!m_alsa.OpenDevice(SND_PCM_ACCESS_MMAP_INTERLEAVED,
+				       play, capture, error))
+			return false;
+		if (!SetPacketSize(error)) {
+			m_alsa.CloseDevice();
+			return false;
+		}
+
+		m_qs.in_overflow = false;
+		m_qs.out_underflow = false;
+		return true;
 	}
 	virtual void SndClose(void) {
 		SndAsyncStop();
@@ -1569,6 +1614,8 @@ public:
 		if (!SetPacketSize(error)) {
 			return false;
 		}
+		m_qs.in_overflow = false;
+		m_qs.out_underflow = false;
 		return true;
 	}
 
@@ -1622,6 +1669,8 @@ public:
 
 	virtual void SndDequeueIBuf(sio_sampnum_t deqme) {
 		int err;
+
+		m_qs.in_overflow = false;
 
 		if (m_rec_areas) {
 			if (deqme < m_rec_size) {
@@ -1717,6 +1766,8 @@ public:
 		assert(m_play_areas);
 		assert(qcount <= m_play_size);
 
+		m_qs.out_underflow = false;
+
 		m_play_areas = NULL;
 		err = snd_pcm_mmap_commit(m_alsa.m_play_handle,
 					  m_play_off, qcount);
@@ -1800,7 +1851,25 @@ public:
 		if (m_abort) {
 		do_abort:
 			SndHandleAbort(m_abort);
+			return;
 		}
+
+		if (m_alsa.m_play_not &&
+		    (m_qs.out_queued < m_alsa.m_play_props.bufsize)) {
+			/*
+			 * ALSA wants to alert us whenever our output
+			 * buffer free space increases above some level.
+			 * We just want to know whenever pktsize samples
+			 * have been processed.
+			 */
+			snd_pcm_uframes_t exp;
+			exp = ((m_alsa.m_play_props.bufsize -
+				m_qs.out_queued) +
+			       m_alsa.m_play_props.packetsize);
+
+			m_alsa.SetAvailMin(m_alsa.m_play_handle, exp);
+		}
+
 	}
 
 	virtual bool SndAsyncStart(bool playback, bool capture,
