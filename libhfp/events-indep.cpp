@@ -483,6 +483,16 @@ RunOnce(int max_sleep_ms)
 
 	res = select(maxfh + 1, &readi, &writei, NULL, top);
 
+	if (res < 0) {
+		if ((errno != EINTR) &&
+		    (errno != ETIMEDOUT)) {
+			LogWarn("Dispatch: select: %s\n", strerror(errno));
+		}
+
+		FD_ZERO(&readi);
+		FD_ZERO(&writei);
+	}
+
 	Lock();
 	m_sleeping = false;
 
