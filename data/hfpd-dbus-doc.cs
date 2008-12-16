@@ -395,7 +395,7 @@ namespace net.sf.nohands.hfpd {
 		 * finds an unexpected value, it should fail and warn about
 		 * a version mismatch.
 		 *
-		 * This document describes version 1 of the HFPD D-Bus
+		 * This document describes version 2 of the HFPD D-Bus
 		 * interface.
 		 *
 		 * A version number value in this field covers all HFPD
@@ -1515,6 +1515,57 @@ namespace net.sf.nohands.hfpd {
 
 	/**
 	 * @brief Interface for managing a specific Audio Gateway device
+	 *
+	 * For each audio gateway device known to hfpd, an object
+	 * implementing the AudioGateway interface will be instantiated.
+	 * A complete list of audio gateway objects is available via
+	 * HandsFree.AudioGateways.
+	 *
+	 * Audio gateway objects have three main forms of state:
+	 * - The service-level connection state, AudioGateway.State
+	 * - The audio connection state, AudioGateway.AudioState
+	 * - The call state, AudioGateway.CallState
+	 *
+	 * @section audioconnection Audio Connection Management
+	 *
+	 * Audio gateway devices support streaming telephony audio
+	 * over Bluetooth.  In order for an audio connection to be
+	 * open to a device, a service-level connection must be open.
+	 * D-Bus clients can determine the audio connection state
+	 * of an AudioGateway device by examining the
+	 * AudioGateway.AudioState property, and through the
+	 * AudioStateChanged() signal.  The device may initiate an
+	 * audio connection, and D-Bus clients will be informed of this
+	 * by an AudioStateChanged() signal.  D-Bus clients may also
+	 * initiate an audio connection to the device using OpenAudio(),
+	 * or using SoundIo.AudioGatewayStart().
+	 *
+	 * An open audio connection to an audio gateway device
+	 * does not imply that audio data is being streamed to
+	 * and from the device.  The D-Bus client is ultimately
+	 * responsible for configuring streaming.  When an audio
+	 * connection is first established, ideally, the D-Bus
+	 * client will either:
+	 * - Start streaming audio between the audio gateway
+	 * and the local sound card.  See
+	 * SoundIo.AudioGatewayStart().
+	 * - Drop the audio connection.  See CloseAudio().
+	 *
+	 * It is @b highly @b undesirable to leave an audio gateway
+	 * device sitting with an open audio connection, without
+	 * active streaming.  D-Bus clients should take care to
+	 * avoid this situation, and ensure that they close the
+	 * audio connection if they are unable to start streaming.
+	 *
+	 * Overall, HFPD should not need to initiate audio
+	 * connections to devices -- audio gateway devices are
+	 * suited to do all of the initiation on their own.
+	 * If HFPD does initiate an audio connection, it should
+	 * only be at the explicit request of the user.
+	 *
+	 * When an audio gateway device initiates an audio
+	 * connection, the device's D-Bus owner will be informed
+	 * of it only by this signal.	 
 	 */
 	interface AudioGateway {
 
@@ -1557,7 +1608,30 @@ namespace net.sf.nohands.hfpd {
 		public Disconnect();
 
 		/**
-		 * @brief Close the service-level connection to the device
+		 * @brief Attempt to open an audio connection to the device
+		 *
+		 * This method will attempt to push the device to the audio
+		 * connected state.  The device must have an existing
+		 * service-level connection in order to push the audio
+		 * state.
+		 *
+		 * If an audio connection already exists, or an audio
+		 * connection attempt is already in progress, this method
+		 * will do nothing and succeed.
+		 *
+		 * An open audio connection to an audio gateway device
+		 * does not imply that audio data is being streamed to
+		 * and from the device.  See the 
+		 * @ref audioconnection "Audio connection management"
+		 * section for more details.
+		 *
+		 * This method may cause an AudioStateChanged() signal
+		 * to be emitted.
+		 */
+		public OpenAudio();
+
+		/**
+		 * @brief Close the audio connection to the device
 		 *
 		 * This method will force the device to the audio
 		 * disconnected state.
@@ -1891,6 +1965,12 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * Changes to this value are reported by the
 		 * AudioStateChanged() signal.
+		 *
+		 * An open audio connection to an audio gateway device
+		 * does not imply that audio data is being streamed to
+		 * and from the device.  See the 
+		 * @ref audioconnection "Audio connection management"
+		 * section for more details.
 		 */
 		const byte AudioState;
 
@@ -2115,29 +2195,9 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * An open audio connection to an audio gateway device
 		 * does not imply that audio data is being streamed to
-		 * and from the device.  The D-Bus client is ultimately
-		 * responsible for configuring streaming.  Ideally, the
-		 * D-Bus client will either:
-		 * - Start streaming audio between the audio gateway
-		 * and the local sound card.  See
-		 * SoundIo.AudioGatewayStart().
-		 * - Drop the audio connection.  See CloseAudio().
-		 *
-		 * It is @b highly @b undesirable to leave an audio gateway
-		 * device sitting with an open audio connection, without
-		 * active streaming.  D-Bus clients should take care to
-		 * avoid this situation, and ensure that they close the
-		 * audio connection if they are unable to start streaming.
-		 *
-		 * Overall, HFPD should not need to initiate audio
-		 * connections to devices -- audio gateway devices are
-		 * suited to do all of the initiation on their own.
-		 * If HFPD does initiate an audio connection, it should
-		 * only be at the explicit request of the user.
-		 *
-		 * When an audio gateway device initiates an audio
-		 * connection, the device's D-Bus owner will be informed
-		 * of it only by this signal.
+		 * and from the device.  See the 
+		 * @ref audioconnection "Audio connection management"
+		 * section for more details.
 		 */
 		public signal AudioStateChanged(out byte audio_state);
 

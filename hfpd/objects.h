@@ -118,6 +118,7 @@ public:
 	/* D-Bus method handler methods */
 	bool Connect(DBusMessage *msgp);
 	bool Disconnect(DBusMessage *msgp);
+	bool OpenAudio(DBusMessage *msgp);
 	bool CloseAudio(DBusMessage *msgp);
 	bool Dial(DBusMessage *msgp);
 	bool Redial(DBusMessage *msgp);
@@ -153,6 +154,7 @@ public:
 static const DbusMethod g_AudioGateway_methods[] = {
 	DbusMethodEntry(AudioGateway, Connect, "", ""),
 	DbusMethodEntry(AudioGateway, Disconnect, "", ""),
+	DbusMethodEntry(AudioGateway, OpenAudio, "", ""),
 	DbusMethodEntry(AudioGateway, CloseAudio, "", ""),
 	DbusMethodEntry(AudioGateway, Dial, "s", ""),
 	DbusMethodEntry(AudioGateway, Redial, "", ""),

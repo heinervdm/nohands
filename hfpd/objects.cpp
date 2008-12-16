@@ -636,6 +636,23 @@ Disconnect(DBusMessage *msgp)
 }
 
 bool AudioGateway::
+OpenAudio(DBusMessage *msgp)
+{
+	ErrorInfo error;
+
+	GetDi()->LogDebug("AG %s: OpenAudio", GetDbusPath());
+
+	if (!m_sess->IsConnectingAudio() &&
+	    !m_sess->IsConnectedAudio() &&
+	    !m_sess->SndOpen(true, true, &error))
+		return SendReplyErrorInfo(msgp, error);
+
+	UpdateAudioState(AudioState());
+
+	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
+}
+
+bool AudioGateway::
 CloseAudio(DBusMessage *msgp)
 {
 	GetDi()->LogDebug("AG %s: CloseAudio", GetDbusPath());
@@ -2591,6 +2608,7 @@ EpAudioGatewayComplete(AudioGateway *agp, ErrorInfo *error)
 		return false;
 	case HFPD_AG_AUDIO_CONNECTING:
 		(void) UpdateState(HFPD_SIO_AUDIOGATEWAY_CONNECTING);
+		agp->UpdateAudioState(st);
 		return true;
 	case HFPD_AG_AUDIO_CONNECTED:
 		agp->m_audio_bind = 0;
