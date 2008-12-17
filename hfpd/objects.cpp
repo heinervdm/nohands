@@ -1033,7 +1033,7 @@ HandsFree(DispatchInterface *dip, DbusSession *dbusp)
 	  m_di(dip), m_dbus(dbusp), m_hub(0), m_hfp(0),
 	  m_sound(0), m_inquiry_state(false),
 	  m_accept_unknown(false), m_voice_persist(false),
-	  m_voice_autoconnect(false), m_config(0)
+	  m_voice_autoconnect(false), m_client_create(false), m_config(0)
 {
 }
 
@@ -1160,6 +1160,7 @@ LoadDeviceConfig(void)
 	m_config->Get("daemon", "voiceautoconnect", m_voice_autoconnect,false);
 
 	if (m_config->FirstInSection(it, "devices")) {
+		m_client_create = true;
 		do {
 			addr = it.GetKey();
 			val = it.GetValueBool();
@@ -1174,6 +1175,7 @@ LoadDeviceConfig(void)
 			}
 		} while (m_config->Next(it) &&
 			 !strcmp(it.GetSection(), "devices"));
+		m_client_create = false;
 	}
 }
 
@@ -1223,11 +1225,22 @@ SessionFactory(BtDevice *devp)
 	AudioGateway *agp = 0;
 	HfpSession *sessp = 0;
 
+	devp->GetAddr(bda);
+
+	if (!m_accept_unknown && !m_client_create) {
+		/*
+		 * Our client didn't ask for this session to be created,
+		 * and requested that we refuse devices it hasn't told
+		 * us about.  So we refuse.
+		 */
+		GetDi()->LogInfo("AG %s: Refusing connection", bda);
+		return 0;
+	}
+
 	sessp = m_hfp->DefaultSessionFactory(devp);
 	if (!sessp)
 		goto failed;
 
-	devp->GetAddr(bda);
 	for (path = bda; *path; path++) {
 		if (*path == ':')
 			*path = '_';
@@ -1626,7 +1639,9 @@ AddDevice(DBusMessage *msgp)
 	assert(res);
 	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BOOLEAN);
 	dbus_message_iter_get_basic(&mi, &setknown);
+	m_client_create = true;
 	sessp = m_hfp->GetSession(addr);
+	m_client_create = false;
 	if (!sessp)
 		return false;
 

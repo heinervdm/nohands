@@ -238,6 +238,7 @@ public:
 	bool				m_accept_unknown;
 	bool				m_voice_persist;
 	bool				m_voice_autoconnect;
+	bool				m_client_create;
 
 	ConfigHandler			*m_config;
 
