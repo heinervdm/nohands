@@ -1814,7 +1814,7 @@ done:
 bool HandsFree::
 GetVersion(DBusMessage *msgp, dbus_uint32_t &val)
 {
-	val = 3;
+	val = 2;
 	return true;
 }
 
