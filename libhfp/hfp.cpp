@@ -564,6 +564,8 @@ SessionFactory(BtDevice *devp)
 	HfpSession *sessp;
 
 	assert(GetHub());
+	assert(!FindSession(devp));
+
 	if (cb_HfpSessionFactory.Registered())
 		sessp = cb_HfpSessionFactory(devp);
 	else
@@ -771,6 +773,10 @@ NotifyConnectionState(ErrorInfo *async_error)
 
 		if (!HfpHandshake(&local_error))
 			__Disconnect(&local_error, false);
+
+		else if (IsConnectionRemoteInitiated() &&
+			 cb_NotifyConnection.Registered())
+			cb_NotifyConnection(this, 0);
 	}
 
 	else {

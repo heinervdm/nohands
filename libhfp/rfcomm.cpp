@@ -159,10 +159,10 @@ RfcommListenNotify(SocketNotifier *notp, int fh)
 	}
 
 	/* Instantiate a session */
-	sessp = SessionFactory(devp);
+	sessp = GetSession(devp, true);
+	devp->Put();
 	if (!sessp) {
 		close(rsock);
-		devp->Put();
 		return;
 	}
 
