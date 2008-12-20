@@ -83,6 +83,8 @@ class AudioGateway : public HfpdExportObject {
 			      libhfp::ErrorInfo &error,
 			      libhfp::HfpPendingCommand *cmdp);
 
+	bool DoSetAutoReconnect(bool value, libhfp::ErrorInfo *error = 0);
+
 public:
 	AudioGateway(HandsFree *hfp, libhfp::HfpSession *sessp, char *name);
 	virtual ~AudioGateway();
@@ -174,6 +176,7 @@ static const DbusMethod g_AudioGateway_signals[] = {
 	DbusSignalEntry(CallStateChanged, "y"),
 	DbusSignalEntry(AudioStateChanged, "y"),
 	DbusSignalEntry(ClaimStateChanged, "b"),
+	DbusSignalEntry(AutoReconnectChanged, "b"),
 	DbusSignalEntry(Ring, "ss"),
 	DbusSignalEntry(IndicatorChanged, "si"),
 	DbusSignalEntry(NameResolved, "s"),

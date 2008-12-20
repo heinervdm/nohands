@@ -2073,7 +2073,11 @@ namespace net.sf.nohands.hfpd {
 		 * connection, enabling periodic auto-reconnect will cause a
 		 * connection attempt to the device to be initiated
 		 * periodically.
-		 * 
+		 *
+		 *
+		 * Changes to this value are reported by the
+		 * AutoReconnectChanged() signal.
+		 *
 		 * @note For permanently known devices, the auto-reconnect
 		 * setting is a persistent option that is saved to the HFPD
 		 * configuration file.  For other devices, it is ephemeral.
@@ -2216,6 +2220,16 @@ namespace net.sf.nohands.hfpd {
 		 * more information.
 		 */
 		public signal ClaimStateChanged(out bool claim_state);
+
+		/**
+		 * @brief Notification of the AudioGateway auto-reconnect
+		 * flag changing
+		 *
+		 * @param[out] autoreconnect New value of the auto-reconnect
+		 * state of the AudioGateway.  See AudioGateway.AutoReconnect
+		 * for more information.
+		 */
+		public signal AutoReconnectChanged(out bool autoreconnect);
 
 		/**
 		 * @brief Ring notification

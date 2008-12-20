@@ -304,14 +304,14 @@ OwnerDisconnectNotify(DbusPeerDisconnectNotifier *notp)
 
 	delete notp;
 	m_owner = 0;
-	if (!m_known)
-		m_sess->SetAutoReconnect(false);
+	if (!m_known) {
+		(void) DoSetAutoReconnect(false);
+	}
 	if (!m_known && (State() > HFPD_AG_DISCONNECTED)) {
 		if (m_sess->SndIsAsyncStarted() && m_hf->m_voice_persist) {
 			/* Defer the disconnect until audio closes */
 			m_unbind_on_audio_close = true;
 		} else {
-			m_sess->Disconnect();
 			DoDisconnect();
 		}
 	}
@@ -429,24 +429,44 @@ DoSetKnown(bool known)
 	}
 }
 
+bool AudioGateway::
+DoSetAutoReconnect(bool value, libhfp::ErrorInfo *error)
+{
+	char addr[32];
+	dbus_bool_t state;
+
+	if (value == m_sess->IsAutoReconnect())
+		return true;
+
+	if (m_known) {
+		m_sess->GetDevice()->GetAddr(addr);
+		if (!m_hf->m_config->Set("devices", addr, value, error) ||
+		    !m_hf->SaveConfig(error))
+			return false;
+	}
+
+	state = value;
+	(void) SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
+			      "AutoReconnectChanged",
+			      DBUS_TYPE_BOOLEAN, &state,
+			      DBUS_TYPE_INVALID);
+
+	m_sess->SetAutoReconnect(value);
+	return true;
+}
+
 void AudioGateway::
 DoDisconnect(void)
 {
-	char buf[32];
-	assert(AudioState() == HFPD_AG_AUDIO_DISCONNECTED);
-	m_unbind_on_audio_close = false;
-	NotifyAudioConnection(m_sess, 0);
-
-	m_sess->GetDevice()->GetAddr(buf);
-	GetDi()->LogInfo("AG %s: Disconnected", buf);
-	UpdateState(State());
+	m_sess->Disconnect();
+	NotifyConnection(m_sess, 0);
 }
 
 void AudioGateway::
 NotifyConnection(libhfp::HfpSession *sessp, ErrorInfo *reason)
 {
 	AudioGatewayState st;
-	char addr[32];
+	char buf[32];
 
 	st = State();
 
@@ -470,19 +490,18 @@ NotifyConnection(libhfp::HfpSession *sessp, ErrorInfo *reason)
 		 */
 		if (m_sess->IsPriorDisconnectVoluntary() &&
 		    m_sess->IsAutoReconnect()) {
-			m_sess->GetDevice()->GetAddr(addr);
-			if (!m_hf->m_config->Set("devices", addr, false) ||
-			    !m_hf->SaveConfig()) {
-				/* Nothing much we can do. */
-			}
-			m_sess->SetAutoReconnect(false);
+			(void) DoSetAutoReconnect(false);
 		}
 
-		DoDisconnect();
+		assert(AudioState() == HFPD_AG_AUDIO_DISCONNECTED);
+		m_unbind_on_audio_close = false;
+		NotifyAudioConnection(m_sess, 0);
+
+		m_sess->GetDevice()->GetAddr(buf);
+		GetDi()->LogInfo("AG %s: Disconnected", buf);
 	}
 
 	else if (st == HFPD_AG_CONNECTED) {
-		char buf[32];
 		m_sess->GetDevice()->GetAddr(buf);
 		GetDi()->LogInfo("AG %s: Connected", buf);
 
@@ -576,7 +595,6 @@ NotifyAudioConnection(libhfp::HfpSession *sessp, libhfp::ErrorInfo *error)
 
 	if (m_unbind_on_audio_close &&
 	    (st == HFPD_AG_AUDIO_DISCONNECTED)) {
-		m_sess->Disconnect();
 		DoDisconnect();
 		return;
 	}
@@ -629,9 +647,7 @@ Connect(DBusMessage *msgp)
 bool AudioGateway::
 Disconnect(DBusMessage *msgp)
 {
-	m_sess->Disconnect();
 	DoDisconnect();
-
 	return SendReplyArgs(msgp, DBUS_TYPE_INVALID);
 }
 
@@ -918,7 +934,6 @@ bool AudioGateway::
 SetAutoReconnect(DBusMessage *msgp, const bool &val, bool &doreply)
 {
 	ErrorInfo error;
-	char addr[32];
 
 	if (val && !m_owner && !m_known) {
 		return SendReplyError(msgp,
@@ -926,16 +941,11 @@ SetAutoReconnect(DBusMessage *msgp, const bool &val, bool &doreply)
 				      "Device not known or claimed");
 	}
 
-	if (m_known) {
-		m_sess->GetDevice()->GetAddr(addr);
-		if (!m_hf->m_config->Set("devices", addr, val, &error) ||
-		    !m_hf->SaveConfig(&error)) {
-			doreply = false;
-			return SendReplyErrorInfo(msgp, error);
-		}
+	if (!DoSetAutoReconnect(val, &error)) {
+		doreply = false;
+		return SendReplyErrorInfo(msgp, error);
 	}
 
-	m_sess->SetAutoReconnect(val);
 	return true;
 }
 
@@ -1774,11 +1784,8 @@ RemoveDevice(DBusMessage *msgp)
 		goto done;
 	}
 
-	if (!agp->m_known) {
-		sessp->SetAutoReconnect(false);
-		sessp->Disconnect();
+	if (!agp->m_known)
 		agp->DoDisconnect();
-	}
 
 	if (agp->m_owner) {
 		GetDi()->LogInfo("AG %s: disowned by D-Bus peer %s",
@@ -1807,7 +1814,7 @@ done:
 bool HandsFree::
 GetVersion(DBusMessage *msgp, dbus_uint32_t &val)
 {
-	val = 2;
+	val = 3;
 	return true;
 }
 
