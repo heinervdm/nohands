@@ -500,13 +500,13 @@ RfcommSdpLookupChannelComplete(SdpTask *taskp)
 	m_rfcomm_state = RFC_Disconnected;
 	if (!RfcommConnect(channel, &error)) {
 		Get();
+		m_rfcomm_state = RFC_SdpLookupChannel;
 		__Disconnect(&error, false);
 	}
 
 	/*
 	 * Drop the SDP lookup reference:
-	 * Either RfcommConnect() acquired its own, or we acquired
-	 * another one in the error path.
+	 * If RfcommConnect() succeeded, it acquired its own.
 	 */
 	Put();
 }
