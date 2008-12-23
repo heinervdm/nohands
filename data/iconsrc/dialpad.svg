@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="48px"
+   height="48px"
+   id="svg2510"
+   sodipodi:version="0.32"
+   inkscape:version="0.46"
+   sodipodi:docname="dialpad.svg"
+   inkscape:output_extension="org.inkscape.output.svg.inkscape"
+   inkscape:export-filename="/vhome/samr7/sf/nohands/trunk/data/dialpad.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs2512">
+    <inkscape:perspective
+       sodipodi:type="inkscape:persp3d"
+       inkscape:vp_x="0 : 24 : 1"
+       inkscape:vp_y="0 : 1000 : 0"
+       inkscape:vp_z="48 : 24 : 1"
+       inkscape:persp3d-origin="24 : 16 : 1"
+       id="perspective2518" />
+  </defs>
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="7"
+     inkscape:cx="26.729142"
+     inkscape:cy="24"
+     inkscape:current-layer="layer1"
+     showgrid="true"
+     inkscape:grid-bbox="true"
+     inkscape:document-units="px"
+     inkscape:window-width="904"
+     inkscape:window-height="674"
+     inkscape:window-x="73"
+     inkscape:window-y="417" />
+  <metadata
+     id="metadata2515">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="layer1"
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer">
+    <path
+       style="fill:#deb887;fill-rule:evenodd;stroke:#000000;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       d="M 4.8070562,42.390819 L 4.3990762,30.767616 L 8.3928811,23.495322 L 10.093408,21.620123 L 12.249707,15.522 L 13.249205,13.783779 L 14.489155,10.892328 L 16.339225,10.67639 L 17.629432,11.61787 L 17.646186,12.895514 L 16.671817,16.5502 L 15.983352,17.64541 L 15.000608,20.661274 L 12.831743,25.801165 L 14.051368,26.232424 L 15.129826,25.643245 L 16.092246,25.950091 L 17.009213,27.663182 L 19.054279,27.700261 L 20.410882,28.832549 L 20.104037,29.79497 L 22.086896,29.960649 L 23.754534,30.449927 L 24.339525,31.208974 L 23.659437,32.943007 L 22.469131,34.747623 L 20.304454,40.206924 L 14.559863,45.521488 L 4.8070562,42.390819 z"
+       id="path2524" />
+    <g
+       id="g3368"
+       transform="translate(-0.7142857,0)">
+      <rect
+         y="2.4767151"
+         x="25.762424"
+         height="20.475147"
+         width="21.046576"
+         id="rect3296"
+         style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.35342371;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+      <text
+         id="text3298"
+         y="19.17425"
+         x="28.740303"
+         style="font-size:18px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;font-family:Sans;-inkscape-font-specification:Caption"
+         xml:space="preserve"><tspan
+           y="19.17425"
+           x="28.740303"
+           id="tspan3300"
+           sodipodi:role="line">#</tspan></text>
+    </g>
+  </g>
+</svg>

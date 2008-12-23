@@ -114,17 +114,204 @@ class GtkAlerter:
 		if not self.removed:
 			self.complete()
 
+# This is really _really_ stupid
+# If there was a vCard parser that was part of the standard
+# Python distribution, it would be used here.  But there isn't
+# and the job isn't very complicated.
+class VCard:
+	"""A hacky vCard representation"""
+
+class VCardSet:
+	"""A hacky vCard container/manager object"""
+
+	def __init__(self):
+		self._file_line = 0
+		self._save_line = None
+		self._current_object = None
+		pass
+
+	def _isalpha(self, c):
+		x = ord(c)
+		return ((x >= ord('a') and x <= ord('z')) or
+			(x >= ord('A') and x <= ord('Z')))
+	def _isnum(self, c):
+		x = ord(c)
+		return (x >= ord('0') and x <= ord('9'))
+	def _iswsp(self, c):
+		return c == ' ' or c == '\t'
+	def _issafe(self, c):
+		x = ord(c)
+		return (self._iswsp(c)
+			or x == 0x21 or
+			(x >= 0x23 and x <= 0x2b) or
+			(x >= 0x2d and x <= 0x39) or
+			(x >= 0x3c and x <= 0x7e) or
+			x > 0x7f)
+	def _isqsafe(self, c):
+		x = ord(c)
+		return (_iswsp(c)
+			or x == 0x21 or
+			(x >= 0x23 and x <= 0x7e) or
+			x > 0x7f)
+
+	def _process_line(self, name, groups, params, value):
+		print "Name:%s groups:%s value:%s" % (name, groups, value)
+		for param in params:
+			print "\t%s=%s" % (param, params[param])
+
+	def _parse_error(self, message):
+		raise Exception('Line %d: %s' % (self._file_line, message))
+	def _parse_name_groups(self, line):
+		groups = []
+		name = None
+		sep = 0
+		while True:
+			if len(line) > sep:
+				x = line[sep]
+				if (self._isalpha(x) or
+				    self._isnum(x) or
+				    x == '-'):
+					sep += 1
+					continue
+				elif x == '.':
+					if not sep:
+						self._parse_error(
+						_('Empty group definition'))
+					groups.append(line[:sep])
+					line = line[(sep + 1):]
+					sep = 0
+					continue
+			if not sep:
+				self._parse_error(_("Empty content name"))
+			name = line[:sep]
+			line = line[sep:]
+			return (groups, name, line)
+	def _parse_param_value(self, line):
+		sep = 0
+		if line[0] == '"':
+			line = line[1:]
+			while True:
+				if len(line) <= sep:
+					self._parse_error(
+						_("Malformed quoted "
+						  "parameter value"))
+				x = line[sep]
+				if self._isqsafe(x):
+					sep += 1
+					continue
+				elif x == '"':
+					break
+				else:
+					self._parse_error(
+						_("Malformed quoted "
+						  "parameter value"))
+
+			value = ''
+			if sep:
+				value = line[:sep]
+			line = line[(sep + 1):]
+			return (value, line)
+
+		while True:
+			if len(line) > sep:
+				x = line[sep]
+				if self._issafe(x):
+					sep += 1
+					continue
+			break
+		value = ''
+		if sep:
+			value = line[:sep]
+			line = line[sep:]
+		return (value, line)
+		
+	def _parse_param(self, line):
+		name = None
+		values = []
+		sep = 0
+		while True:
+			if len(line) <= sep:
+				self._parse_error(_("Malformed parameter"))
+			x = line[sep]
+			if self._isalpha(x) or self._isnum(x) or x == '-':
+				sep += 1
+			else:
+				if not sep:
+					self._parse_error(
+						_("Empty parameter name"))
+				name = line[:sep]
+				if x == '=':
+					line = line[(sep + 1):]
+					break
+				line = line[sep:]
+				return (name, values, line)
+
+		while True:
+			(x, line) = self._parse_param_value(line)
+			values.append(x)
+			if not len(line):
+				return (name, values, line)
+			x = line[0]
+			if x != ',':
+				return (name, values, line)
+			line = line[1:]
+	def _parse_line(self, line):
+		print "Line:%s" % line
+		(groups, name, line) = self._parse_name_groups(line)
+		params = {}
+		if not line:
+			self._parse_error(_('Malformed content line'))
+		while line[0] == ';':
+			(param, values, line) = self._parse_param(line[1:])
+			if param in params:
+				params[param].extend(values)
+			else:
+				params[param] = values
+		if line[0] != ':':
+			self._parse_error(_('Malformed content line'))
+		self._process_line(name, groups, params, line[1:])
+
+	def _feed_line(self, line):
+		if not line or not self._iswsp(line[0]):
+			if self._save_line:
+				self._parse_line(self._save_line)
+			self._save_line = line
+		elif self._save_line:
+			self._save_line += line[1:]
+		else:
+			self._save_line = line[1:]
+		self._file_line += 1
+	def _feed_done(self):
+		self._feed_line(None)
+		if self._current_object:
+			self._parse_error(_('Unterminated object in stream'))
+	def import_string(self, str):
+		self._file_line = 0
+		line = ''
+		for x in str.splitlines():
+			self._feed_line(x)
+		self._feed_done()
+	def import_file(self, path):
+		f = open(path, 'r')
+		contents = f.read()
+		f.close()
+		self.import_string(contents)
+
+
 class HfConsole:
 	"""This is a user interface for the hfpd Bluetooth hands-free
 	profile server"""
 
+	DBUS_SERVICE_NAME = 'org.freedesktop.DBus'
 	DBUS_INTERFACE_DBUS = 'org.freedesktop.DBus'
 	DBUS_INTERFACE_PROPERTIES = 'org.freedesktop.DBus.Properties'
+	DBUS_BUS_OBJECT = '/org/freedesktop/DBus'
 	HFPD_HANDSFREE_INTERFACE_NAME = 'net.sf.nohands.hfpd.HandsFree'
 	HFPD_SOUNDIO_INTERFACE_NAME = 'net.sf.nohands.hfpd.SoundIo'
 	HFPD_AUDIOGATEWAY_INTERFACE_NAME = 'net.sf.nohands.hfpd.AudioGateway'
 	HFPD_SERVICE_NAME = 'net.sf.nohands.hfpd'
 	HFPD_HANDSFREE_OBJECT = '/net/sf/nohands/hfpd'
+	HFPD_SOUNDIO_OBJECT = '/net/sf/nohands/hfpd/soundio'
 
 	def addr_transform(self, addr):
 		val = (str(addr[0:2]) + str(addr[3:5]) + str(addr[6:8]) +
@@ -160,38 +347,77 @@ class HfConsole:
 		# Create our dictionay and connect it
 		dic = {
 			# Callbacks for the main window
+			"AgSelector_button_press_event_cb" :
+			self.ag_selector_open,
+			"AgSelector_toggled_cb" : self.ag_selector_toggle,
+			"AgScan_clicked_cb" : self.bar_ag_scan_clicked,
+			"AgConnect_clicked_cb" : self.bar_ag_connect_clicked,
+			"BarDialPad_clicked_cb" : self.bar_dialpad_clicked,
+			"BarContacts_clicked_cb" : self.bar_contacts_clicked,
+			"AgAudioToggle_toggled_cb" : self.bar_ag_audio_toggled,
+			"AgHangUp_clicked_cb" : self.bar_ag_hangup_clicked,
+			"AgHoldCall_clicked_cb" : self.bar_ag_swaphold_clicked,
+			"AgSwapCall_clicked_cb" : self.bar_ag_swaphold_clicked,
+			"AgDial_clicked_cb" : self.bar_ag_dial_clicked,
+			"AgRedial_clicked_cb" : self.bar_ag_redial_clicked,
+			"ConfigOpen_clicked_cb" : self.bar_config_clicked,
 			"DigitButton_pressed_cb" : self.digit_button_pressed,
 			"DigitButton_clicked_cb" : self.digit_button_clicked,
 			"PhoneNumBs_clicked_cb" : self.phone_num_bs,
-			"DialPadDial_clicked_cb" : self.dial_dial_clicked,
-			"DialPadRedial_clicked_cb" : self.dial_redial_clicked,
-			"DialPadXfer_activate_cb" : self.dial_xfer_clicked,
-			"ScanButton_clicked_cb" : self.scan_open,
-			"ConfigButton_clicked_cb" : self.config_open,
 			"Mute_toggled_cb" : self.mute_toggled,
 			"on_MainWindow_destroy" : gtk.main_quit,
 
-			# Callbacks for the scan dialog
-			"on_ScanDialog_close" : gtk.main_quit,
-			"ScanOK_clicked_cb" : self.scan_ok_clicked,
-			"ScanCancel_clicked_cb" : self.scan_cancel_clicked,
+			# Known Devices tab
+			"DevicesClose_clicked_cb" : self.devices_close_clicked,
+			"DevicesAdd_clicked_cb" : self.devices_add_clicked,
+			"DevicesDelete_clicked_cb" :
+			self.devices_delete_clicked,
+			"DevicesConnect_clicked_cb" :
+			self.devices_connect_clicked,
+			"DevicesDisconnect_clicked_cb" :
+			self.devices_disconnect_clicked,
+			"DevicesAutoConnectNever_toggled_cb" :
+			self.devices_autoconnect_never_toggled,
+			"DevicesAutoConnectDisabled_toggled_cb" :
+			self.devices_autoconnect_disabled_toggled,
+			"DevicesAutoConnectEnabled_toggled_cb" :
+			self.devices_autoconnect_enabled_toggled,
+
+			# New Device tab
+			"NewDeviceClose_clicked_cb" :
+			self.newdevice_close_clicked,
+			"NewDeviceAdd_clicked_cb" :
+			self.newdevice_add_clicked,
+			"NewDeviceClear_clicked_cb" :
+			self.newdevice_clear_clicked,
+
+			# Callbacks for the scan tab
+			"ScanAdd_clicked_cb" : self.scan_add_clicked,
+			"ScanClose_clicked_cb" : self.scan_close_clicked,
 			"ScanHistory_clicked_cb" : self.scan_history_clicked,
 			"ScanRestart_clicked_cb" : self.scan_restart_clicked,
 
-			# Callbacks for the history dialog
+			# Callbacks for the history tab
 			"HistoryOK_clicked_cb" : self.history_ok_clicked,
 			"HistoryCancel_clicked_cb" :
 			self.history_cancel_clicked,
 
-			# Callbacks for the config dialog
-			"ConfigOk_clicked_cb" : self.config_ok_clicked,
+			# Callbacks for the config tab
+			"ConfigOK_clicked_cb" : self.config_ok_clicked,
 			"ConfigCancel_clicked_cb" : self.config_cancel_clicked,
+			"ConfigInit_clicked_cb" : self.config_init_clicked,
+			"ConfigDevices_clicked_cb" :
+			self.config_devices_clicked,
 			"ConfigDriver_changed_cb" :
 			self.config_driver_changed,
 			"ConfigPacketIntervalHint_toggled_cb" :
 			self.config_packet_interval_toggled,
 			"ConfigPacketInterval_value_changed_cb" :
 			self.config_packet_interval_changed,
+			"ConfigJitterWindowHint_toggled_cb" :
+			self.config_jitter_window_toggled,
+			"ConfigJitterWindow_value_changed_cb" :
+			self.config_jitter_window_changed,
 			"ConfigMinOutBufferHint_toggled_cb" :
 			self.config_min_out_buffer_toggled,
 			"ConfigMinOutBuffer_value_changed_cb" :
@@ -217,21 +443,87 @@ class HfConsole:
 			"ConfigDspTest_clicked_cb" : self.config_dsptest_open,
 			"on_ConfigDialog_close" : gtk.main_quit,
 
-			# Callbacks for the DSP test assistant
-			"DspTestAssistant_prepare_cb" :
-			self.config_dsptest_prepare,
-			"DspTestAssistant_cancel_cb" :
-			self.config_dsptest_cancel,
-			"DspTestAssistant_close_cb" :
+			# Callbacks for the DSP test
+			"DspTestForward_clicked_cb" :
+			self.config_dsptest_forward,
+			"DspTestBack_clicked_cb" :
+			self.config_dsptest_back,
+			"DspTestClose_clicked_cb" :
 			self.config_dsptest_close,
+			"DspTestNotebook_switch_page_cb" :
+			self.config_dsptest_switch_page,
 			"DspTestRecStart1_toggled_cb" :
 			self.config_dsptest_recstart1_toggled,
 			"DspTestRecStart2_toggled_cb" :
 			self.config_dsptest_recstart2_toggled,
 			"DspTestPlayStart_toggled_cb" :
 			self.config_dsptest_playstart_toggled,
+
+			# Callbacks for the initial configuration page
+			"InitConfDone_clicked_cb" : self.initconf_done_clicked,
+			"InitConfBack_clicked_cb" : self.initconf_back_clicked,
+			"InitConfForward_clicked_cb" :
+			self.initconf_forward_clicked,
+			"InitConfNotebook_switch_page_cb" :
+			self.initconf_switch_page,
+
 			}
 		self.widgets.signal_autoconnect(dic)
+
+		self.ag_list = gtk.Menu()
+		self.ag_list_separator = gtk.SeparatorMenuItem()
+		self.ag_list_separator.set_no_show_all(True)
+		self.ag_list.append(self.ag_list_separator)
+		self.ag_list_scan = gtk.MenuItem(_('Search for Device...'))
+		self.ag_list_scan.connect('activate',
+					  self.ag_selector_scan_activate)
+		self.ag_list.append(self.ag_list_scan)
+		self.ag_list_manage = gtk.MenuItem(_('Manage Devices...'))
+		self.ag_list_manage.connect('activate',
+					    self.ag_selector_manage_activate)
+		self.ag_list.append(self.ag_list_manage)
+		self.ag_list.connect('selection-done', self.ag_selector_close)
+		self.ag_list.show_all()
+
+		self.ag_list_detail = gtk.ListStore(gobject.TYPE_STRING,
+						    gobject.TYPE_STRING,
+						    gobject.TYPE_PYOBJECT)
+		self['DevicesList'].set_model(self.ag_list_detail)
+		tvcolumn = gtk.TreeViewColumn(_('Name'))
+		self['DevicesList'].append_column(tvcolumn)
+		cell = gtk.CellRendererText()
+		tvcolumn.pack_start(cell, True)
+		tvcolumn.add_attribute(cell, 'text', 0)
+		tvcolumn = gtk.TreeViewColumn(_('Address'))
+		self['DevicesList'].append_column(tvcolumn)
+		cell = gtk.CellRendererText()
+		tvcolumn.pack_start(cell, True)
+		tvcolumn.add_attribute(cell, 'text', 1)
+		self['DevicesList'].get_selection().connect('changed',
+						    self.devices_select)
+		self.devices_ag = None
+
+		self.ag_list_new = gtk.ListStore(gobject.TYPE_STRING,
+						 gobject.TYPE_STRING,
+						 gobject.TYPE_PYOBJECT)
+		self['NewDeviceList'].set_model(self.ag_list_new)
+		tvcolumn = gtk.TreeViewColumn(_('Name'))
+		self['NewDeviceList'].append_column(tvcolumn)
+		cell = gtk.CellRendererText()
+		tvcolumn.pack_start(cell, True)
+		tvcolumn.add_attribute(cell, 'text', 0)
+		tvcolumn = gtk.TreeViewColumn(_('Address'))
+		self['NewDeviceList'].append_column(tvcolumn)
+		cell = gtk.CellRendererText()
+		tvcolumn.pack_start(cell, True)
+		tvcolumn.add_attribute(cell, 'text', 1)
+		self['NewDeviceList'].get_selection().connect('changed',
+						      self.newdevice_select)
+		self.ag_list_new.connect('row-inserted',
+					 self.newdevice_row_added)
+		self.ag_list_new.connect('row-deleted',
+					 self.newdevice_row_removed)
+		self.newdevice_ag = None
 
 		self['ConfigDriverDevList'].set_model(
 			gtk.ListStore(gobject.TYPE_STRING,
@@ -249,7 +541,7 @@ class HfConsole:
 						 gobject.TYPE_UINT,
 						 gobject.TYPE_STRING)
 		self['ScanResults'].set_model(self.scanresults)
-		tvcolumn = gtk.TreeViewColumn('Device')
+		tvcolumn = gtk.TreeViewColumn(_('Device'))
 		self['ScanResults'].append_column(tvcolumn)
 		cell = gtk.CellRendererText()
 		tvcolumn.pack_start(cell, True)
@@ -261,7 +553,7 @@ class HfConsole:
 						    gobject.TYPE_UINT,
 						    gobject.TYPE_STRING)
 		self['HistoryResults'].set_model(self.historyresults)
-		tvcolumn = gtk.TreeViewColumn('Device')
+		tvcolumn = gtk.TreeViewColumn(_('Device'))
 		self['HistoryResults'].append_column(tvcolumn)
 		cell = gtk.CellRendererText()
 		tvcolumn.pack_start(cell, True)
@@ -276,9 +568,14 @@ class HfConsole:
 		self.ags = {}
 		self.ags_added = {}
 		self.soundmonitor = False
-		self.autoreconnect = True
 		self.selected_ag = None
+		self.selected_ag_lock = False
 		self.command_audio_attach_state = False
+		self.nobt = False
+		self.nested = False
+
+		self.frontpage = 0 #1
+		self.frontnotebook_set(self.frontpage)
 
 		self.alerter_factory = (lambda x:
 					GtkAlerter(self.gladefile, x))
@@ -296,24 +593,24 @@ class HfConsole:
 			p = subprocess.Popen(exc, shell=True)
 
 	def getprop_hfpd(self, prop):
-		return self.hfpd_props.Get('net.sf.nohands.hfpd.HandsFree',
+		return self.hfpd_props.Get(self.HFPD_HANDSFREE_INTERFACE_NAME,
 					   prop)
 	def getprop_soundio(self, prop):
-		return self.soundio_props.Get('net.sf.nohands.hfpd.SoundIo',
+		return self.soundio_props.Get(self.HFPD_SOUNDIO_INTERFACE_NAME,
 					      prop)
 	def setprop_hfpd(self, name, value):
-		self.hfpd_props.Set('net.sf.nohands.hfpd.HandsFree',
+		self.hfpd_props.Set(self.HFPD_HANDSFREE_INTERFACE_NAME,
 				    name, value)
 	def setprop_soundio(self, name, value):
-		self.soundio_props.Set('net.sf.nohands.hfpd.SoundIo',
+		self.soundio_props.Set(self.HFPD_SOUNDIO_INTERFACE_NAME,
 				       name, value)
 
 	def Start(self):
 		try:
 			self.busctl = dbus.Interface(
-				self.dbus.get_object('org.freedesktop.DBus',
-						     '/org/freedesktop/DBus'),
-				dbus_interface='org.freedesktop.DBus')
+				self.dbus.get_object(self.DBUS_SERVICE_NAME,
+						     self.DBUS_BUS_OBJECT),
+				dbus_interface=self.DBUS_INTERFACE_DBUS)
 		except dbus.exceptions.DBusException, (ex):
 			self.fatal(_('Could not connect to D-Bus:\n%s') %
 				   str(ex))
@@ -321,21 +618,23 @@ class HfConsole:
 
 		try:
 			self.hfpd = dbus.Interface(
-				self.dbus.get_object('net.sf.nohands.hfpd',
-						     '/net/sf/nohands/hfpd'),
-				dbus_interface='net.sf.nohands.hfpd.HandsFree')
+				self.dbus.get_object(self.HFPD_SERVICE_NAME,
+					     self.HFPD_HANDSFREE_OBJECT),
+				dbus_interface =
+				self.HFPD_HANDSFREE_INTERFACE_NAME)
 			self.hfpd_props = dbus.Interface(
-				self.dbus.get_object('net.sf.nohands.hfpd',
-						     '/net/sf/nohands/hfpd'),
-			      dbus_interface='org.freedesktop.DBus.Properties')
+				self.dbus.get_object(self.HFPD_SERVICE_NAME,
+					     self.HFPD_HANDSFREE_OBJECT),
+			      dbus_interface=self.DBUS_INTERFACE_PROPERTIES)
 			self.soundio = dbus.Interface(
-				self.dbus.get_object('net.sf.nohands.hfpd',
-					     '/net/sf/nohands/hfpd/soundio'),
-				dbus_interface='net.sf.nohands.hfpd.SoundIo')
+				self.dbus.get_object(self.HFPD_SERVICE_NAME,
+						     self.HFPD_SOUNDIO_OBJECT),
+				dbus_interface =
+				self.HFPD_SOUNDIO_INTERFACE_NAME)
 			self.soundio_props = dbus.Interface(
-				self.dbus.get_object('net.sf.nohands.hfpd',
-					     '/net/sf/nohands/hfpd/soundio'),
-			      dbus_interface='org.freedesktop.DBus.Properties')
+				self.dbus.get_object(self.HFPD_SERVICE_NAME,
+						     self.HFPD_SOUNDIO_OBJECT),
+			      dbus_interface=self.DBUS_INTERFACE_PROPERTIES)
 		except dbus.exceptions.DBusException, (ex):
 			self.fatal(_('Could not connect to hfpd:\n%s\n\n'
 				     'Ensure that hfpd and its D-Bus '
@@ -351,7 +650,7 @@ class HfConsole:
 		except:
 			v = 0
 
-		my_version = 2
+		my_version = 3
 		if v < my_version:
 			self.fatal(_('Version mismatch with hfpd!\n'
 				     'hfpd version: %(hfpdver)d\n'
@@ -393,7 +692,7 @@ class HfConsole:
 		loadags = self.configfile.items('devices')
 		for x in loadags:
 			x = self.addr_untransform(x[0])
-			self.add_audiogateway(x)
+			self.add_audiogateway(x, False)
 
 		self.busctl.connect_to_signal("NameOwnerChanged",
 					      self.hfpd_lost)
@@ -426,20 +725,24 @@ class HfConsole:
 		self.soundio_status_ctx = self['StatusBar'].get_context_id(
 			'SoundIoStatus')
 		self.soundio_skew_monitor = None
-		st = self.getprop_hfpd('SystemState')
-		self.hfpd_system_state(st)
-		if not st:
+		self.nobt = not self.getprop_hfpd('SystemState')
+		self.hfpd_system_state(not self.nobt)
+		if self.nobt:
 			try:
 				self.hfpd.Start()
+				self.nobt = False
 			except dbus.exceptions.DBusException, (ex):
 				if (ex.get_dbus_name() !=
 				    'net.sf.nohands.hfpd.Error'):
-					self.fatal(ex.get_dbus_message())
+					self.fatal(str(ex))
 					return
 			self.setprop_hfpd('AutoRestart', True)
 		ags = self.getprop_hfpd('AudioGateways')
 		for x in ags:
 			self.hfpd_ag_added(str(x))
+		if not self.selected_ag:
+			self.ag_none_selected()
+
 		self.soundio_state_changed(self.getprop_soundio('State'))
 
 		hwg['MainWindow'].show()
@@ -449,13 +752,12 @@ class HfConsole:
 
 	def error_closed(self, dlg, response):
 		dlg.hide()
-	def error_message(self, msg, window=None):
+	def error_message(self, msg):
 		dlg = gtk.MessageDialog(None, gtk.DIALOG_MODAL,
 					gtk.MESSAGE_ERROR,
 					gtk.BUTTONS_OK,
 					msg)
-		if not window:
-			window = self['MainWindow']
+		window = self['MainWindow']
 		dlg.set_title(window.get_title())
 		dlg.set_transient_for(window)
 		dlg.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
@@ -471,75 +773,36 @@ class HfConsole:
 		dlg.connect('response', self.fatal_closed)
 
 	class AudioGateway:
-		def image_button(self, toggle, stock, tip):
-			if toggle:
-				but = gtk.ToggleButton()
-			else:
-				but = gtk.Button()
-			img = gtk.Image()
-			img.set_from_stock(stock,
-					   gtk.ICON_SIZE_LARGE_TOOLBAR)
-			but.add(img)
-			img.show()
-			but.set_no_show_all(True)
-
-			# Fail gracefully if not available
-			try: but.set_tooltip_text(tip)
-			except: pass
-			return but
-			
+		def reset_indicators(self):
+			self.signal = -1
+			self.battery = -1
+			self.message = False
+			self.vm = False
+			self.noservice = False
 		def __init__(self, hfc, sbus, hfpd, agpath, box):
 			self.hfc = hfc
 			self.path = agpath
 			self.hfpd = hfpd
 			self.alerter = None
 			self.caller_id = None
+			self.reset_indicators()
+			self.autoreconnect = 1
+			self.autoreconnect_flag = False
 
-			frame = gtk.Frame('')
-			box.pack_start(frame, expand=False)
-			vbox = gtk.VBox(spacing = 8)
-			vbox.set_border_width(8)
-			frame.add(vbox)
-			hbox = gtk.HBox(spacing = 8)
-			vbox.pack_start(hbox)
-			lab = gtk.Label('State Here')
-			lab.set_alignment(0.0, 0.5)
-			hbox.pack_start(lab, expand=True)
-			self.statelab = lab
-			but = self.image_button(False, gtk.STOCK_DELETE,
-						_('Remove Device'))
-			hbox.pack_end(but, expand=False)
-			but.connect('clicked', self.remove_clicked)
-			self.remove_but = but
-			but = self.image_button(False, gtk.STOCK_CONNECT,
-						_('Connect Now'))
-			hbox.pack_end(but, expand=False)
-			but.connect('clicked', self.connect_clicked)
-			self.connect_but = but
-			but = self.image_button(True, gtk.STOCK_APPLY,
-						_('Set Device as Primary'))
-			hbox.pack_end(but, expand=False)
-			but.connect('toggled', self.select_toggled)
-			self.select_but = but
-			but = self.image_button(False, gtk.STOCK_ADD,
-						_('Remember This Device'))
-			hbox.pack_end(but, expand=False)
-			but.connect('clicked', self.add_clicked)
-			self.add_but = but
-			self.frame = frame
 			self.state = 0
 			self.callstate = 0
 			self.audiostate = 0
-			self.noservice = False
+			self.disp = hfc.ag_disp_new(self)
 
-			self.dbusobj = sbus.get_object('net.sf.nohands.hfpd',
-						       agpath)
+			self.dbusobj = sbus.get_object(
+				hfc.HFPD_SERVICE_NAME,
+				agpath)
 			self.ag = dbus.Interface(self.dbusobj,
 						 dbus_interface =
-					 'net.sf.nohands.hfpd.AudioGateway')
+					 hfc.HFPD_AUDIOGATEWAY_INTERFACE_NAME)
 			self.agprops = dbus.Interface(self.dbusobj,
-						      dbus_interface =
-					 'org.freedesktop.DBus.Properties')
+					      dbus_interface =
+					      hfc.DBUS_INTERFACE_PROPERTIES)
 
 			self.sigs = []
 			sig = self.ag.connect_to_signal("NameResolved",
@@ -554,6 +817,9 @@ class HfConsole:
 			sig = self.ag.connect_to_signal("AudioStateChanged",
 						self.audio_state_changed)
 			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal("AutoReconnectChanged",
+						self.autoreconnect_changed)
+			self.sigs.append(sig)
 			sig = self.ag.connect_to_signal("IndicatorChanged",
 						self.indicator_changed)
 			self.sigs.append(sig)
@@ -562,111 +828,168 @@ class HfConsole:
 			self.sigs.append(sig)
 
 			self.addr = self.getprop('Address')
-			name = self.getprop('Name')
-			self.frame.set_label(name)
+			self.name = self.getprop('Name')
+			if self.name == self.addr:
+				self.name = self.hfc.ag_history_getname(
+					self.addr)
 			self.state = self.getprop('State')
 			self.callstate = self.getprop('CallState')
 			self.audiostate = self.getprop('AudioState')
 			self.state_changed(self.state, False)
 			self.call_state_changed(self.callstate)
 			self.audio_state_changed(self.audiostate)
-			self.frame.show_all()
+			self.disp.set_name(self.name)
 			self.hfc.ag_update_history(self.addr, None)
-
-		def set_state_labels(self):
-			state = self.state
-			callstate = self.callstate
-			lab = 'Invalid State'
-			self.remove_but.show()
-			if state != 4:
-				if state == 1:
-					lab = _('Destroyed') + '\n'
-				if state == 2:
-					lab = _('Detached') + '\n'
-					self.connect_but.show()
-					self.connect_but.set_sensitive(True)
-				if state == 3:
-					lab = _('Attaching') + '\n'
-					self.connect_but.show()
-					self.connect_but.set_sensitive(False)
-				self.statelab.set_markup(lab)
-				self.select_but.hide()
-				self.hfc.ag_state_changed(self)
-				return
-			self.connect_but.hide()
-			self.select_but.show()
-			if callstate == 1:
-				lab = _('Ready') + '\n'
-				if self.noservice:
-					lab = _('No Service') + '\n'
-			if callstate == 2:
-				lab = _('Dialing') + '\n'
-			if callstate == 3:
-				lab = _('Call Established') + '\n'
-			if callstate == 4:
-				lab = _('Ringing') + '\n'
-			if callstate == 5:
-				lab = _('Waiting Call') + '\n'
-			if self.has_audio():
-				lab += _('Audio Open')
-			self.statelab.set_markup(lab)
-			self.hfc.ag_state_changed(self)
 
 		def has_feature(self, feat):
 			return (hasattr(self, 'features') and
 				self.features[feat])
 
+		def is_connecting(self):
+			return self.state == 3
+		def is_connected(self):
+			return self.state == 4
 		def can_dial(self):
-			return self.state == 4 and (self.callstate == 1 or
-						    self.callstate == 4)
+			return self.is_connected() and (self.callstate == 1 or
+							self.callstate == 4)
 		def can_dtmf(self):
-			return self.state == 4 and (self.callstate == 2 or
-						    self.callstate == 3 or
-						    self.callstate == 5)
+			return self.is_connected() and (self.callstate == 2 or
+							self.callstate == 3 or
+							self.callstate == 5)
+		def can_hold(self):
+			return (self.is_connected() and
+				self.has_feature('SwapHoldActive') and
+				((self.callstate == 3) or
+				 (self.callstate == 5)))
+		def has_any_call(self):
+			return self.is_connected() and (self.callstate != 1)
+		def has_waiting_call(self):
+			return self.is_connected() and (self.callstate == 4 or
+							self.callstate == 5)
+		def has_message(self):
+			return self.is_connected() and (self.message or self.vm)
 		def can_drop_waiting(self):
 			return self.has_feature('RejectCall')
 		def can_drop_held_udub(self):
 			return self.has_feature('DropHeldUdub')
 		def selectable(self):
-			return self.state == 4
+			return self.is_mine()
+		def select_priority(self):
+			if self.has_audio():
+				return 4
+			if self.has_any_call():
+				return 3
+			if self.has_service():
+				return 2
+			if self.is_connected():
+				return 1
+			return 0
+		def is_mine(self):
+			return self.hfc.ags_added.has_key(self.addr)
+		def load_config(self):
+			ar = True
+			if self.hfc.ag_config_has_option(self.addr,
+							 'autoreconnect'):
+				ar = self.hfc.ag_config_get_option(self.addr,
+							   'autoreconnect')
+				try: ar = int(ar)
+				except: ar = 2
+			if ar != self.autoreconnect:
+				self.autoreconnect = ar
+				if ar == 2: self.set_autoreconnect_flag(True)
+				else: self.set_autoreconnect_flag(False)
+		def save_config(self):
+			self.hfc.ag_config_set_option(self.addr,
+						      'autoreconnect',
+						      self.autoreconnect)
+		def update_mine(self):
+			self.disp.set_name(None)
+			self.disp.set_name(self.name)
+		def get_autoreconnect(self):
+			return self.autoreconnect
+		def set_autoreconnect(self, value):
+			if value == self.autoreconnect:
+				return
+			self.autoreconnect = value
+			if value == 2: self.set_autoreconnect_flag(True)
+			else: self.set_autoreconnect_flag(False)
+			self.save_config()
+			self.disp.set_state()
+		def get_autoreconnect_flag(self):
+			return self.autoreconnect_flag
+		def set_autoreconnect_flag(self, value):
+			value = bool(value)
+			if value != self.autoreconnect_flag:
+				self.setprop('AutoReconnect',
+					     dbus.Boolean(value))
+				self.autoreconnect_flag = value
+		def has_service(self):
+			return self.is_connected() and not self.noservice
+		def signal_level(self):
+			return self.signal
+		def battery_level(self):
+			return self.battery
+		def audio_connecting(self):
+			return self.audiostate == 2
 		def has_audio(self):
 			return self.audiostate == 3
 		def wants_audio(self):
 			return (self.callstate == 2 or
 				self.callstate == 3 or
 				self.callstate == 5)
-		def select(self, state):
-			if state and not self.selectable():
-				return False
-			self.nested = True
-			self.select_but.set_active(state)
-			del self.nested
-			return True
 
 		def name_resolved(self, name):
-			self.frame.set_label(name)
-			self.hfc.ag_update_history(self.addr, name)
+			self.name = name
+			self.disp.set_name(self.name)
+			self.hfc.ag_update_history(self.addr, self.name)
 		def state_changed(self, state, voluntary):
 			self.state = int(state)
-			if self.state == 4:
+			if self.is_connected():
 				self.features = self.getprop('Features')
+				if (self.is_mine() and
+				    self.get_autoreconnect() == 1):
+					self.set_autoreconnect(2)
 			else:
+				self.reset_indicators()
 				self.call_state_changed(1)
 				if hasattr(self, 'features'):
 					del self.features
-			self.set_state_labels()
+			self.disp.set_state()
 		def call_state_changed(self, state):
 			self.callstate = int(state)
-			self.set_state_labels()
+			self.disp.set_state()
 			if (self.callstate != 4 and self.callstate != 5):
 				self.alert_close()
 		def audio_state_changed(self, state):
 			self.audiostate = int(state)
-			self.set_state_labels()
+			self.disp.set_state()
+		def soundio_state_changed(self):
+			self.disp.set_state()
+		def autoreconnect_changed(self, value):
+			value = bool(value)
+			if self.autoreconnect_flag != value:
+				self.autoreconnect_flag = value
+				if value and self.get_autoreconnect() == 0:
+					self.set_autoreconnect(2)
+				elif not value and self.get_autoreconnect() ==2:
+					self.set_autoreconnect(1)
 		def indicator_changed(self, name, val):
+			#print "Indicator %s -> %d" % (name, int(val))
 			if name == 'service':
 				self.noservice = not val
-				self.set_state_labels()
+				self.disp.set_state()
+			elif name == 'signal':
+				self.signal = int(val)
+				self.disp.set_state()
+			elif name == 'battchg':
+				self.battery = int(val)
+				self.disp.set_state()
+			elif name == 'voice mail':
+				self.vm = int(val)
+				self.disp.set_state()
+			elif name == 'message':
+				self.vm = int(val)
+				self.disp.set_state()
 
 		def alert_close(self):
 			if self.alerter:
@@ -685,20 +1008,14 @@ class HfConsole:
 		def waiting_caller_info(self):
 			return (self.caller_id, self.caller_phbook)
 			
-		def connect_clicked(self, widget):
+		def connect(self):
 			self.ag.Connect()
-		def not_mine(self):
-			self.add_but.show()
-		def add_clicked(self, widget):
-			self.hfc.ag_add_to_config(self.addr)
-			widget.hide()
-		def select_toggled(self, widget):
-			if hasattr(self, 'nested'):
-				return
-			self.hfc.ag_select(self, widget.get_active())
-
+		def disconnect(self):
+			self.ag.Disconnect()
 		def command_failed(self, reason):
 			print _("Command failed: %s") % reason
+		def open_audio(self):
+			self.ag.OpenAudio()
 		def close_audio(self):
 			self.ag.CloseAudio()
 		def dial(self, number):
@@ -733,32 +1050,239 @@ class HfConsole:
 			self.ag.SendDtmf(char[0],
 					 reply_handler=lambda : None,
 					 error_handler=self.command_failed)
-		def remove_clicked(self, widget):
-			if self.hfc.configfile.remove_option('devices',
-				     self.hfc.addr_transform(self.addr)):
-				self.hfc.configfile.write(open(
-					self.hfc.configfile_name, 'w+'))
-			self.setprop('Known', False)
+		def do_remove(self):
+			self.hfc.ag_remove_from_config(self.addr)
+			if self.hfc.ags_added.has_key(self.addr):
+				del self.hfc.ags_added[self.addr]
+			x = self.setprop('Known', False)
 			self.hfpd.RemoveDevice(self.addr)
 		def remove(self):
-			self.frame.get_parent().remove(self.frame)
-			del self.frame
+			self.disp.remove()
+			del self.disp
 			while self.sigs:
 				sig = self.sigs.pop()
 				sig.remove()
 		def getprop(self, prop):
 			return self.agprops.Get(
-				'net.sf.nohands.hfpd.AudioGateway',
+				self.hfc.HFPD_AUDIOGATEWAY_INTERFACE_NAME,
 				prop)
 		def setprop(self, prop, val):
 			return self.agprops.Set(
-				'net.sf.nohands.hfpd.AudioGateway',
+				self.hfc.HFPD_AUDIOGATEWAY_INTERFACE_NAME,
 				prop, val)
 
-	def hfpd_lost(self, name, old_owner, new_owner):
-		if name != 'net.sf.nohands.hfpd' or new_owner != '':
+	class AgStateDisplay:
+		def __init__(self, hf, ag):
+			self.hf = hf
+			self.ag = ag
+			self.item = None
+			self.row_detail = None
+			self.row_new = None
+		def selector_toggle(self, widget):
+			if widget.get_active():
+				self.hf.ag_selector_changed(self.ag)
+		def remove_item(self):
+			if self.item:
+				self.hf.ag_list.remove(self.item)
+				self.item = None
+				kids = self.hf.ag_list.get_children()
+				count = len(kids)
+				if count == 3:
+					self.hf.ag_list_separator.hide()
+		def set_name(self, name):
+			if not name:
+				self.remove_item()
+				if self.row_detail:
+					self.hf.ag_list_detail.remove(
+						self.row_detail)
+					self.row_detail = None
+				if self.row_new:
+					self.hf.ag_list_new.remove(
+						self.row_new)
+					self.row_new = None
+				return
+
+			if not self.ag.is_mine():
+				if not self.row_new:
+					self.row_new = (self.hf.ag_list_new.
+							append(
+					row=[name, self.ag.addr, self]))
+				else:
+					self.hf.ag_list_new.set(self.row_new,
+								0, name)
+				return
+
+			self.remove_item()
+			group = None
+			kids = self.hf.ag_list.get_children()
+			count = len(kids)
+			if count > 3:
+				group = kids[0]
+			self.hf.ag_list_separator.show()
+			self.item = gtk.RadioMenuItem(group, name)
+			self.item.connect('toggled', self.selector_toggle)
+			self.item.show_all()
+			if self.ag == self.hf.selected_ag:
+				self.item.set_active(True)
+			self.hf.ag_list.insert(self.item, count - 3)
+			if self.ag == self.hf.selected_ag:
+				self.hf['AgSelectorLabel'].set_text(name)
+
+			if not self.row_detail:
+				self.row_detail = (self.hf.ag_list_detail.
+						   append(
+					row=[name, self.ag.addr, self]))
+			else:
+				self.hf.ag_list_detail.set(self.row_detail,
+							   0, name)
+		def remove(self):
+			if self.ag == self.hf.selected_ag:
+				self.hf.selected_ag = None
+				self.hf.ag_none_selected()
+			self.ag = None
+			self.set_name(None)
+
+		def do_mainwindow_state(self, string):
+			self.hf['AudioGatewayStateLabel'].set_markup(
+					string)
+		def mainwindow_state(self):
+			if self.hf.selected_ag != self.ag:
+				return
+			state = self.ag.state
+			callstate = self.ag.callstate
+			lab = 'Invalid State'
+			if not self.ag.is_connected():
+				if state == 1:
+					lab = _('Destroyed')
+				if state == 2:
+					lab = _('Detached')
+				if state == 3:
+					lab = _('Attaching')
+				lab += '\n'
+			else:
+				if callstate == 1:
+					lab = _('Ready')
+					if not self.ag.has_service():
+						lab = _('No Service')
+				if callstate == 2:
+					lab = _('Dialing')
+				if callstate == 3:
+					lab = _('Call Established')
+				if callstate == 4:
+					lab = _('Ringing')
+				if callstate == 5:
+					lab = _('Waiting Call')
+				lab += '\n'
+				if self.ag.has_audio():
+					lab += _('Audio Open')
+				elif self.ag.audio_connecting():
+					lab += _('Audio Connecting')
+			self.do_mainwindow_state(lab)
+			self.hf.ag_configure_gui(self.ag)
+
+		def devices_state(self):
+			if self.hf.devices_ag != self.ag:
+				return
+			self.hf.nested = True
+			self.hf['DevicesProperties'].set_sensitive(True)
+			self.hf['DevicesDevAddr'].set_text(self.ag.addr)
+			v = self.ag.get_autoreconnect()
+			if v == 0: v = 'DevicesAutoConnectNever'
+			elif v == 1: v = 'DevicesAutoConnectDisabled'
+			else: v = 'DevicesAutoConnectEnabled'
+			self.hf[v].set_active(True)
+			if self.ag.is_connected():
+				self.hf['DevicesConnect'].hide()
+				self.hf['DevicesDisconnect'].show()
+			else:
+				self.hf['DevicesConnect'].show()
+				self.hf['DevicesConnect'].set_sensitive(
+					not self.ag.is_connecting())
+				self.hf['DevicesDisconnect'].hide()
+			self.hf.nested = False
+
+		def update_state(self):
+			self.mainwindow_state()
+			self.devices_state()
+
+		def set_state(self):
+			self.hf.ag_state_changed(self.ag)
+			self.update_state()
+
+	def ag_disp_new(self, ag):
+		disp = self.AgStateDisplay(self, ag)
+		return disp
+
+	def ag_selector_set(self, ag):
+		do_arrow = False
+		if ag:
+			lab = ag.name
+			ag.disp.item.set_active(True)
+			self['AgSelectorArrow'].show()
+		else:
+			lab = _('Search for Device...')
+			self['AgSelectorArrow'].hide()
+		self['AgSelectorLabel'].set_text(lab)
+	def ag_selector_menu_position(self, menu):
+		widget = self['AgSelector']
+		alloc = widget.get_allocation()
+		(x, y) = widget.get_parent_window().get_origin()
+		x += alloc.x
+		y += alloc.y + alloc.height
+		return (x, y, True)
+	def ag_selector_open(self, widget, event):
+		kids = self.ag_list.get_children()
+		count = len(kids)
+		if count == 3:
 			return
-		self.fatal(_('HFPD Process Disconnected'))
+		self.nested = True
+		self['AgSelector'].set_active(True)
+		self.nested = False
+		self.ag_list.popup(None, None,
+				   self.ag_selector_menu_position,
+				   event.button,
+				   event.get_time())
+				   
+	def ag_selector_close(self, widget):
+		self.nested = True
+		self['AgSelector'].set_active(False)
+		self.nested = False
+	def ag_selector_toggle(self, widget):
+		if self.nested:
+			return
+		self.nested = True
+		if widget.get_active():
+			widget.set_active(False)
+			self.scan_open()
+		self.nested = False
+	def ag_selector_scan_activate(self, widget):
+		self.scan_open()
+	def ag_selector_manage_activate(self, widget):
+		self.devices_open()
+	def ag_selector_changed(self, ag):
+		if not ag.selectable():
+			ag = None
+			if self.selected_ag and self.selected_ag.selectable():
+				self.selected_ag.item.set_active(True)
+				ag = self.selected_ag
+			self.ag_selector_set(ag)
+			return
+
+		# If the user explicitly picks an audio gateway of lesser
+		# priority than the currently selected AG, consider the
+		# selection to be locked to that audio gateway.
+		lock = False
+		if self.selected_ag and (self.selected_ag.select_priority() >
+					 ag.select_priority()):
+			lock = True
+		self.ag_select_changed(ag, lock)
+
+	def hfpd_lost(self, name, old_owner, new_owner):
+		if name != self.HFPD_SERVICE_NAME or new_owner != '':
+			return
+		msg = _('HFPD Process Disconnected')
+		print msg
+		self.fatal(msg)
 
 	def hfpd_ag_added(self, agpath):
 		if agpath not in self.ags:
@@ -768,21 +1292,36 @@ class HfConsole:
 					       agpath,
 					       self['AudioGatewayBox'])
 			self.ags[agpath] = ag
-			self.ag_mine(ag)
+			if ag.is_mine():
+				ag.load_config()
+			else:
+				self.newdevice_open()
+			if (self.ags_added.has_key(ag.addr) and
+			    self.ags_added[ag.addr] == 2):
+				if (not self.selected_ag or
+				    not self.selected_ag.wants_audio()):
+					self.ags_added[ag.addr] = 1
+					self.ag_select_changed(ag)
 
 	def hfpd_ag_removed(self, agpath):
 		if agpath in self.ags:
 			self.ags[agpath].remove()
 			del self.ags[agpath]
-	def ag_select_search(self):
+			if not self.selected_ag:
+				self.ag_none_selected()
+	def ag_none_selected(self):
+		(ag, prio) = self.ag_best()
+		self.ag_select_changed(ag)
+	def ag_best(self):
+		best_ag = None
+		best_prio = -1
 		for xag in self.ags.values():
-			if xag.has_audio() and xag.select(True):
-				self.ag_select_changed(xag)
-				return
-		for xag in self.ags.values():
-			if xag.select(True):
-				self.ag_select_changed(xag)
-				return
+			if xag.selectable() and (
+				not best_ag or (best_prio <
+						xag.select_priority())):
+				best_ag = xag
+				best_prio = xag.select_priority()
+		return (best_ag, best_prio)
 	def ag_stop_audio_unselected(self):
 		for xag in self.ags.values():
 			if xag != self.selected_ag and xag.has_audio():
@@ -808,56 +1347,64 @@ class HfConsole:
 					self.selected_ag.close_audio()
 		self.ag_stop_audio_unselected()
 	def ag_state_changed(self, ag):
-		if ((not ag.selectable() and ag == self.selected_ag) or
-		    (ag.has_audio() and self.selected_ag and
-		     not self.selected_ag.has_audio())):
-			ag.select(False)
-			self.ag_select_changed(None)
-
+		#print "AG state changed %s %slock" % (ag.name, self.selected_ag_lock)
+		if ag and ag == self.selected_ag:
+			self.ag_push_audio()
+		if self.selected_ag_lock and self.selected_ag.selectable():
+			self.ag_stop_audio_unselected()
+			return
+		# Evaluate all AGs and maybe change selection
+		(best, prio) = self.ag_best()
+		if (not self.selected_ag or
+		    not self.selected_ag.selectable() or
+		    (self.selected_ag.select_priority() < prio)):
+			self.ag_select_changed(best)
 		if not self.selected_ag:
-			# Find another AG and select it
-			self.ag_select_search()
-			# If we still didn't find one, stop audio.
-			if not self.selected_ag:
-				self.ag_stop_audio_unselected()
-		elif ag == self.selected_ag:
-			# Maybe update buttons to reflect state
-			self.ag_select_changed(ag)
+			self.ag_stop_audio_unselected()
 
-	def ag_select(self, ag, state):
-		if ((not state and ag == self.selected_ag) or
-		    (state and ag != self.selected_ag)):
-			ag.select(False)
-			self.ag_select_changed(None)
-		if state and ag.select(True):
-			self.ag_select_changed(ag)
-		if not self.selected_ag:
-			self.ag_select_search()
-
-	def ag_select_changed(self, ag):
-		if self.selected_ag:
-			if self.selected_ag != ag:
-				self.selected_ag.select(False)
-		self.selected_ag = ag
+	def ag_select_changed(self, ag, lock = False):
 		if not ag:
-			self.command_mode(0)
-		elif ag.can_dial():
-			self.command_mode(1)
-		elif ag.can_dtmf():
-			self.command_mode(2)
+			lock = False
+		elif not lock and self.selected_ag == ag:
+			lock = self.selected_ag_lock
+		self.selected_ag = ag
+		self.selected_ag_lock = lock
+		self.ag_selector_set(ag)
+		if ag:
+			ag.disp.update_state()
 		else:
-			self.command_mode(0)
+			self.ag_configure_gui(None)
 		if ag:
 			self.ag_push_audio()
 
-	def ag_mine(self, ag):
-		if self.ags_added.has_key(ag.addr):
-			ag.setprop('AutoReconnect', self.autoreconnect)
-		else:
-			ag.not_mine()
+	def ag_config_has_option(self, addr, name):
+		section = 'ag_' + self.addr_transform(addr)
+		if not self.configfile.has_section(section):
+			return False
+		return self.configfile.has_option(section, name)
+
+	def ag_config_get_option(self, addr, name):
+		section = 'ag_' + self.addr_transform(addr)
+		if not self.configfile.has_section(section):
+			return None
+		return self.configfile.get(section, name, raw=True)
+
+	def ag_config_set_option(self, addr, name, value):
+		section = 'ag_' + self.addr_transform(addr)
+		if not self.configfile.has_section(section):
+			self.configfile.add_section(section)
+		self.configfile.set(section, name, value)
+		self.configfile.write(open(self.configfile_name, 'w+'))
 
 	def ag_add_to_config(self, addr):
 		self.configfile.set('devices', self.addr_transform(addr), True)
+		self.configfile.write(open(self.configfile_name, 'w+'))
+
+	def ag_remove_from_config(self, addr):
+		self.configfile.remove_option('devices',
+					      self.addr_transform(addr))
+		section = 'ag_' + self.addr_transform(addr)
+		self.configfile.remove_section(section)
 		self.configfile.write(open(self.configfile_name, 'w+'))
 
 	def ag_update_history(self, addr, name):
@@ -872,9 +1419,19 @@ class HfConsole:
 		self.configfile.set('history', addrx, name)
 		self.configfile.write(open(self.configfile_name, 'w+'))
 
-	def add_audiogateway(self, addr):
+	def ag_history_getname(self, addr):
+		addrx = self.addr_transform(addr)
+		if not self.configfile.has_option('history', addrx):
+			return None
+		return self.configfile.get('history', addrx)
+
+	def add_audiogateway(self, addr, selectit):
+		agpath = None
 		try:
-			self.ags_added[addr] = True
+			if selectit:
+				self.ags_added[addr] = 2
+			else:
+				self.ags_added[addr] = 1
 			# We will use the accompanying AudioGatewayAdded
 			# signal to construct the AudioGateway object above
 			agpath = self.hfpd.AddDevice(addr, False)
@@ -910,42 +1467,179 @@ class HfConsole:
 	def phone_num_bs(self, but):
 		entry = self['PhoneNumEntry']
 		entry.set_text(entry.get_text()[:-1])
-	def command_mode(self, val):
-		if val == 0:
-			self['DigitButtonBox'].set_sensitive(False)
-			self['PhoneNumEntryBox'].set_sensitive(False)
-			self['DialCommandBox'].set_sensitive(False)
-			self['DialPadDial'].set_label('Dial')
-		elif val == 1:
-			self['DigitButtonBox'].set_sensitive(True)
-			self['PhoneNumEntryBox'].set_sensitive(True)
-			self['DialCommandBox'].set_sensitive(True)
-			self['DialPadRedial'].set_sensitive(True)
-			self['DialPadDial'].set_label('Dial')
-		elif val == 2:
-			self['DigitButtonBox'].set_sensitive(True)
-			self['PhoneNumEntryBox'].set_sensitive(False)
-			self['DialCommandBox'].set_sensitive(True)
-			self['DialPadRedial'].set_sensitive(False)
-			self['DialPadDial'].set_label('Hang Up')
-	def dial_dial_clicked(self, widget):
+	def ag_configure_gui(self, ag):
+		sel_dis = False
+		connect = False
+		connect_ip = False
+		digits = False
+		do_notebook = False
+		dial = False
+		hold = False
+		swap = False
+		hangup = False
+		audio = False
+		audio_ip = False
+		audio_dn = False
+		record = False
+		record_dn = False
+		mainstatus = False
+		status_page = 0
+		battstatus = False
+		batt_page = 0
+		message = False
+		if ag:
+			mainstatus = True
+			if not ag.is_connected():
+				connect = True
+				connect_ip = ag.is_connecting() or self.nobt
+				status_page = 8
+			else:
+				status_page = 7
+				if ag.has_service():
+					status_page = ag.signal_level()
+					if status_page < 0 or status_page > 5:
+						status_page = 6
+				digits = ag.can_dial() or ag.can_dtmf()
+				dial = ag.can_dial()
+				hold = ag.can_hold()
+				do_notebook = not ag.can_dial()
+				hangup = not dial
+				if hold:
+					swap = ag.has_waiting_call()
+					hold = not swap
+				audio = True
+				if ag.has_audio():
+					audio_dn = True
+				elif ag.audio_connecting():
+					audio_ip = True
+				message = ag.has_message()
+				batt_page = ag.battery_level()
+				battstatus = True
+				if batt_page < 0 or batt_page > 5:
+					batt_page = 0
+					battstatus = False
+
+		# Display the "no bluetooth" icon if BT is disconnected
+		# and the AG is not connected
+		if self.nobt and (not ag or (not ag.is_connected() and
+					     not ag.is_connecting())):
+			mainstatus = True
+			status_page = 9
+			sel_dis = True
+
+		def set_vis(widget, visible):
+			if visible: widget.show()
+			else: widget.hide()
+
+		self['AgSelector'].set_sensitive(not sel_dis)
+		self['DigitButtonBox'].set_sensitive(digits)
+		self['PhoneNumEntryBox'].set_sensitive(dial)
+		set_vis(self['AgConnect'], connect)
+		self['AgConnect'].set_sensitive(not connect_ip)
+		set_vis(self['AgHangUp'], hangup)
+		set_vis(self['AgHoldCall'], hold)
+		set_vis(self['AgSwapCall'], swap)
+		set_vis(self['AgDial'], dial)
+		set_vis(self['AgRedial'], dial)
+		set_vis(self['AgAudioToggle'], audio)
+		self['AgAudioToggle'].set_active(audio_dn)
+		self['AgAudioToggle'].set_sensitive(not audio_ip)
+		set_vis(self['RecordCall'], record)
+		self['RecordCall'].set_active(record_dn)
+		set_vis(self['AgMainStatus'], mainstatus)
+		self['AgMainStatus'].set_current_page(status_page)
+		set_vis(self['AgBatteryStatus'], battstatus)
+		self['AgBatteryStatus'].set_current_page(batt_page)
+		set_vis(self['MessageIndicator'], message)
+		if do_notebook:
+			self.frontnotebook_set(0)
+		else:
+			self.frontnotebook_set(self.frontpage)
+
+	def bar_ag_dial_clicked(self, widget):
 		ag = self.selected_ag
 		entry = self['PhoneNumEntry']
 		if not ag:
 			return
 		if not ag.can_dial():
-			ag.hangup()
 			return
 		num = entry.get_text()
 		entry.set_text('')
 		ag.dial(num)
-	def dial_redial_clicked(self, widget):
+
+	def bar_ag_scan_clicked(self, widget):
+		self.scan_open()
+	def bar_ag_connect_clicked(self, widget):
+		try:
+			if self.selected_ag:
+				self.selected_ag.connect()
+		except dbus.exceptions.DBusException, (ex):
+			self.error_message(
+				_('Could not attach Audio Gateway: %s') %
+				str(ex))
+
+	def frontnotebook_set(self, page):
+		dialpad_but = False
+		contacts_but = False
+		if page == 0:
+			#contacts_but = True
+			if (self.selected_ag and
+			    self.selected_ag.is_connected() and
+			    not self.selected_ag.can_dial()):
+				contacts_but = False
+		if page == 1:
+			dialpad_but = True
+			
+		def set_vis(widget, visible):
+			if visible: widget.show()
+			else: widget.hide()
+
+		self['FrontNotebook'].set_current_page(page)
+		set_vis(self['BarDialPad'], dialpad_but)
+		set_vis(self['BarContacts'], contacts_but)
+
+	def bar_dialpad_clicked(self, widget):
+		self.frontpage = 0
+		self.frontnotebook_set(0)
+	def bar_contacts_clicked(self, widget):
+		self.frontpage = 1
+		self.frontnotebook_set(1)
+
+	def bar_ag_hangup_clicked(self, widget):
+		ag = self.selected_ag
+		if not ag:
+			return
+		ag.hangup()
+	def bar_ag_swaphold_clicked(self, widget):
+		ag = self.selected_ag
+		if not ag or not ag.can_hold():
+			return
+		ag.swap_hold_active()
+	def bar_ag_redial_clicked(self, widget):
 		ag = self.selected_ag
 		if not ag or not ag.can_dial():
 			return
 		ag.redial()
-	def dial_xfer_clicked(self, widget):
-		pass
+	def bar_ag_audio_toggled(self, widget):
+		if not self.selected_ag:
+			return
+		if not widget.get_active():
+			if (self.selected_ag.has_audio() or
+			    self.selected_ag.audio_connecting()):
+				self.selected_ag.close_audio()
+			return
+		if (self.selected_ag.has_audio() or
+		    self.selected_ag.audio_connecting()):
+			return
+		try:
+			self.selected_ag.open_audio()
+		except dbus.exceptions.DBusException, (ex):
+			self.error_message(
+				_('Could not open audio connection: %s') %
+				str(ex))
+			widget.set_active(False)
+	def bar_config_clicked(self, widget):
+		self.config_open()
 	def hfpd_system_msg_clear(self):
 		if hasattr(self, 'system_msg'):
 			self['StatusBar'].remove(self.system_ctx,
@@ -954,6 +1648,7 @@ class HfConsole:
 		if hasattr(self, 'system_msg_timeout'):
 			gobject.source_remove(self.system_msg_timeout)
 			del self.system_msg_timeout
+		return False
 	def hfpd_system_msg(self, msg, timeout):
 		self.hfpd_system_msg_clear()
 		self.system_msg = self['StatusBar'].push(self.system_ctx, msg)
@@ -963,59 +1658,173 @@ class HfConsole:
 
 	def hfpd_system_state(self, state):
 		if not state:
+			self.nobt = True
 			self.hfpd_system_msg(_('Bluetooth Unavailable'), None)
 		else:
+			self.nobt = False
 			self.hfpd_system_msg_clear()
+		self.ag_configure_gui(self.selected_ag)
+
+	def topnotebook_set(self, page):
+		nb = self['HiddenNotebook']
+		if not hasattr(self, 'notebook_stack'):
+			self.notebook_stack = []
+		if page:
+			self.notebook_stack.append(nb.get_current_page())
+			nb.set_current_page(nb.page_num(page))
+		elif len(self.notebook_stack):
+			nb.set_current_page(self.notebook_stack.pop())
+		else:
+			nb.set_current_page(0)
+	def topnotebook_get(self):
+		nb = self['HiddenNotebook']
+		return nb.get_nth_page(nb.get_current_page())
+
+	def devices_open(self):
+		self.topnotebook_set(self['DevicesTab'])
+	def devices_close_clicked(self, widget):
+		self.topnotebook_set(None)
+	def devices_add_clicked(self, widget):
+		self.scan_open()
+	def devices_delete_clicked(self, widget):
+		if self.devices_ag:
+			self.ag_remove_from_config(self.devices_ag.addr)
+			self.devices_ag.do_remove()
+	def devices_connect_clicked(self, widget):
+		if self.devices_ag:
+			self.devices_ag.connect()
+	def devices_disconnect_clicked(self, widget):
+		if self.devices_ag:
+			self.devices_ag.disconnect()
+	def devices_autoconnect_toggled(self, widget, value):
+		if self.nested or not widget.get_active():
+			return
+		if self.devices_ag:
+			self.devices_ag.set_autoreconnect(value)
+	def devices_autoconnect_never_toggled(self, widget):
+		self.devices_autoconnect_toggled(widget, 0)
+	def devices_autoconnect_disabled_toggled(self, widget):
+		self.devices_autoconnect_toggled(widget, 1)
+	def devices_autoconnect_enabled_toggled(self, widget):
+		self.devices_autoconnect_toggled(widget, 2)
+	def devices_select(self, selection):
+		if not selection.count_selected_rows():
+			self.devices_ag = None
+			self['DevicesDevAddr'].set_text('')
+			self['DevicesConnect'].hide()
+			self['DevicesDisconnect'].show()
+			self['DevicesProperties'].set_sensitive(False)
+			return
+		(store, iter) = selection.get_selected()
+		disp = store.get_value(iter, 2)
+		self.devices_ag = disp.ag
+		disp.devices_state()
+		self['DevicesProperties'].show()
+
+	def newdevice_open(self):
+		tab = self['NewDeviceTab']
+		if self.topnotebook_get() == tab:
+			return
+		itx = self.ag_list_new.get_iter_root()
+		if itx:
+			self['NewDeviceList'].get_selection().select_iter(itx)
+		self.topnotebook_set(tab)
+	def newdevice_close_clicked(self, widget):
+		self.topnotebook_set(None)
+	def newdevice_add_clicked(self, widget):
+		ag = self.newdevice_ag
+		self.add_audiogateway(ag.addr, False)
+		ag.update_mine()
+		self.ag_add_to_config(ag.addr)
+		ag.set_autoreconnect(2)
+		self.ag_select_changed(ag)
+	def newdevice_clear_clicked(self, widget):
+		xiter = self.ag_list_new.get_iter_root()
+		while xiter:
+			disp = self.ag_list_new.get_value(xiter, 2)
+			disp.ag.do_remove()
+			xiter = self.ag_list_new.iter_next(xiter)
+	def newdevice_select(self, selection):
+		if not selection.count_selected_rows():
+			self['NewDeviceAdd'].set_sensitive(False)
+			return
+		(store, iter) = selection.get_selected()
+		disp = store.get_value(iter, 2)
+		self.newdevice_ag = disp.ag
+		self['NewDeviceAdd'].set_sensitive(True)
+	def newdevice_row_added(self, list, path, iter):
+		self['NewDeviceClear'].set_sensitive(True)
+	def newdevice_row_removed(self, list, path):
+		if not list.get_iter_root():
+			self['NewDeviceClear'].set_sensitive(False)
+			tab = self['NewDeviceTab']
+			if self.topnotebook_get() == tab:
+				self.topnotebook_set(None)
+
+	def inquiry_show_activity(self):
+		self['ScanActivityIndicator'].pulse()
+		return True
+	def inquiry_started(self):
+		self.inquiry = True
+		self['ScanRestart'].set_sensitive(False)
+		self['ScanActivityIndicator'].set_fraction(0)
+		self['ScanActivity'].show()
+		self.inquiry_animation_timeout = gobject.timeout_add(
+			175, self.inquiry_show_activity)
+
+	def inquiry_stopped(self):
+		self.inquiry = False
+		self['ScanActivity'].hide()
+		self['ScanRestart'].set_sensitive(True)
+		if hasattr(self, 'inquiry_animation_timeout'):
+			gobject.source_remove(self.inquiry_animation_timeout)
+			del self.inquiry_animation_timeout
 
 	def scan_restart(self):
 		self.scanresults.clear()
-		self['ScanOK'].set_sensitive(False)
+		self['ScanAdd'].set_sensitive(False)
 		try: self.hfpd.StartInquiry()
 		except: return False
-		self.inquiry = True
-		self['ScanRestart'].set_sensitive(False)
+		self.inquiry_started()
 		return True
 
-	def scan_open(self, but):
-		dlg = self['ScanDialog']
+	def scan_open(self):
 		if not self.scan_restart():
-			self.error_message(_('Could not start inquiry'),
-					   self['ScanDialog'])
+			self.error_message(_('Could not start inquiry'))
 			return
-		dlg.show()
+		self.topnotebook_set(self['ScanTab'])
 	def scan_close(self):
-		dlg = self['ScanDialog']
-		dlg.hide()
+		self.topnotebook_set(None)
 		if self.inquiry:
 			try:
 				self.hfpd.StopInquiry()
 			except:
 				pass
-		self.inquiry = False
+			self.inquiry_stopped()
 	def scan_create_session(self, store, iter):
 		# Create a session for the selected bdaddr
 		self.scan_close()
 		assert store and iter
 		addr = store.get_value(iter, 2)
 		self.ag_add_to_config(addr)
-		self.add_audiogateway(addr)
-	def scan_ok_clicked(self, widget):
+		self.ag_config_set_option(addr, 'autoreconnect', 2)
+		self.add_audiogateway(addr, True)
+	def scan_add_clicked(self, widget):
 		assert (self.scanselect.count_selected_rows() <= 1)
 		(store, iter) = self.scanselect.get_selected()
 		self.scan_create_session(store, iter)
-	def scan_cancel_clicked(self,widget):
+	def scan_close_clicked(self,widget):
 		self.scan_close()
 	def scan_history_clicked(self, widget):
 		self.history_open()
 	def scan_restart_clicked(self, widget):
 		if not self.scan_restart():
-			self.error_message(_('Could not start inquiry'),
-					   self['ScanDialog'])
+			self.error_message(_('Could not start inquiry'))
 	def scan_select(self, selection):
 		if not selection.count_selected_rows():
-			self['ScanOK'].set_sensitive(False)
+			self['ScanAdd'].set_sensitive(False)
 		else:
-			self['ScanOK'].set_sensitive(True)	
+			self['ScanAdd'].set_sensitive(True)	
 	class NameResolveReq:
 		def __init__(self, hfc, addr, store):
 			self.addr = addr
@@ -1047,8 +1856,7 @@ class HfConsole:
 			return
 		if not self.inquiry:
 			return
-		self.inquiry = False
-		self['ScanRestart'].set_sensitive(True)
+		self.inquiry_stopped()
 		ix = self.scanresults.get_iter_first()
 		while ix:
 			addr = self.scanresults.get_value(ix, 2)
@@ -1060,7 +1868,6 @@ class HfConsole:
 
 	# History box
 	def history_open(self):
-		dlg = self['HistoryDialog']
 		self.historyresults.clear()
 		self['HistoryOK'].set_sensitive(False)
 
@@ -1074,10 +1881,9 @@ class HfConsole:
 			else:
 				name = "%s (%s)" % (name, addr)
 			self.historyresults.append(row=[name, 0, addr])
-		dlg.show()
+		self.topnotebook_set(self['HistoryTab'])
 	def history_close(self):
-		dlg = self['HistoryDialog']
-		dlg.hide()
+		self.topnotebook_set(None)
 	def history_ok_clicked(self, widget):
 		self.history_close()
 		assert self.historyselect.count_selected_rows() <= 1
@@ -1092,10 +1898,10 @@ class HfConsole:
 			self['HistoryOK'].set_sensitive(True)	
 
 	# Configuration dialog related methods
-	def config_open(self, widget):
-		dlg = self['ConfigDialog']
+	def config_open(self):
 		savecfg = self.config_get_vals()
 		savecfg['packetintervalsave'] = savecfg['packetinterval']
+		savecfg['jitterwindowsave'] = savecfg['jitterwindow']
 		savecfg['minbufferfillsave'] = savecfg['minbufferfill']
 		savecfg['echocancelsave'] = savecfg['echocancel']
 		if savecfg['echocancelsave'] == 0:
@@ -1113,8 +1919,6 @@ class HfConsole:
 			savecfg['acceptunknown'])
 		self['ConfigVoicePersist'].set_active(
 			savecfg['voicepersist'])
-		self['ConfigAutoReconnect'].set_active(
-			savecfg['autoreconnect'])
 		self['ConfigDriver'].get_model().clear()
 		for x in savecfg['drivers']:
 			self['ConfigDriver'].append_text(x)
@@ -1122,6 +1926,7 @@ class HfConsole:
 		self['ConfigDriverDevList'].child.set_text(
 			savecfg['driveropts'])
 		self.config_packet_interval(savecfg['packetinterval'])
+		self.config_jitter_window(savecfg['jitterwindow'])
 		self.config_min_out_buffer(savecfg['minbufferfill'])
 		self['ConfigDenoise'].set_active(savecfg['denoise'])
 		self.config_echo_cancel(savecfg['echocancel'])
@@ -1149,35 +1954,40 @@ class HfConsole:
 		if cmd:
 			self['ConfigAudioDetachCommand'].set_text(cmd)
 		self.config_savecfg = savecfg
-		dlg.show()
+		self.topnotebook_set(self['ConfigTab'])
 	def config_close(self):
-		dlg = self['ConfigDialog']
-		dlg.hide()
+		self['ConfigFeedbackTest'].set_active(False)
 		del self.config
 		if hasattr(self, 'loopback_active'):
 			del self.loopback_active
 		if hasattr(self, 'config_savecfg'):
 			del self.config_savecfg
+		self.topnotebook_set(None)
 	def config_ok_clicked(self, widget):
 		try: self.config_save_vals()
 		except dbus.exceptions.DBusException, (ex):
-			self.error_message(ex.get_dbus_message())
+			self.error_message(str(ex))
 		self.config_close()
 	def config_cancel_clicked(self, widget):
 		# Restore the save values
 		try: self.config_restore_vals(self.config_savecfg)
 		except dbus.exceptions.DBusException, (ex):
-			self.error_message(ex.get_dbus_message())
+			self.error_message(str(ex))
 		self.config_close()
+	def config_init_clicked(self, widget):
+		self.initconf_open()
+	def config_devices_clicked(self, widget):
+		self.devices_open()
 	def config_get_vals(self):
-		spr = self.soundio_props.GetAll('net.sf.nohands.hfpd.SoundIo')
-		hfpr = self.hfpd_props.GetAll('net.sf.nohands.hfpd.HandsFree')
+		spr = self.soundio_props.GetAll(
+			self.HFPD_SOUNDIO_INTERFACE_NAME)
+		hfpr = self.hfpd_props.GetAll(
+			self.HFPD_HANDSFREE_INTERFACE_NAME)
 
 		vals = dict()
 		vals['secmode'] = int(hfpr['SecMode'])
 		vals['acceptunknown'] = hfpr['AcceptUnknown']
 		vals['voicepersist'] = hfpr['VoicePersist']
-		vals['autoreconnect'] = self.autoreconnect
 		vals['drivers'] = []
 		vals['driver'] = 0
 		index = 0
@@ -1189,6 +1999,7 @@ class HfConsole:
 			index += 1
 		vals['driveropts'] = str(spr['DriverOpts'])
 		vals['packetinterval'] = int(spr['PacketIntervalHint'])
+		vals['jitterwindow'] = spr['JitterWindowHint']
 		vals['minbufferfill'] = spr['MinBufferFillHint']
 		vals['denoise'] = spr['Denoise']
 		vals['echocancel'] = int(spr['EchoCancelTail'])
@@ -1214,7 +2025,6 @@ class HfConsole:
 				       self['ConfigDriverDevList'].child.
 				       get_text())
 		self.hfpd.SaveSettings()
-		self.autoreconnect = self['ConfigAutoReconnect'].get_active()
 		cmd = self['ConfigAudioAttachCommand'].get_text()
 		self.command_audio_attach_acmd = cmd
 		self.configfile.set('options', 'attach_command', cmd)
@@ -1229,6 +2039,8 @@ class HfConsole:
 				       self.config['driveropts'])
 		self.setprop_soundio('PacketIntervalHint',
 				      dbus.UInt32(vals['packetinterval']))
+		self.setprop_soundio('JitterWindowHint',
+				      dbus.UInt32(vals['jitterwindow']))
 		self.setprop_soundio('MinBufferFillHint',
 				      dbus.UInt32(vals['minbufferfill']))
 		self.setprop_soundio('Denoise', dbus.Boolean(vals['denoise']))
@@ -1304,6 +2116,41 @@ class HfConsole:
 		value = self.value_transform(widget.get_value(), 3, 5, 1000)
 		if not self.nested:
 			self.config_packet_interval(value)
+	def config_jitter_window(self, value):
+		self.nested = True
+		if value != 0:
+			value = self.constrain(value, 5, 1000)
+			self['ConfigJitterWindowHint'].set_active(True)
+			self['ConfigJitterWindowLabel'].set_text(
+				self.format_ms(value))
+			self['ConfigJitterWindow'].set_sensitive(True)
+			self['ConfigJitterWindow'].set_value(
+				self.value_untransform(value, 3, 5, 1000))
+		else:
+			value = 0
+			self['ConfigJitterWindowHint'].set_active(False)
+			self['ConfigJitterWindowLabel'].set_text('')
+			self['ConfigJitterWindow'].set_sensitive(False)
+			self['ConfigJitterWindow'].set_value(0)
+		if self.config['jitterwindow'] != value:
+			self.config['jitterwindow'] = value
+			self.setprop_soundio('JitterWindowHint',
+					      dbus.UInt32(value))
+		self.nested = False
+	def config_jitter_window_toggled(self, widget):
+		if widget.get_active():
+			value = self.config['jitterwindowsave']
+			value = self.constrain(value, 5, 1000)
+		else:
+			self.config['jitterwindowsave'] = (
+				self.config['jitterwindow'])
+			value = 0
+		if not self.nested:
+			self.config_jitter_window(value)
+	def config_jitter_window_changed(self, widget):
+		value = self.value_transform(widget.get_value(), 3, 5, 1000)
+		if not self.nested:
+			self.config_jitter_window(value)
 	def config_min_out_buffer(self, value):
 		self.nested = True
 		if value != 0:
@@ -1353,8 +2200,7 @@ class HfConsole:
 				except:
 					widget.set_active(False)
 					self.error_message(_('Cannot Apply '
-						     'Sound Driver Settings'),
-							self['ConfigDialog'])
+						     'Sound Driver Settings'))
 					return
 
 				try:
@@ -1366,8 +2212,7 @@ class HfConsole:
 					widget.set_active(False)
 					self.error_message(_('Could not open '
 							     'Audio Device:\n'
-							     '%s') % str(ex),
-							self['ConfigDialog'])
+							     '%s') % str(ex))
 					return
 
 				self.loopback_active = True
@@ -1391,6 +2236,7 @@ class HfConsole:
 		if hasattr(self, 'config_skew_timeout'):
 			gobject.source_remove(self.config_skew_timeout)
 			del self.config_skew_timeout
+		return False
 	def config_skew_notify(self, skewtype, count):
 		timeout = 1500
 		if skewtype == 0:
@@ -1505,7 +2351,7 @@ class HfConsole:
 
 
 	def config_dsptest_pageid(self, widget):
-		return int(widget.get_name()[11:])
+		return widget.get_current_page()
 	def config_dsptest_open(self, widget):
 		self['ConfigFeedbackTest'].set_active(False)
 		try:
@@ -1515,12 +2361,12 @@ class HfConsole:
 					       get_text())
 		except:
 			self.error_message(_('Cannot Apply Sound Driver '
-					     'Settings'),
-					   self['ConfigDialog'])
+					     'Settings'))
 			return
-		assist = self['DspTestAssistant']
-		assist.set_current_page(0)
-		assist.show()
+		self['DspTestNotebook'].set_current_page(1)
+		self['DspTestNotebook'].set_current_page(0)
+		self.topnotebook_set(self['DspTestTab'])
+		self['DspTestForward'].grab_focus()
 	def connect_soundmonitor(self, to):
 		if self.soundmonitor:
 			self.soundmonitor.remove()
@@ -1540,47 +2386,52 @@ class HfConsole:
 			pow(float(amp) / 65535, 0.33))
 	def config_dsptest_mon3(self, pos, amp):
 		self['DspTestPlayPosition'].set_fraction(float(pos)/80000)
-	def config_dsptest_prepare(self, widget, page):
-		assist = self['DspTestAssistant']
-		pageid = self.config_dsptest_pageid(page)
+	def config_dsptest_set_buttons(self, back, fwd):
+		self['DspTestBack'].set_sensitive(back)
+		self['DspTestForward'].set_sensitive(fwd)
+	def config_dsptest_back(self, widget):
+		self['DspTestNotebook'].prev_page()
+	def config_dsptest_forward(self, widget):
+		self['DspTestNotebook'].next_page()
+	def config_dsptest_setup(self, pageid):
 		if not hasattr(self, 'membuf_active'):
 			self.membuf_active = False
 		if self.membuf_active:
 			self.soundio.Stop()
 		if pageid == 0:
 			self.maxvol = 0
-			assist.set_page_complete(page, True)
+			self.config_dsptest_set_buttons(False, True)
 		elif pageid == 1:
-			assist.set_page_complete(page, False)
+			self.config_dsptest_set_buttons(True, False)
 			self['DspTestRecPosition1'].set_fraction(0.0)
 			self.connect_soundmonitor(self.config_dsptest_mon1)
 			self['DspTestRecStart1'].set_active(True)
 		elif pageid == 2:
+			self.config_dsptest_set_buttons(True, True)
 			self['DspTestRecPosition2'].set_fraction(0.0)
-			assist.set_page_complete(page, True)
 			self.connect_soundmonitor(self.config_dsptest_mon2)
 		elif pageid == 3:
+			self.config_dsptest_set_buttons(True, True)
 			self['DspTestPlayPosition'].set_fraction(0.0)
-			assist.set_page_complete(page, True)
 			self.connect_soundmonitor(self.config_dsptest_mon3)
 			self['DspTestPlayStart'].set_active(True)
-	def config_dsptest_cancel(self, widget):
-		assist = self['DspTestAssistant']
-		assist.hide()
-		if self.membuf_active:
-			self.soundio.Stop()
+		else:
+			self.config_dsptest_set_buttons(True, False)
+	def config_dsptest_close(self, widget):
+		self['DspTestRecStart1'].set_active(False)
+		self['DspTestRecStart2'].set_active(False)
+		self['DspTestPlayStart'].set_active(False)
+		self.topnotebook_set(None)
+		if hasattr(self, 'membuf_active'):
+			if self.membuf_active:
+				self.soundio.Stop()
+			del self.membuf_active
 		self.connect_soundmonitor(None)
 		if hasattr(self, 'maxvol'):
 			del self.maxvol
-		if hasattr(self, 'membuf_active'):
-			del self.membuf_active
-	def config_dsptest_close(self, widget):
-		assist = self['DspTestAssistant']
-		assist.hide()
-		self.connect_soundmonitor(None)
-		print "DSP close"
+	def config_dsptest_switch_page(self, widget, page, page_num):
+		self.config_dsptest_setup(page_num)
 	def config_dsptest_xxx_toggled(self, widget, page, doin, doout):
-		assist = self['DspTestAssistant']
 		if widget.get_active():
 			if doin and not doout:
 				self.soundio.MembufClear()
@@ -1593,12 +2444,11 @@ class HfConsole:
 			except:
 				widget.set_active(False)
 				self.error_message(_('Could not open '
-						     'Audio Device'),
-						   self['DspTestAssistant'])
+						     'Audio Device'))
 				return
 				
 			self.membuf_active = True
-			assist.set_page_complete(page, True)
+			self.config_dsptest_set_buttons(True, True)
 			return
 		if self.membuf_active:
 			try:
@@ -1642,7 +2492,7 @@ class HfConsole:
 			if agpath:
 				ag = self.ags[agpath]
 				if ag:
-					self.ag_select(ag, True)
+					ag.soundio_state_changed()
 	def soundio_stream_aborted(self, excode, descr):
 		if (excode ==
 		    'net.sf.nohands.hfpd.Error.SoundIoSoundCardFailed'):
@@ -1667,6 +2517,7 @@ class HfConsole:
 			del self.soundio_status_timeout
 		if hasattr(self, 'soundio_skew_type'):
 			del self.soundio_skew_type
+		return False
 	def soundio_status_msg(self, msg, timeout):
 		self.soundio_status_msg_clear()
 		self.soundio_status_msgid = self['StatusBar'].push(
@@ -1695,8 +2546,29 @@ class HfConsole:
 		if self.soundio_skew_monitor:
 			self.soundio_skew_monitor(skewtype, count)
 
+	def initconf_open(self):
+		self['InitConfNotebook'].set_current_page(1)
+		self['InitConfNotebook'].set_current_page(0)
+		self.topnotebook_set(self['InitConfTab'])
+		self['InitConfForward'].grab_focus()
+	def initconf_close(self):
+		self.topnotebook_set(None)
+
+	def initconf_set_buttons(self, back, fwd):
+		self['InitConfBack'].set_sensitive(back)
+		self['InitConfForward'].set_sensitive(fwd)
+	def initconf_done_clicked(self, widget):
+		self.initconf_close()
+	def initconf_back_clicked(self, widget):
+		self['InitConfNotebook'].prev_page()
+	def initconf_forward_clicked(self, widget):
+		self['InitConfNotebook'].next_page()
+	def initconf_switch_page(self, widget, page, page_num):
+		if page_num == 0:
+			self.initconf_set_buttons(False, True)
+		elif page_num == 1:
+			self.initconf_set_buttons(True, False)
 if __name__ == "__main__":
 	hwg = HfConsole()
-	
 	hwg.Start()
 	gtk.main()

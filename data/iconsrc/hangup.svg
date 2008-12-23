@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="48px"
+   height="48px"
+   id="svg3254"
+   sodipodi:version="0.32"
+   inkscape:version="0.46"
+   sodipodi:docname="hangup.svg"
+   inkscape:output_extension="org.inkscape.output.svg.inkscape"
+   inkscape:export-filename="/vhome/samr7/sf/nohands/trunk/data/hangup.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <defs
+     id="defs3256">
+    <inkscape:perspective
+       sodipodi:type="inkscape:persp3d"
+       inkscape:vp_x="0 : 24 : 1"
+       inkscape:vp_y="0 : 1000 : 0"
+       inkscape:vp_z="48 : 24 : 1"
+       inkscape:persp3d-origin="24 : 16 : 1"
+       id="perspective3262" />
+  </defs>
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="9.8994949"
+     inkscape:cx="29.404316"
+     inkscape:cy="24"
+     inkscape:current-layer="layer1"
+     showgrid="true"
+     inkscape:grid-bbox="true"
+     inkscape:document-units="px"
+     showguides="true"
+     inkscape:guide-bbox="true"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:window-width="1020"
+     inkscape:window-height="727"
+     inkscape:window-x="5"
+     inkscape:window-y="31">
+    <sodipodi:guide
+       orientation="1,0"
+       position="24.041631,50.002551"
+       id="guide3281" />
+  </sodipodi:namedview>
+  <metadata
+     id="metadata3259">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="layer1"
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer">
+    <path
+       style="fill:#ff0000;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:0.60000002;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       d="M 3.614281,26.887446 C 3.614281,11.93792 14.486668,11.93792 24,11.93792 C 33.513332,11.93792 44.385719,11.93792 44.385719,26.887446 L 44.385719,26.887446 L 33.513332,26.887446 C 33.513332,26.887446 30.79524,21.160031 30.79524,21.16003 C 30.79524,20.189282 17.204761,20.189282 17.204761,21.16003 C 17.204761,21.16003 14.486668,26.887446 14.486668,26.887446 L 3.614281,26.887446 C 3.614281,26.887446 3.614281,26.887446 3.614281,26.887446 z"
+       id="path2383"
+       sodipodi:nodetypes="ccsccccccc" />
+    <path
+       style="fill:#ff0000;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:0.60473979;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       d="M 14.950258,31.787052 L 33.031988,31.787052 L 24.041631,37.746952 L 14.950258,31.787052 z"
+       id="path3230"
+       sodipodi:nodetypes="cccc" />
+  </g>
+</svg>
