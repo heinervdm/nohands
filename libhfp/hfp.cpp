@@ -774,6 +774,16 @@ NotifyConnectionState(ErrorInfo *async_error)
 		if (!HfpHandshake(&local_error))
 			__Disconnect(&local_error, false);
 
+		/*
+		 * We might need to disable autoreconnect for this
+		 * device if the state change is the result of a
+		 * remotely initiated connection.
+		 */
+		if (!m_autoreconnect_links.Empty()) {
+			assert(m_conn_autoreconnect);
+			GetService()->RemoveAutoReconnect(this);
+		}
+
 		else if (IsConnectionRemoteInitiated() &&
 			 cb_NotifyConnection.Registered())
 			cb_NotifyConnection(this, 0);
