@@ -85,6 +85,12 @@ class AudioGateway : public HfpdExportObject {
 
 	bool DoSetAutoReconnect(bool value, libhfp::ErrorInfo *error = 0);
 
+	void QueryNumberComplete(class AgPendingCommand *agpcp, void *result);
+	void QueryOperatorComplete(class AgPendingCommand *agpcp,
+				   void *result);
+	void QueryCurrentCallsComplete(class AgPendingCommand *agpcp,
+				       void *result);
+
 public:
 	AudioGateway(HandsFree *hfp, libhfp::HfpSession *sessp, char *name);
 	virtual ~AudioGateway();
@@ -114,6 +120,9 @@ public:
 			     int val);
 	void NotifyAudioConnection(libhfp::HfpSession *sessp,
 				   libhfp::ErrorInfo *reason);
+	void NotifyVoiceRecog(libhfp::HfpSession *sessp, bool active);
+	void NotifyVolume(libhfp::HfpSession *sessp, bool mic, bool speaker);
+	void NotifyInBandRingTone(libhfp::HfpSession *sessp, bool enabled);
 	void NotifyDestroy(libhfp::BtManaged *sessp);
 	void NameResolved(void);
 
@@ -127,16 +136,24 @@ public:
 	bool HangUp(DBusMessage *msgp);
 	bool SendDtmf(DBusMessage *msgp);
 	bool Answer(DBusMessage *msgp);
+	bool QueryNumber(DBusMessage *msgp);
+	bool QueryOperator(DBusMessage *msgp);
+	bool QueryCurrentCalls(DBusMessage *msgp);
+	bool SetVoiceRecognition(DBusMessage *msgp);
 	bool CallDropHeldUdub(DBusMessage *msgp);
 	bool CallSwapDropActive(DBusMessage *msgp);
+	bool CallDropIndex(DBusMessage *msgp);
 	bool CallSwapHoldActive(DBusMessage *msgp);
 	bool CallLink(DBusMessage *msgp);
+	bool CallPrivateConsult(DBusMessage *msgp);
 	bool CallTransfer(DBusMessage *msgp);
 
 	/* D-Bus Property related methods */
 	bool GetState(DBusMessage *msgp, uint8_t &val);
 	bool GetCallState(DBusMessage *msgp, uint8_t &val);
 	bool GetAudioState(DBusMessage *msgp, uint8_t &val);
+	bool GetVoiceRecognitionActive(DBusMessage *msgp, bool &val);
+	bool GetInBandRingToneEnable(DBusMessage *msgp, bool &val);
 	bool GetClaimed(DBusMessage *msgp, bool &val);
 	bool GetVoluntaryDisconnect(DBusMessage *msgp, bool &val);
 	bool GetAddress(DBusMessage *msgp, const DbusProperty *propp,
@@ -163,10 +180,16 @@ static const DbusMethod g_AudioGateway_methods[] = {
 	DbusMethodEntry(AudioGateway, HangUp, "", ""),
 	DbusMethodEntry(AudioGateway, SendDtmf, "y", ""),
 	DbusMethodEntry(AudioGateway, Answer, "", ""),
+	DbusMethodEntry(AudioGateway, QueryNumber, "", "sii"),
+	DbusMethodEntry(AudioGateway, QueryOperator, "", "iis"),
+	DbusMethodEntry(AudioGateway, QueryCurrentCalls, "", "a(iiiiisis)"),
+	DbusMethodEntry(AudioGateway, SetVoiceRecognition, "b", ""),
 	DbusMethodEntry(AudioGateway, CallDropHeldUdub, "", ""),
 	DbusMethodEntry(AudioGateway, CallSwapDropActive, "", ""),
+	DbusMethodEntry(AudioGateway, CallDropIndex, "i", ""),
 	DbusMethodEntry(AudioGateway, CallSwapHoldActive, "", ""),
 	DbusMethodEntry(AudioGateway, CallLink, "", ""),
+	DbusMethodEntry(AudioGateway, CallPrivateConsult, "i", ""),
 	DbusMethodEntry(AudioGateway, CallTransfer, "", ""),
 	{ 0, }
 };
@@ -177,9 +200,12 @@ static const DbusMethod g_AudioGateway_signals[] = {
 	DbusSignalEntry(AudioStateChanged, "y"),
 	DbusSignalEntry(ClaimStateChanged, "b"),
 	DbusSignalEntry(AutoReconnectChanged, "b"),
-	DbusSignalEntry(Ring, "ss"),
+	DbusSignalEntry(Ring, "sisis"),
 	DbusSignalEntry(IndicatorChanged, "si"),
 	DbusSignalEntry(NameResolved, "s"),
+	DbusSignalEntry(VoiceRecognitionActiveChanged, "b"),
+	DbusSignalEntry(InBandRingToneEnableChanged, "b"),
+	DbusSignalEntry(VolumeChanged, "yy"),
 	{ 0, }
 };
 
@@ -194,6 +220,12 @@ static const DbusProperty g_AudioGateway_properties[] = {
 				      GetCallState),
 	DbusPropertyMarshallImmutable(uint8_t, AudioState, AudioGateway,
 				      GetAudioState),
+	DbusPropertyMarshallImmutable(bool, VoiceRecognitionActive,
+				      AudioGateway,
+				      GetVoiceRecognitionActive),
+	DbusPropertyMarshallImmutable(bool, InBandRingToneEnable,
+				      AudioGateway,
+				      GetInBandRingToneEnable),
 	DbusPropertyMarshallImmutable(bool, Claimed, AudioGateway,
 				      GetClaimed),
 	DbusPropertyMarshallImmutable(bool, VoluntaryDisconnect, AudioGateway,

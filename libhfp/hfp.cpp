@@ -55,9 +55,6 @@ HfpService(int caps)
 	  m_sco_listen(-1), m_sco_listen_not(0),
 	  m_brsf_my_caps(caps), m_svc_name(0), m_svc_desc(0),
 	  m_sdp_rec(0), m_sco_enable(true),
-	  m_autoreconnect_timeout(15000), m_autoreconnect_set(false),
-	  m_autoreconnect_timer(0),
-	  m_autoreconnect_now_set(false), m_autoreconnect_now_timer(0),
 	  m_complaint_sco_mtu(false), m_complaint_sco_vs(false),
 	  m_complaint_sco_listen(false)
 {
@@ -73,85 +70,6 @@ HfpService::
 	if (m_svc_desc) {
 		free(m_svc_desc);
 		m_svc_desc = 0;
-	}
-	assert(!m_autoreconnect_timer);
-	assert(!m_autoreconnect_now_timer);
-}
-
-void HfpService::
-AutoReconnectTimeout(TimerNotifier *timerp)
-{
-	ListItem retrylist;
-
-	if (timerp == m_autoreconnect_timer) {
-		assert(m_autoreconnect_set);
-		m_autoreconnect_set = false;
-		retrylist.AppendItemsFrom(m_autoreconnect_list);
-
-	} else {
-		assert(timerp == m_autoreconnect_now_timer);
-		assert(m_autoreconnect_now_set);
-		m_autoreconnect_now_set = false;
-		retrylist.AppendItemsFrom(m_autoreconnect_now_list);
-	}
-
-	while (!retrylist.Empty()) {
-		HfpSession *sessp = GetContainer(retrylist.next, HfpSession,
-						 m_autoreconnect_links);
-		sessp->m_autoreconnect_links.UnlinkOnly();
-
-		/* Always append to the delayed list */
-		m_autoreconnect_list.AppendItem(sessp->m_autoreconnect_links);
-
-		sessp->AutoReconnect();
-	}
-
-	if (!m_autoreconnect_list.Empty() && !m_autoreconnect_set) {
-		m_autoreconnect_set = true;
-		m_autoreconnect_timer->Set(m_autoreconnect_timeout);
-	}
-}
-
-void HfpService::
-AddAutoReconnect(HfpSession *sessp, bool now)
-{
-	assert(sessp->m_autoreconnect_links.Empty());
-	assert(!sessp->IsConnected() && !sessp->IsConnecting());
-
-	if (now) {
-		if (m_autoreconnect_now_timer && !m_autoreconnect_now_set) {
-			m_autoreconnect_now_set = true;
-			m_autoreconnect_now_timer->Set(0);
-		}
-		m_autoreconnect_now_list.AppendItem(sessp->
-						    m_autoreconnect_links);
-	} else {
-		if (m_autoreconnect_timer && !m_autoreconnect_set) {
-			m_autoreconnect_set = true;
-			m_autoreconnect_timer->Set(m_autoreconnect_timeout);
-		}
-		m_autoreconnect_list.AppendItem(sessp->m_autoreconnect_links);
-	}
-}
-
-void HfpService::
-RemoveAutoReconnect(HfpSession *sessp)
-{
-	assert(!sessp->m_autoreconnect_links.Empty());
-	sessp->m_autoreconnect_links.Unlink();
-
-	if (m_autoreconnect_timer &&
-	    m_autoreconnect_list.Empty() &&
-	    m_autoreconnect_set) {
-		m_autoreconnect_set = false;
-		m_autoreconnect_timer->Cancel();
-	}
-
-	if (m_autoreconnect_now_timer &&
-	    m_autoreconnect_now_list.Empty() &&
-	    m_autoreconnect_now_set) {
-		m_autoreconnect_now_set = false;
-		m_autoreconnect_now_timer->Cancel();
 	}
 }
 
@@ -454,7 +372,7 @@ SdpRegister(ErrorInfo *error)
 	root_list = 0;
 
 	/* Add one last required attribute */
-	caps = m_brsf_my_caps;
+	caps = m_brsf_my_caps & 0x1f;
 	if (sdp_attr_add_new(svcrec, SDP_ATTR_SUPPORTED_FEATURES,
 			     SDP_UINT16, &caps) < 0)
 		goto nomem;
@@ -491,26 +409,9 @@ bool HfpService::
 Start(ErrorInfo *error)
 {
 	assert(GetHub());
-	assert(!m_autoreconnect_timer);
-	assert(!m_autoreconnect_now_timer);
 
-	m_autoreconnect_timer = GetDi()->NewTimer();
-	if (!m_autoreconnect_timer) {
-		if (error)
-			error->SetNoMem();
-		return false;
-	}
-	m_autoreconnect_timer->Register(this,
-					&HfpService::AutoReconnectTimeout);
-
-	m_autoreconnect_now_timer = GetDi()->NewTimer();
-	if (!m_autoreconnect_now_timer) {
-		if (error)
-			error->SetNoMem();
+	if (!RfcommService::Start(error))
 		goto failed;
-	}
-	m_autoreconnect_now_timer->Register(this,
-					    &HfpService::AutoReconnectTimeout);
 
 	if (!RfcommListen(error))
 		goto failed;
@@ -520,16 +421,6 @@ Start(ErrorInfo *error)
 
 	if (!SdpRegister(error))
 		goto failed;
-
-	if (!m_autoreconnect_list.Empty() && !m_autoreconnect_set) {
-		m_autoreconnect_set = true;
-		m_autoreconnect_timer->Set(0);
-	}
-
-	if (!m_autoreconnect_now_list.Empty() && !m_autoreconnect_now_set) {
-		m_autoreconnect_now_set = true;
-		m_autoreconnect_now_timer->Set(0);
-	}
 
 	return true;
 
@@ -546,16 +437,7 @@ Stop(void)
 		SdpUnregister();
 	RfcommCleanup();
 	ScoCleanup();
-	if (m_autoreconnect_timer) {
-		m_autoreconnect_set = false;
-		delete m_autoreconnect_timer;
-		m_autoreconnect_timer = 0;
-	}
-	if (m_autoreconnect_now_timer) {
-		m_autoreconnect_now_set = false;
-		delete m_autoreconnect_now_timer;
-		m_autoreconnect_now_timer = 0;
-	}
+	RfcommService::Stop();
 }
 
 RfcommSession * HfpService::
@@ -649,6 +531,26 @@ SetScoEnabled(bool sco_enable, ErrorInfo *error)
 }
 
 bool HfpService::
+SetCaps(int caps, ErrorInfo *error)
+{
+	int old_caps = m_brsf_my_caps;
+
+	m_brsf_my_caps = caps;
+
+	if ((m_sdp_rec != 0) && ((old_caps ^ caps) & 0x1f)) {
+		SdpUnregister();
+		if (!SdpRegister(error)) {
+			/* Now we're just screwed! */
+			m_brsf_my_caps = old_caps;
+			(void) SdpRegister(0);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool HfpService::
 SetServiceName(const char *val, ErrorInfo *error)
 {
 	char *oldval, *newval = 0;
@@ -667,14 +569,16 @@ SetServiceName(const char *val, ErrorInfo *error)
 		}
 	}
 
-	SdpUnregister();
-	if ((m_sco_listen >= 0) && !SdpRegister(error)) {
-		/* Now we're just screwed! */
-		m_svc_name = oldval;
-		if (newval)
-			free(newval);
-		(void) SdpRegister(0);
-		return false;
+	if (m_sdp_rec != 0) {
+		SdpUnregister();
+		if (!SdpRegister(error)) {
+			/* Now we're just screwed! */
+			m_svc_name = oldval;
+			if (newval)
+				free(newval);
+			(void) SdpRegister(0);
+			return false;
+		}
 	}
 
 	if (oldval)
@@ -701,13 +605,15 @@ SetServiceDesc(const char *val, ErrorInfo *error)
 		}
 	}
 
-	SdpUnregister();
-	if ((m_sco_listen >= 0) && !SdpRegister(error)) {
-		m_svc_desc = oldval;
-		if (newval)
-			free(newval);
-		(void) SdpRegister(0);
-		return false;
+	if (m_sdp_rec != 0) {
+		SdpUnregister();
+		if (!SdpRegister(error)) {
+			m_svc_desc = oldval;
+			if (newval)
+				free(newval);
+			(void) SdpRegister(0);
+			return false;
+		}
 	}
 
 	if (oldval)
@@ -718,20 +624,23 @@ SetServiceDesc(const char *val, ErrorInfo *error)
 HfpSession::
 HfpSession(HfpService *svcp, BtDevice *devp)
 	: RfcommSession(svcp, devp), m_conn_state(BTS_Disconnected),
-	  m_conn_autoreconnect(false), 
+	  m_command_timer(0),
 	  m_chld_0(false), m_chld_1(false), m_chld_1x(false),
 	  m_chld_2(false), m_chld_2x(false),m_chld_3(false), m_chld_4(false),
 	  m_clip_enabled(false), m_ccwa_enabled(false),
 	  m_inum_service(0), m_inum_call(0), m_inum_callsetup(0),
-	  m_inum_signal(0), m_inum_roam(0), m_inum_battchg(0),
+	  m_inum_callheld(0), m_inum_signal(0), m_inum_roam(0),
+	  m_inum_battchg(0),
 	  m_inum_names(NULL), m_inum_names_len(0),
 	  m_state_service(false), m_state_call(false), m_state_callsetup(0),
 	  m_state_signal(-1), m_state_roam(-1), m_state_battchg(-1),
-	  m_state_incomplete_clip(0),
+	  m_state_bvra(false), m_state_bsir(false), m_state_ecnr(false),
+	  m_state_vgm(-1), m_state_vgs(-1),
 	  m_sco_state(BVS_Invalid), m_sco_sock(-1), m_sco_nonblock(false), 
-	  m_sco_not(0), m_timer(0),
+	  m_sco_not(0), m_callsetup_presumed(false), m_timer(0),
+	  m_clip_timer(0), m_clip_state(CLIP_UNKNOWN), m_clip_value(0),
 	  m_timeout_ring(5000), m_timeout_ring_ccwa(20000),
-	  m_timeout_dial(20000),
+	  m_timeout_dial(20000), m_timeout_clip(250), m_timeout_command(30000),
 	  m_rsp_start(0), m_rsp_len(0)
 {
 }
@@ -739,7 +648,18 @@ HfpSession(HfpService *svcp, BtDevice *devp)
 HfpSession::
 ~HfpSession()
 {
-	assert(!m_timer);
+	if (m_timer) {
+		delete m_timer;
+		m_timer = 0;
+	}
+	if (m_clip_timer) {
+		delete m_clip_timer;
+		m_clip_timer = 0;
+	}
+	if (m_command_timer) {
+		delete m_command_timer;
+		m_command_timer = 0;
+	}
 	assert(m_conn_state == BTS_Disconnected);
 	assert(m_commands.Empty());
 	assert(!m_inum_names);
@@ -771,21 +691,36 @@ NotifyConnectionState(ErrorInfo *async_error)
 		       (m_conn_state == BTS_Disconnected));
 		m_conn_state = BTS_Handshaking;
 
-		if (!HfpHandshake(&local_error))
-			__Disconnect(&local_error, false);
-
-		/*
-		 * We might need to disable autoreconnect for this
-		 * device if the state change is the result of a
-		 * remotely initiated connection.
-		 */
-		if (!m_autoreconnect_links.Empty()) {
-			assert(m_conn_autoreconnect);
-			GetService()->RemoveAutoReconnect(this);
+		if (!m_timer) {
+			m_timer = GetDi()->NewTimer();
+			if (m_timer)
+				m_timer->Register(this, &HfpSession::Timeout);
+		}
+		if (!m_clip_timer) {
+			m_clip_timer = GetDi()->NewTimer();
+			if (m_clip_timer)
+				m_clip_timer->Register(this,
+						&HfpSession::ClipTimeout);
+		}
+		if (!m_command_timer) {
+			m_command_timer = GetDi()->NewTimer();
+			if (m_command_timer)
+				m_command_timer->Register(this,
+						&HfpSession::CommandTimeout);
 		}
 
-		else if (IsConnectionRemoteInitiated() &&
-			 cb_NotifyConnection.Registered())
+		if (!m_timer || !m_clip_timer || !m_command_timer) {
+			local_error.SetNoMem();
+			__Disconnect(&local_error, false);
+		}
+
+		if (IsRfcommConnected() && !HfpHandshake(&local_error)) {
+			__Disconnect(&local_error, false);
+		}
+
+		if (IsRfcommConnected() &&
+		    IsConnectionRemoteInitiated() &&
+		    cb_NotifyConnection.Registered())
 			cb_NotifyConnection(this, 0);
 	}
 
@@ -794,6 +729,7 @@ NotifyConnectionState(ErrorInfo *async_error)
 		assert(m_conn_state == BTS_Disconnected);
 		assert(!IsConnectingAudio());
 		assert(!IsConnectedAudio());
+		UpdateCallSetup(0);
 	}
 
 	if (async_error && cb_NotifyConnection.Registered())
@@ -825,25 +761,19 @@ __Disconnect(ErrorInfo *reason, bool voluntary)
 
 	if (m_conn_state != BTS_Disconnected) {
 		m_conn_state = BTS_Disconnected;
-		if (m_conn_autoreconnect)
-			GetService()->AddAutoReconnect(this);
 	}
 	m_rsp_start = m_rsp_len = 0;
 	m_chld_0 = m_chld_1 = m_chld_1x = m_chld_2 = m_chld_2x = m_chld_3 =
 		m_chld_4 = false;
 	m_clip_enabled = false;
 	m_ccwa_enabled = false;
-	m_inum_service = m_inum_call = m_inum_callsetup = 0;
+	m_inum_service = m_inum_call = m_inum_callsetup = m_inum_callheld = 0;
 	m_inum_signal = m_inum_roam = m_inum_battchg = 0;
 	m_state_service = false;
 	m_state_call = false;
-	m_state_callsetup = 0;
 	m_state_signal = m_state_roam = m_state_battchg = -1;
-
-	if (m_state_incomplete_clip) {
-		delete m_state_incomplete_clip;
-		m_state_incomplete_clip = 0;
-	}
+	m_state_bvra = m_state_bsir = m_state_ecnr = false;
+	m_state_vgm = m_state_vgs = -1;
 
 	RfcommSession::__Disconnect(reason, voluntary);
 }
@@ -855,21 +785,16 @@ Connect(ErrorInfo *error)
 		return true;
 
 	m_conn_state = BTS_RfcommConnecting;
-	if (m_conn_autoreconnect)
-		GetService()->RemoveAutoReconnect(this);
 	if (RfcommConnect(error))
 		return true;
 
 	m_conn_state = BTS_Disconnected;
-	if (m_conn_autoreconnect)
-		GetService()->AddAutoReconnect(this);
 	return false;
 }
 
 void HfpSession::
 AutoReconnect(void)
 {
-	assert(m_conn_autoreconnect);
 	assert(m_conn_state == BTS_Disconnected);
 
 	if (Connect() && cb_NotifyConnection.Registered())
@@ -882,23 +807,6 @@ AutoReconnect(void)
 	 * processed after the RFCOMM service level connection has
 	 * completed, which we also submit a notification for.
 	 */
-}
-
-void HfpSession::
-SetAutoReconnect(bool enable)
-{
-	if (enable && !m_conn_autoreconnect) {
-		Get();
-		m_conn_autoreconnect = true;
-		if (m_conn_state == BTS_Disconnected)
-			GetService()->AddAutoReconnect(this, true);
-	}
-	else if (!enable && m_conn_autoreconnect) {
-		m_conn_autoreconnect = false;
-		if (m_conn_state == BTS_Disconnected)
-			GetService()->RemoveAutoReconnect(this);
-		Put();
-	}
 }
 
 void HfpSession::
@@ -1505,8 +1413,7 @@ class AtCommand {
 
 	bool iResponse(const char *buf) {
 		if (!strcmp(buf, "OK")) {
-			OK();
-			return true;
+			return OK();
 		}
 		if (!strcmp(buf, "ERROR")) {
 			ERROR();
@@ -1522,7 +1429,7 @@ class AtCommand {
 protected:
 	HfpSession *GetSession(void) const { return m_sess; }
 	DispatchInterface *GetDi(void) const { return m_sess->GetDi(); }
-	void CompletePending(ErrorInfo *error, const char *info) {
+	void CompletePending(ErrorInfo *error, void *info) {
 		HfpPendingCommand *cmdp = m_pend;
 		if (cmdp) {
 			m_pend = 0;
@@ -1533,8 +1440,9 @@ public:
 	const char	*m_command_text;
 	virtual bool Response(const char *buf)
 		{ return false; };
-	virtual void OK(void) {
+	virtual bool OK() {
 		CompletePending(0, 0);
+		return true;
 	}
 	virtual void ERROR(void) {
 		ErrorInfo simple_error;
@@ -1808,7 +1716,8 @@ ParseGsmStringField(char *&buf, const char *&result)
 static bool
 ParseGsmIntField(char *&buf, int &result)
 {
-	char *xbuf, *endp;
+	char *xbuf;
+	char *endp;
 	int value;
 
 	xbuf = buf;
@@ -1816,7 +1725,6 @@ ParseGsmIntField(char *&buf, int &result)
 	if (!*xbuf)
 		return false;
 
-	
 	value = strtol(xbuf, &endp, 10);
 	if (endp != xbuf) {
 		result = value;
@@ -1825,7 +1733,6 @@ ParseGsmIntField(char *&buf, int &result)
 
 	while (*xbuf && IsWS(*xbuf)) { xbuf++; }
 	if (*xbuf == ',') {
-		*xbuf = '\0';
 		xbuf++;
 	}
 	else if (*xbuf) {
@@ -1836,45 +1743,43 @@ ParseGsmIntField(char *&buf, int &result)
 	return true;
 }
 
-void *GsmClipPhoneNumber::
-operator new(size_t nb, size_t extra)
+void *GsmResult::
+operator new(size_t nb, const char *src_string, size_t extra)
 {
-	return malloc(nb + extra);
+	void *mem;
+	char *cbuf;
+
+	if (!src_string)
+		src_string = "";
+	if (!extra)
+		extra = strlen(src_string) + 1;
+	mem = malloc(nb + extra);
+	if (mem) {
+		memset(mem, 0, nb);
+		cbuf = ((char *) mem) + nb;
+		memcpy(cbuf, src_string, extra);
+		((GsmResult *) mem)->src_string = cbuf;
+		((GsmResult *) mem)->extra = extra;
+	}
+	return mem;
 }
 
-void GsmClipPhoneNumber::
+void GsmResult::
 operator delete(void *mem)
 {
 	free(mem);
 }
 
-GsmClipPhoneNumber *GsmClipPhoneNumber::
-Create(const char *src)
-{
-	GsmClipPhoneNumber *res;
-	size_t extra;
-
-	extra = strlen(src) + 1;
-	res = new (extra) GsmClipPhoneNumber;
-	if (!res)
-		return 0;
-
-	strcpy((char *)(res + 1), src);
-	memset(res, 0, sizeof(*res));
-	res->extra = extra;
-	return res;
-}
-
-GsmClipPhoneNumber *GsmClipPhoneNumber::
+GsmClipResult *GsmClipResult::
 Parse(const char *clip)
 {
-	GsmClipPhoneNumber *res;
+	GsmClipResult *res;
 	char *buf;
 
-	res = Create(clip);
+	res = new (clip, 0) GsmClipResult;
 	if (!res)
 		return 0;
-	buf = (char *) (res + 1);
+	buf = res->src_string;
 
 	if (!ParseGsmStringField(buf, res->number))
 		goto bad;
@@ -1905,17 +1810,17 @@ bad:
 	return 0;
 }
 
-GsmClipPhoneNumber *GsmClipPhoneNumber::
+GsmClipResult *GsmClipResult::
 ParseCcwa(const char *clip)
 {
-	GsmClipPhoneNumber *res;
+	GsmClipResult *res;
 	char *buf;
 	int class_drop;
 
-	res = Create(clip);
+	res = new (clip, 0) GsmClipResult;
 	if (!res)
 		return 0;
-	buf = (char *) (res + 1);
+	buf = res->src_string;
 
 	if (!ParseGsmStringField(buf, res->number))
 		goto bad;
@@ -1942,10 +1847,10 @@ bad:
 	return 0;
 }
 
-bool GsmClipPhoneNumber::
-Compare(const GsmClipPhoneNumber *clip) const
+bool GsmClipResult::
+Compare(const GsmClipResult *clip) const
 {
-	const GsmClipPhoneNumber *src = this;
+	const GsmClipResult *src = this;
 	if (src->number || clip->number) {
 		if (!src->number || !clip->number)
 			return false;
@@ -1971,20 +1876,21 @@ Compare(const GsmClipPhoneNumber *clip) const
 	return true;
 }
 
-GsmClipPhoneNumber *GsmClipPhoneNumber::
+GsmClipResult *GsmClipResult::
 Duplicate(void) const
 {
-	const GsmClipPhoneNumber *src = this;
-	GsmClipPhoneNumber *res;
+	const GsmClipResult *src = this;
+	GsmClipResult *res;
 	const char *from;
 	char *buf;
 
-	res = new (src->extra) GsmClipPhoneNumber;
+	res = new (src->src_string, src->extra) GsmClipResult;
 	if (!res)
 		return 0;
+	buf = res->src_string;
+	from = src->src_string;
 	*res = *src;
-	buf = (char *) (res + 1);
-	from = (const char *) (src + 1);
+	res->src_string = buf;
 	memcpy(buf, from, src->extra);
 	if (src->number)
 		res->number = buf + (src->number - from);
@@ -1995,10 +1901,145 @@ Duplicate(void) const
 	return res;
 }
 
+GsmCnumResult *GsmCnumResult::
+Parse(const char *cops)
+{
+	GsmCnumResult *res;
+	char *buf;
+
+	res = new (cops, 0) GsmCnumResult;
+	if (!res)
+		return 0;
+	buf = res->src_string;
+
+	if (!ParseGsmStringField(buf, res->alpha))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	if (!ParseGsmStringField(buf, res->number))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	if (!ParseGsmIntField(buf, res->type))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->speed))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->service))
+		goto bad;
+	return res;
+
+bad:
+	delete res;
+	return 0;
+}
+
+GsmCopsResult *GsmCopsResult::
+Parse(const char *cops)
+{
+	GsmCopsResult *res;
+	char *buf;
+
+	res = new (cops, 0) GsmCopsResult;
+	if (!res)
+		return 0;
+	buf = res->src_string;
+
+	if (!ParseGsmIntField(buf, res->mode))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmIntField(buf, res->format))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	switch (res->format) {
+	case 0:
+	case 1:
+		if (!ParseGsmStringField(buf, res->alpha))
+			goto bad;
+		break;
+	case 2:
+		if (!ParseGsmIntField(buf, res->nonalpha))
+			goto bad;
+		break;
+	default:
+		goto bad;
+	}
+	return res;
+
+bad:
+	delete res;
+	return 0;
+}
+
+GsmClccResult *GsmClccResult::
+Parse(const char *clcc)
+{
+	GsmClccResult *res;
+	char *buf;
+
+	res = new (clcc, 0) GsmClccResult;
+	if (!res)
+		return 0;
+	buf = res->src_string;
+
+	if (!ParseGsmIntField(buf, res->idx))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	if (!ParseGsmIntField(buf, res->dir))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	if (!ParseGsmIntField(buf, res->stat))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	if (!ParseGsmIntField(buf, res->mode))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	if (!ParseGsmIntField(buf, res->mpty))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmStringField(buf, res->number))
+		goto bad;
+	if (!*buf)
+		goto bad;
+	if (!ParseGsmIntField(buf, res->type))
+		goto bad;
+	if (!*buf)
+		return res;
+	if (!ParseGsmStringField(buf, res->alpha))
+		goto bad;
+	return res;
+
+bad:
+	delete res;
+	return 0;
+}
+
+
+void HfpSession::
+SetBvra(bool active)
+{
+	if (m_state_bvra != active) {
+		m_state_bvra = active;
+		if (cb_NotifyVoiceRecog.Registered())
+			cb_NotifyVoiceRecog(this, active);
+	}
+}
+
 void HfpSession::
 ResponseDefault(char *buf)
 {
-	GsmClipPhoneNumber *phnum;
+	char *end;
+	GsmClipResult *phnum;
 	int indnum;
 
 	if (!strncmp(buf, "+CIEV:", 6)) {
@@ -2030,19 +2071,71 @@ ResponseDefault(char *buf)
 
 	else if (!strncmp(buf, "+CLIP:", 6) && IsConnected()) {
 		/* Line identification for incoming call */
-		phnum = GsmClipPhoneNumber::Parse(buf + 6);
+		phnum = GsmClipResult::Parse(buf + 6);
 		if (!phnum)
 			GetDi()->LogWarn("Parse error on CLIP");
-		UpdateCallSetup(1, 1, phnum, m_timeout_ring);
+		UpdateCallSetup(1, 0, phnum, m_timeout_ring);
 		delete phnum;
 	}
 
 	else if (!strncmp(buf, "+CCWA:", 6) && IsConnected()) {
 		/* Call waiting + line identification for call waiting */
-		phnum = GsmClipPhoneNumber::ParseCcwa(buf + 6);
+		phnum = GsmClipResult::ParseCcwa(buf + 6);
 		if (!phnum)
 			GetDi()->LogWarn("Parse error on CCWA");
 		UpdateCallSetup(1, 2, phnum, m_timeout_ring_ccwa);
+	}
+
+	else if (!strncmp(buf, "+BVRA:", 6) && IsConnected()) {
+		buf += 6;
+		while (buf[0] && IsWS(buf[0])) { buf++; }
+		indnum = strtol(buf, &end, 0);
+		if ((end == buf) || (indnum < 0) || (indnum > 1)) {
+			GetDi()->LogWarn("Parse error on BVRA");
+		} else {
+			SetBvra(indnum == 1);
+		}
+	}
+
+	else if ((!strncmp(buf, "+VGM:", 5) || !strncmp(buf, "+VGM=", 5)) &&
+		 IsConnected()) {
+		buf += 5;
+		while (buf[0] && IsWS(buf[0])) { buf++; }
+		indnum = strtol(buf, &end, 0);
+		if ((end == buf) || (indnum < 0) || (indnum > 15)) {
+			GetDi()->LogWarn("Parse error on VGM");
+		} else if (m_state_vgm != indnum) {
+			m_state_vgm = indnum;
+			if (cb_NotifyVolume.Registered())
+				cb_NotifyVolume(this, true, false);
+		}
+	}
+
+	else if ((!strncmp(buf, "+VGS:", 5) || !strncmp(buf, "+VGS=", 5)) &&
+		 IsConnected()) {
+		buf += 5;
+		while (buf[0] && IsWS(buf[0])) { buf++; }
+		indnum = strtol(buf, &end, 0);
+		if ((end == buf) || (indnum < 0) || (indnum > 15)) {
+			GetDi()->LogWarn("Parse error on VGS");
+		} else if (m_state_vgs != indnum) {
+			m_state_vgs = indnum;
+			if (cb_NotifyVolume.Registered())
+				cb_NotifyVolume(this, false, true);
+		}
+	}
+
+	else if (!strncmp(buf, "+BSIR:", 6) && IsConnected()) {
+		buf += 6;
+		while (buf[0] && IsWS(buf[0])) { buf++; }
+		indnum = strtol(buf, &end, 0);
+		if ((end == buf) || (indnum < 0) || (indnum > 1)) {
+			GetDi()->LogWarn("Parse error on BSIR");
+		} else if (m_state_bsir != indnum) {
+			m_state_bsir = (indnum == 1);
+			if (cb_NotifyInBandRingTone.Registered())
+				cb_NotifyInBandRingTone(this, indnum == 1);
+		}
 	}
 }
 
@@ -2056,6 +2149,19 @@ ResponseDefault(char *buf)
  */
 
 void HfpSession::
+CommandTimeout(TimerNotifier *timerp)
+{
+	ErrorInfo error;
+
+	assert(timerp == m_command_timer);
+	GetDi()->LogWarn(&error,
+			 LIBHFP_ERROR_SUBSYS_BT,
+			 LIBHFP_ERROR_BT_TIMEOUT,
+			 "Audio Gateway Command Timeout");
+	__Disconnect(&error, false);
+}
+
+void HfpSession::
 DeleteFirstCommand(bool do_start)
 {
 	AtCommand *cmd;
@@ -2065,12 +2171,13 @@ DeleteFirstCommand(bool do_start)
 	cmd->m_links.Unlink();
 	delete cmd;
 
+	m_command_timer->Cancel();
 	if (do_start && !m_commands.Empty())
 		(void) StartCommand(0);
 }
 
 bool HfpSession::
-AppendCommand(AtCommand *cmdp, ErrorInfo *error)
+AddCommand(AtCommand *cmdp, bool top, ErrorInfo *error)
 {
 	bool was_empty;
 
@@ -2091,7 +2198,14 @@ AppendCommand(AtCommand *cmdp, ErrorInfo *error)
 	}
 
 	was_empty = m_commands.Empty();
-	m_commands.AppendItem(cmdp->m_links);
+
+	if (top && !was_empty) {
+		AtCommand *topcmd;
+		topcmd = GetContainer(m_commands.next, AtCommand, m_links);
+		topcmd->m_links.PrependItem(cmdp->m_links);
+	} else {
+		m_commands.AppendItem(cmdp->m_links);
+	}
 
 	if (!was_empty)
 		return true;
@@ -2126,7 +2240,7 @@ PendingCommand(AtCommand *cmdp, ErrorInfo *error)
 		return 0;
 	}
 
-	if (!AppendCommand(cmdp, error)) {
+	if (!AddCommand(cmdp, false, error)) {
 		delete pendp;
 		return 0;
 	}
@@ -2135,70 +2249,37 @@ PendingCommand(AtCommand *cmdp, ErrorInfo *error)
 }
 
 bool HfpSession::
-StartCommand(ErrorInfo *error)
+SendCommand(const char *cmd, ErrorInfo *error)
 {
-	AtCommand *cmdp;
-	int cl, rl;
-	int err;
-	ErrorInfo local_error;
+	size_t cl;
 	char stackbuf[64];
 	StringBuffer sb(stackbuf, sizeof(stackbuf));
 
-	if (!IsRfcommConnected()) {
+	if (!sb.AppendFmt("%s\r", cmd)) {
 		if (error)
-			error->Set(LIBHFP_ERROR_SUBSYS_BT,
-				   LIBHFP_ERROR_BT_NOT_CONNECTED,
-				   "Device is not connected");
+			error->SetNoMem();
 		return false;
 	}
+	cl = strlen(sb.Contents());
+
+	GetDi()->LogDebug("<< %s", cmd);
+	return RfcommSend((const uint8_t *) sb.Contents(), cl, error);
+}
+
+bool HfpSession::
+StartCommand(ErrorInfo *error)
+{
+	AtCommand *cmdp;
 
 	if (m_commands.Empty())
 		return true;
 
 	cmdp = GetContainer(m_commands.next, AtCommand, m_links);
 
-	GetDi()->LogDebug("<< %s", cmdp->m_command_text);
-
-	if (!sb.AppendFmt("%s\r", cmdp->m_command_text)) {
-		if (error)
-			error->SetNoMem();
+	if (!SendCommand(cmdp->m_command_text, error))
 		return false;
-	}
 
-	cl = strlen(sb.Contents());
-	rl = send(m_rfcomm_sock, sb.Contents(), cl, MSG_NOSIGNAL);
-
-	if (rl < 0) {
-		err = errno;
-		/* Problems!! */
-		GetDi()->LogDebug(&local_error,
-				  LIBHFP_ERROR_SUBSYS_BT,
-				  LIBHFP_ERROR_BT_SYSCALL,
-				  "Write to RFCOMM socket: %s",
-				  strerror(err));
-		if (error)
-			*error = local_error;
-
-		__Disconnect(&local_error, ReadErrorVoluntary(err));
-
-		return false;
-	}
-
-	if (rl != cl) {
-		/* Short write!? */
-		GetDi()->LogWarn(&local_error,
-				 LIBHFP_ERROR_SUBSYS_BT,
-				 LIBHFP_ERROR_BT_SYSCALL,
-				 "Short write: expected:%d sent:%d, "
-				 "command \"%s\"",
-				 cl, rl, cmdp->m_command_text);
-		if (error)
-			*error = local_error;
-
-		__Disconnect(&local_error);
-		return false;
-	}
-
+	m_command_timer->Set(m_timeout_command);
 	return true;
 }
 
@@ -2350,13 +2431,13 @@ public:
 		return false;
 	}
 
-	void OK(void) {
+	bool OK(void) {
 		GetSession()->SetSupportedFeatures(m_brsf);
 		if (GetSession()->FeatureThreeWayCalling()) {
-			(void) GetSession()->AppendCommand(
-				new ChldTCommand(GetSession()), 0);
+			(void) GetSession()->AddCommand(
+				new ChldTCommand(GetSession()), false, 0);
 		}
-		AtCommand::OK();
+		return AtCommand::OK();
 	}
 	void ERROR(void) {
 		/*
@@ -2368,6 +2449,21 @@ public:
 		AtCommand::ERROR();
 	}
 };
+
+void HfpSession::
+SetSupportedFeatures(int ag_features)
+{
+	assert(IsConnecting());
+	m_brsf = ag_features;
+
+	/* Default: in-band ring tones enabled */
+	if (FeatureInBandRingTone())
+		m_state_bsir = true;
+
+	/* Default: echo cancelation/noise reduction enabled on AG */
+	if (FeatureEcnr())
+		m_state_ecnr = true;
+}
 
 /* Cellular Indicator Test */
 class CindTCommand : public AtCommand {
@@ -2423,6 +2519,7 @@ public:
 				buf++;
 			}
 
+			GetSession()->VerifyIndicators();
 		}
 		return false;
 	}
@@ -2533,12 +2630,20 @@ SetIndicatorNum(int indnum, const char *buf, int len)
 	}
 	else if (StrMatch("call", buf, len)) {
 		m_inum_call = indnum;
+
+		/* Don't propagate to clients */
+		len = 0;
 	}
 	else if (StrMatch("callsetup", buf, len) ||
 		 StrMatch("call_setup", buf, len)) {
-		m_inum_callsetup = indnum;
-		buf = "callsetup";
-		len = strlen(buf);
+		if (m_inum_callsetup == 0)
+			m_inum_callsetup = indnum;
+
+		/* Don't propagate to clients */
+		len = 0;
+	}
+	else if (StrMatch("callheld", buf, len)) {
+		m_inum_callheld = indnum;
 	}
 	else if (StrMatch("signal", buf, len)) {
 		m_inum_signal = indnum;
@@ -2554,7 +2659,7 @@ SetIndicatorNum(int indnum, const char *buf, int len)
 	if (indnum >= m_inum_names_len) {
 		ExpandIndicators(indnum + 1);
 	}
-	if (m_inum_names[indnum] == NULL) {
+	if (len && (m_inum_names[indnum] == NULL)) {
 		char *ndup = (char*) malloc(len + 1);
 		m_inum_names[indnum] = ndup;
 		/* Convert to lower case while copying */
@@ -2563,6 +2668,23 @@ SetIndicatorNum(int indnum, const char *buf, int len)
 		}
 		*ndup = '\0';
 	}
+}
+
+bool HfpSession::
+VerifyIndicators(void)
+{
+	bool res = true;
+
+	if (m_inum_service < 0) {
+		GetDi()->LogWarn("AG did not report indicator \"service\"");
+		res = false;
+	}
+	if (m_inum_call < 0) {
+		GetDi()->LogWarn("AG did not report indicator \"call\"");
+		res = false;
+	}
+
+	return res;
 }
 
 void HfpSession::
@@ -2589,18 +2711,25 @@ UpdateIndicator(int indnum, const char *buf)
 				cb_NotifyCall(this, true, false, false);
 
 			/*
-			 * If the call state has changed, and we
-			 * are emulating callsetup, we presume that
-			 * the callsetup state has changed as well.
+			 * If the call state has changed, and the
+			 * callsetup state is presumed, we reset it.
 			 */
-			if (IsConnected() && !FeatureIndCallSetup()) {
+			if (IsConnected() &&
+			    (newstate == 1) &&
+			    m_callsetup_presumed)
 				UpdateCallSetup(0);
-			}
 		}
 		return;
 	}
 	if (indnum == m_inum_callsetup) {
-		UpdateCallSetup(val);
+		/*
+		 * Certain Motorola RAZR V3 devices will send a
+		 * callsetup=1 indicator, but will fail to send
+		 * callsetup=0 if the call is remotely terminated
+		 * before it is answered or rejected.
+		 */
+		if (val != 1)
+			UpdateCallSetup(val);
 		return;
 	}
 
@@ -2610,11 +2739,7 @@ UpdateIndicator(int indnum, const char *buf)
 			if (m_timer)
 				m_timer->Cancel();
 			m_state_call = false;
-			m_state_callsetup = 0;
-			if (m_state_incomplete_clip) {
-				delete m_state_incomplete_clip;
-				m_state_incomplete_clip = 0;
-			}
+			UpdateCallSetup(0);
 		}
 	}
 	else if (indnum == m_inum_signal) {
@@ -2627,40 +2752,84 @@ UpdateIndicator(int indnum, const char *buf)
 		m_state_battchg = val;
 	}
 
-	if ((indnum >= m_inum_names_len) ||
-	    (m_inum_names[indnum] == NULL)) {
+	if ((indnum < 0) || (indnum >= m_inum_names_len)) {
 		GetDi()->LogWarn("Undefined indicator %d", indnum);
 		return;
 	}
+
+	if (!m_inum_names[indnum])
+		/* Indicator not to be propagated to libhfp clients */
+		return;
+
+	/* Some AGs have both "callsetup" and "call_setup" indicators */
 	if (cb_NotifyIndicator.Registered())
 		cb_NotifyIndicator(this, m_inum_names[indnum], val);
 }
 
-/*
- * UpdateCallSetup supports emulation of the callsetup indicator for
- * HFP 1.0 devices that don't support it.
- */
 
 void HfpSession::
 Timeout(TimerNotifier *notp)
 {
-	assert(notp == m_timer);
-
 	/*
-	 * Hack: deal with devices that don't provide call setup
-	 * information.
+	 * Presumptive call setup timeout has elapsed,
+	 * reset the callsetup value to 0.
 	 */
-	if (IsConnected() && !FeatureIndCallSetup() &&
-	    (m_state_callsetup == 1)) {
-		UpdateCallSetup(0);
-	}
+
+	assert(notp == m_timer);
+	assert(IsConnected());
+	assert(m_callsetup_presumed);
+	assert(m_state_callsetup != 0);
+	UpdateCallSetup(0);
 }
 
 void HfpSession::
-UpdateCallSetup(int val, int ring, GsmClipPhoneNumber *clip, int timeout_ms)
+ClipTimeout(TimerNotifier *notp)
 {
-	bool upd_wc = false, upd_ac = false;
-	GsmClipPhoneNumber *cpy = 0;
+	assert(IsConnected());
+	assert(m_clip_state == CLIP_WAITING);
+	m_clip_state = CLIP_FINAL;
+	UpdateCallSetup(1, 1, 0, m_timeout_ring);
+}
+
+void HfpSession::
+ClearClip(void)
+{
+	if (m_clip_state == CLIP_WAITING)
+		m_clip_timer->Cancel();
+	if (m_clip_value) {
+		assert(m_clip_state == CLIP_FINAL);
+		delete m_clip_value;
+		m_clip_value = 0;
+	}
+	m_clip_state = CLIP_UNKNOWN;
+}
+
+/*
+ * UpdateCallSetup is a complicated function that handles specific
+ * state machine jobs related to the call, callsetup, and clip states.
+ *
+ * We track the callsetup state presumptively.  When an event occurs that
+ * suggests the callsetup should be in a particular state, we presume
+ * it to be in that state regardless of receiving an explicit indicator
+ * update from the AG.  For example, if we get a RING event, we know that
+ * there is an incoming call, even if the AG doesn't tell is so.  If we
+ * presume an incomplete call, we associate a timeout with the presumption.
+ * The timeout will be canceled if the AG tells us explicitly what the
+ * callsetup state is, or we presume no incomplete call.  This way, we can
+ * transparently support AGs that do not report callsetup state.  This is
+ * important because callsetup reporting is not required per HFP 1.5.
+ *
+ * The AG informs us of ringing before it gives us the caller ID
+ * information, but it's much cleaner to present the ring notification to
+ * our client at the same time as the caller ID info.  We use the CLIP
+ * timer to try to make this happen.
+ */
+void HfpSession::
+UpdateCallSetup(int val, int ring, GsmClipResult *clip, int timeout_ms)
+{
+	bool upd_wc = false, upd_ac = false, do_ring = false;
+	GsmClipResult *cpy = 0;
+	ErrorInfo local_error;
 
 /*
 	GetDi()->LogDebug("UpdateCallSetup: v:%d r:%d clip:\"%s\", to:%d",
@@ -2669,60 +2838,140 @@ UpdateCallSetup(int val, int ring, GsmClipPhoneNumber *clip, int timeout_ms)
 			  : "[NONE]", timeout_ms);
 */
 
-	if (!FeatureIndCallSetup() && m_timer) {
-		/* Reset the timer */
+	if (m_callsetup_presumed && m_timer)
 		m_timer->Cancel();
-		if (val && timeout_ms) {
-			m_timer->Set(timeout_ms);
-		}
+	if (IsConnected() && timeout_ms &&
+	    (m_callsetup_presumed || (m_state_callsetup != val))) {
+		m_callsetup_presumed = true;
+		m_timer->Set(timeout_ms);
+	} else {
+		m_callsetup_presumed = false;
 	}
-	if (!val) {
-		assert(!clip);
-		if (m_state_incomplete_clip) {
-			delete m_state_incomplete_clip;
-			m_state_incomplete_clip = 0;
-		}
-	}
-	else if (clip) {
-		assert(val == 1);
-		assert(ring != 0);
-		if (m_state_incomplete_clip &&
-		    !m_state_incomplete_clip->Compare(clip)) {
-			/*
-			 * Did we miss an event here?
-			 * A different caller ID value is being reported
-			 */
-			cpy = clip->Duplicate();
-			if (cpy)
-				upd_wc = true;
-		}
-		else if (!m_state_incomplete_clip) {
-			cpy = clip->Duplicate();
-		}
 
-		if (cpy) {
-			if (m_state_incomplete_clip)
-				delete m_state_incomplete_clip;
-			m_state_incomplete_clip = cpy;
+	switch (val) {
+	case 0:
+		/* No incomplete call */
+		assert(!clip);
+		assert(!ring);
+		assert(!timeout_ms);
+		ClearClip();
+		break;
+	case 1:
+		/* Incomplete incoming call */
+		if ((m_state_callsetup != 0) &&
+		    (m_state_callsetup != 1))
+			ClearClip();
+
+		/* Check the CLIP state, update it */
+		switch (m_clip_state) {
+		case CLIP_UNKNOWN:
+			/* Was one provided? */
+			assert(!m_clip_value);
+			if (clip) {
+				cpy = clip->Duplicate();
+				if (cpy) {
+					m_clip_value = cpy;
+					m_clip_state = CLIP_FINAL;
+				}
+			} else if (ring) {
+				if (m_clip_enabled) {
+					/*
+					 * We are now waiting for a CLIP,
+					 * start the timer.
+					 */
+					m_clip_timer->Set(m_timeout_clip);
+					m_clip_state = CLIP_WAITING;
+				} else {
+					m_clip_state = CLIP_FINAL;
+				}
+			}
+			break;
+		case CLIP_WAITING:
+			assert(!m_clip_value);
+			if (clip) {
+				cpy = clip->Duplicate();
+				if (cpy) {
+					m_clip_value = cpy;
+					m_clip_state = CLIP_FINAL;
+					m_clip_timer->Cancel();
+				}
+				do_ring = true;
+			}
+			break;
+		case CLIP_FINAL:
+			if (clip && (!m_clip_value || 
+				     !m_clip_value->Compare(clip))) {
+				/*
+				 * Did we miss an event here?
+				 * A different caller ID value is being
+				 * reported,
+				 */
+				cpy = clip->Duplicate();
+				if (cpy) {
+					m_clip_value = cpy;
+					upd_wc = true;
+				}
+			}
+			break;
+		default:
+			abort();
 		}
+		if (ring) {
+			if ((ring == 1) && m_state_call) {
+				m_state_call = false;
+				upd_ac = true;
+			}
+			else if ((ring == 2) && !m_state_call) {
+				m_state_call = true;
+				upd_ac = true;
+			}
+
+			if (!do_ring)
+				do_ring = (m_clip_state == CLIP_FINAL);
+		}
+		break;
+	case 2:
+	case 3:
+		/* Incomplete outgoing call */
+		assert(!ring);
+		if ((m_state_callsetup != 0) &&
+		    (m_state_callsetup != 2) &&
+		    (m_state_callsetup != 3))
+			ClearClip();
+
+		assert(m_clip_state != CLIP_WAITING);
+		if (m_clip_state != CLIP_FINAL) {
+			assert(!m_clip_value);
+			m_clip_state = CLIP_FINAL;
+		}
+		if (clip && (!m_clip_value || 
+			     !m_clip_value->Compare(clip))) {
+			cpy = clip->Duplicate();
+			if (cpy) {
+				m_clip_value = cpy;
+				upd_wc = true;
+			}
+		}
+		break;
+
+	default:
+		GetDi()->LogWarn(&local_error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
+				 "Unrecognized callsetup value from device");
+		__Disconnect(&local_error, true);
+		return;
 	}
+
 	if (val != m_state_callsetup) {
 		m_state_callsetup = val;
 		upd_wc = true;
 	}
-	else if (ring) {
-		if ((ring == 1) && m_state_call) {
-			m_state_call = false;
-			upd_ac = true;
-		}
-		else if ((ring == 2) && !m_state_call) {
-			m_state_call = true;
-			upd_ac = true;
-		}
-	}
 
-	if ((upd_ac || upd_wc || ring) && cb_NotifyCall.Registered())
-		cb_NotifyCall(this, upd_ac, upd_wc, (ring != 0));
+	if (IsConnected() &&
+	    (upd_ac || upd_wc || do_ring) &&
+	    cb_NotifyCall.Registered())
+		cb_NotifyCall(this, upd_ac, upd_wc, do_ring);
 }
 
 
@@ -2732,8 +2981,13 @@ public:
 	CmerCommand(HfpSession *sessp)
 		: AtCommand(sessp, "AT+CMER=3,0,0,1") {}
 	void ERROR(void) {
-		GetDi()->LogWarn("Could not enable AG event reporting");
-		AtCommand::ERROR();
+		ErrorInfo error;
+		/* This will render the HFP interface almost unusable */
+		GetDi()->LogWarn(&error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
+				 "Could not enable AG event reporting");
+		GetSession()->__Disconnect(&error, true);
 	}
 };
 
@@ -2741,19 +2995,20 @@ public:
 class ClipCommand : public AtCommand {
 public:
 	ClipCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CLIP=1") {}
-	void OK(void) {
+	bool OK(void) {
 		GetSession()->m_clip_enabled = true;
-		AtCommand::OK();
+		return AtCommand::OK();
 	}
+	/* It is not severely disruptive if this command fails */
 };
 
 /* Cellular Call Waiting */
 class CcwaCommand : public AtCommand {
 public:
 	CcwaCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CCWA=1") {}
-	void OK(void) {
+	bool OK(void) {
 		GetSession()->m_ccwa_enabled = true;
-		AtCommand::OK();
+		return AtCommand::OK();
 	}
 };
 
@@ -2768,12 +3023,12 @@ HfpHandshake(ErrorInfo *error)
 	m_rfcomm_not = GetDi()->NewSocket(m_rfcomm_sock, false);
 	m_rfcomm_not->Register(this, &HfpSession::HfpDataReady);
 
-	if (!AppendCommand(new BrsfCommand(this, GetService()->m_brsf_my_caps),
-			   error) ||
-	    !AppendCommand(new CindTCommand(this), error) ||
-	    !AppendCommand(new CmerCommand(this), error) ||
-	    !AppendCommand(new ClipCommand(this), error) ||
-	    !AppendCommand(new CcwaCommand(this), error))
+	if (!AddCommand(new BrsfCommand(this, GetService()->m_brsf_my_caps),
+			false, error) ||
+	    !AddCommand(new CindTCommand(this), false, error) ||
+	    !AddCommand(new CmerCommand(this), false, error) ||
+	    !AddCommand(new ClipCommand(this), false, error) ||
+	    !AddCommand(new CcwaCommand(this), false, error))
 		return false;
 
 	return true;
@@ -2790,7 +3045,7 @@ HfpHandshakeDone(void)
 	m_conn_state = BTS_Connected;
 
 	/* Query current state */
-	if (!AppendCommand(new CindRCommand(this), &error)) {
+	if (!AddCommand(new CindRCommand(this), false, &error)) {
 		__Disconnect(&error, false);
 		return;
 	}
@@ -2806,20 +3061,204 @@ HfpHandshakeDone(void)
  * Commands
  */
 
+/* Cellular Get Subscriber Number */
+class CnumCommand : public AtCommand {
+public:
+	GsmCnumResult	*m_res;
+
+	CnumCommand(HfpSession *sessp)
+		: AtCommand(sessp, "AT+CNUM"), m_res(0) {}
+	~CnumCommand() {
+		if (m_res) {
+			delete m_res;
+			m_res = 0;
+		}
+	}
+
+	bool Response(const char *buf) {
+		ErrorInfo local_error;
+		if (!strncmp(buf, "+CNUM:", 6)) {
+			m_res = GsmCnumResult::Parse(buf + 6);
+			/* We could save the error code but we don't */
+		}
+		return false;
+	}
+
+	bool OK(void) {
+		ErrorInfo local_error;
+		if (!m_res) {
+			GetDi()->LogWarn(&local_error,
+					 LIBHFP_ERROR_SUBSYS_BT,
+					 LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
+					 "Unacceptable response from device");
+			CompletePending(&local_error, 0);
+		} else {
+			CompletePending(0, m_res);
+		}
+		return true;
+	}
+};
+
+HfpPendingCommand *HfpSession::
+CmdQueryNumber(ErrorInfo *error)
+{
+	return PendingCommand(new CnumCommand(this), error);
+}
+
+/* Cellular Operator Status (two-stage) */
+class CopsCommand : public AtCommand {
+public:
+	bool		m_sent_fmt;
+	GsmCopsResult	*m_res;
+	CopsCommand(HfpSession *sessp)
+		: AtCommand(sessp, "AT+COPS=3,0"),
+		  m_sent_fmt(false), m_res(0) {}
+	~CopsCommand() {
+		if (m_res) {
+			delete m_res;
+			m_res = 0;
+		}
+	}
+	bool Response(const char *buf) {
+		ErrorInfo local_error;
+		if (!m_sent_fmt)
+			return false;
+		if (!strncmp(buf, "+COPS:", 6)) {
+			m_res = GsmCopsResult::Parse(buf + 6);
+			/* We could save the error code but we don't */
+		}
+		return false;
+	}
+	bool OK(void) {
+		ErrorInfo local_error;
+		if (!m_sent_fmt) {
+			/* Send the next stage of the command */
+			if (!GetSession()->SendCommand("AT+COPS?",
+						       &local_error)) {
+				CompletePending(&local_error, 0);
+			} else {
+				m_sent_fmt = true;
+			}
+			return false;
+		}
+
+		if (!m_res) {
+			GetDi()->LogWarn(&local_error,
+					 LIBHFP_ERROR_SUBSYS_BT,
+					 LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
+					 "Unacceptable response from device");
+			CompletePending(&local_error, 0);
+
+		} else {
+			CompletePending(0, m_res);
+		}
+
+		return true;
+	}
+};
+
+HfpPendingCommand *HfpSession::
+CmdQueryOperator(ErrorInfo *error)
+{
+	return PendingCommand(new CopsCommand(this), error);
+}
+
+/* Cellular List Current Calls */
+class ClccCommand : public AtCommand {
+public:
+	ListItem	m_results;
+
+	ClccCommand(HfpSession *sessp) : AtCommand(sessp, "AT+CLCC") {}
+	~ClccCommand() {
+		while (!m_results.Empty()) {
+			GsmClccResult *resp;
+			resp = GetContainer(m_results.next,
+					    GsmClccResult,
+					    m_links);
+			resp->m_links.Unlink();
+			delete resp;
+		}
+	}
+
+	bool Response(const char *buf) {
+		ErrorInfo local_error;
+		if (!strncmp(buf, "+CLCC:", 6)) {
+			GsmClccResult *resp;
+			resp = GsmClccResult::Parse(buf + 6);
+			if (resp)
+				m_results.AppendItem(resp->m_links);
+		}
+		return false;
+	}
+
+	bool OK(void) {
+		CompletePending(0, &m_results);
+		return true;
+	}
+};
+
+HfpPendingCommand *HfpSession::
+CmdQueryCurrentCalls(ErrorInfo *error)
+{
+	return PendingCommand(new ClccCommand(this), error);
+}
+
+/* Bluetooth Voice Recognition Activation */
+class BvraCommand : public AtCommand {
+public:
+	bool	m_enable;
+	BvraCommand(HfpSession *sessp, bool enable)
+		: AtCommand(sessp, enable ? "AT+BVRA=1" : "AT+BVRA=0"),
+		  m_enable(enable) {}
+	~BvraCommand() {}
+
+	bool OK(void) {
+		GetSession()->SetBvra(m_enable);
+		return AtCommand::OK();
+	}
+};
+
 HfpPendingCommand *HfpSession::
 CmdSetVoiceRecog(bool enabled, ErrorInfo *error)
 {
+	return PendingCommand(new BvraCommand(this, enabled), error);
+}
+
+HfpPendingCommand *HfpSession::
+CmdSetVolumeMic(uint8_t vol, ErrorInfo *error)
+{
 	char buf[32];
-	sprintf(buf, "AT+BVRA=%d", enabled ? 1 : 0);
+	sprintf(buf, "AT+VGM=%d", vol);
 	return PendingCommand(new AtCommand(this, buf), error);
 }
 
 HfpPendingCommand *HfpSession::
-CmdSetEcnr(bool enabled, ErrorInfo *error)
+CmdSetVolumeSpeaker(uint8_t vol, ErrorInfo *error)
 {
 	char buf[32];
-	sprintf(buf, "AT+NREC=%d", enabled ? 1 : 0);
+	sprintf(buf, "AT+VGM=%d", vol);
 	return PendingCommand(new AtCommand(this, buf), error);
+}
+
+/* Noise Reduction and Echo Cancellation */
+class NrecCommand : public AtCommand {
+public:
+	bool	m_enable;
+	NrecCommand(HfpSession *sessp, bool enable)
+		: AtCommand(sessp, enable ? "AT+NREC=1" : "AT+NREC=0"),
+		  m_enable(enable) {}
+	~NrecCommand() {}
+
+	bool OK(void) {
+		GetSession()->m_state_ecnr = m_enable;
+		return AtCommand::OK();
+	}
+};
+
+HfpPendingCommand *HfpSession::
+CmdSetEcnr(bool enabled, ErrorInfo *error)
+{
+	return PendingCommand(new NrecCommand(this, enabled), error);
 }
 
 class AtdCommand : public AtCommand {
@@ -2832,13 +3271,12 @@ public:
 	/* Redial mode - Bluetooth Last Dialed Number */
 	AtdCommand(HfpSession *sessp) : AtCommand(sessp, "AT+BLDN") {
 	}
-	void OK(void) {
-		if (!GetSession()->FeatureIndCallSetup() &&
-		    !GetSession()->HasConnectingCall()) {
+	bool OK(void) {
+		if (!GetSession()->HasConnectingCall()) {
 			GetSession()->UpdateCallSetup(2, 0, NULL,
 					      GetSession()->m_timeout_dial);
 		}
-		AtCommand::OK();
+		return AtCommand::OK();
 	}
 };
 
@@ -2848,12 +3286,10 @@ public:
 		: AtCommand(sessp, cmd) {}
 	AtCommandClearCallSetup(HfpSession *sessp, const char *cmd)
 		: AtCommand(sessp, cmd) {}
-	void OK(void) {
+	bool OK(void) {
 		/* Emulate call setup change */
-		if (!GetSession()->FeatureIndCallSetup()) {
-			GetSession()->UpdateCallSetup(0);
-		}
-		AtCommand::OK();
+		GetSession()->UpdateCallSetup(0);
+		return AtCommand::OK();
 	}
 };
 
@@ -2891,7 +3327,7 @@ ValidPhoneNum(const char *ph, ErrorInfo *error)
 	int len = 0;
 	if (!ph)
 		return false;
-	if (*ph == '+') {
+	if ((*ph == '+') || (*ph == '>')) {
 		ph++;
 		len++;
 	}
@@ -2959,12 +3395,12 @@ CmdCallSwapDropActive(ErrorInfo *error)
 }
 
 HfpPendingCommand *HfpSession::
-CmdCallDropActive(unsigned int actnum, ErrorInfo *error)
+CmdCallDropIndex(unsigned int actnum, ErrorInfo *error)
 {
 	char buf[32];
 
 	if (!m_chld_1x) {
-		GetDi()->LogWarn("Requested CmdCallDropActive(%d), "
+		GetDi()->LogWarn("Requested CmdCallActive(%d), "
 				 "but AG does not claim support", actnum);
 	}
 	sprintf(buf, "AT+CHLD=1%d", actnum);

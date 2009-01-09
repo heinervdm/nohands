@@ -197,13 +197,15 @@ SendReplyErrorInfo(DBusMessage *msgp, libhfp::ErrorInfo &error)
 }
 
 struct AgPendingCommand {
-	ListItem		m_links;
-	DBusMessage		*m_msg;
-	HfpPendingCommand	*m_pend;
-	AudioGateway		*m_ag;
+	ListItem					m_links;
+	DBusMessage					*m_msg;
+	HfpPendingCommand				*m_pend;
+	AudioGateway					*m_ag;
+
+	Callback<void, AgPendingCommand *, void *>	cb_success;
 
 	void HfpCommandResult(HfpPendingCommand *pendp,
-			      ErrorInfo *error, const char *info) {
+			      ErrorInfo *error, void *info) {
 		assert(pendp == m_pend);
 		assert(m_msg);
 		assert(m_ag);
@@ -213,7 +215,11 @@ struct AgPendingCommand {
 		 * structure here.
 		 */
 		if (!error) {
-			(void) m_ag->SendReplyArgs(m_msg, DBUS_TYPE_INVALID);
+			if (cb_success.Registered())
+				cb_success(this, info);
+			else
+				(void) m_ag->SendReplyArgs(m_msg,
+							   DBUS_TYPE_INVALID);
 		} else {
 			(void) m_ag->SendReplyErrorInfo(m_msg, *error);
 		}
@@ -268,6 +274,11 @@ AudioGateway(HandsFree *hfp, HfpSession *sessp, char *name)
 	sessp->cb_NotifyCall.Register(this, &AudioGateway::NotifyCall);
 	sessp->cb_NotifyIndicator.Register(this,
 					&AudioGateway::NotifyIndicator);
+	sessp->cb_NotifyVoiceRecog.Register(this,
+					&AudioGateway::NotifyVoiceRecog);
+	sessp->cb_NotifyVolume.Register(this, &AudioGateway::NotifyVolume);
+	sessp->cb_NotifyInBandRingTone.Register(this,
+					&AudioGateway::NotifyInBandRingTone);
 	sessp->cb_NotifyDestroy.Register(this, &AudioGateway::NotifyDestroy);
 }
 
@@ -525,22 +536,31 @@ NotifyCall(libhfp::HfpSession *sessp, bool act, bool waiting, bool ring)
 		UpdateCallState(CallState());
 
 	if (ring) {
-		const char *num = 0, *alpha = 0;
-		const GsmClipPhoneNumber *clip;
+		const char *num = 0, *sa = 0, *alpha = 0;
+		const GsmClipResult *clip;
+		int32_t numtype = 0, satype = 0;
 
 		clip = sessp->WaitingCallIdentity();
-		if (clip) {
+		if (clip && (clip->cli_validity == 0)) {
 			num = clip->number;
+			numtype = clip->type;
+			sa = clip->subaddr;
+			satype = clip->satype;
 			alpha = clip->alpha;
 		}
 		if (!num)
 			num = "";
+		if (!sa)
+			sa = "";
 		if (!alpha)
 			alpha = "";
 
 		SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
 			       "Ring",
 			       DBUS_TYPE_STRING, &num,
+			       DBUS_TYPE_INT32, &numtype,
+			       DBUS_TYPE_STRING, &sa,
+			       DBUS_TYPE_INT32, &satype,
 			       DBUS_TYPE_STRING, &alpha,
 			       DBUS_TYPE_INVALID);
 	}
@@ -598,6 +618,31 @@ NotifyAudioConnection(libhfp::HfpSession *sessp, libhfp::ErrorInfo *error)
 		DoDisconnect();
 		return;
 	}
+}
+
+void AudioGateway::
+NotifyVoiceRecog(libhfp::HfpSession *sessp, bool active)
+{
+	dbus_bool_t st = active;
+	(void) SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
+			      "VoiceRecognitionActiveChanged",
+			      DBUS_TYPE_BOOLEAN, &st,
+			      DBUS_TYPE_INVALID);
+}
+
+void AudioGateway::
+NotifyVolume(libhfp::HfpSession *sessp, bool mic, bool speaker)
+{
+}
+
+void AudioGateway::
+NotifyInBandRingTone(libhfp::HfpSession *sessp, bool enabled)
+{
+	dbus_bool_t st = enabled;
+	(void) SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
+			      "InBandRingToneEnableChanged",
+			      DBUS_TYPE_BOOLEAN, &st,
+			      DBUS_TYPE_INVALID);
 }
 
 void AudioGateway::
@@ -788,6 +833,216 @@ Answer(DBusMessage *msgp)
 				 m_sess->CmdAnswer(&error)));
 }
 
+void AudioGateway::
+QueryNumberComplete(AgPendingCommand *agpcp, void *result)
+{
+	GsmCnumResult *res = (GsmCnumResult *) result;
+	int32_t type, service;
+	const char *number = 0;
+
+	assert(res);
+
+	number = res->number;
+	type = res->type;
+	service = res->service;
+
+	if (!number)
+		number = "";
+	(void) SendReplyArgs(agpcp->m_msg,
+			     DBUS_TYPE_STRING, &number,
+			     DBUS_TYPE_INT32, &type,
+			     DBUS_TYPE_INT32, &service,
+			     DBUS_TYPE_INVALID);
+
+}
+
+bool AudioGateway::
+QueryNumber(DBusMessage *msgp)
+{
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	if (!CreatePendingCommand(msgp, agpcp))
+		return false;
+
+	agpcp->cb_success.Register(this, &AudioGateway::QueryNumberComplete);
+	return DoPendingCommand(agpcp, error,
+				m_sess->CmdQueryNumber(&error));
+}
+
+void AudioGateway::
+QueryOperatorComplete(AgPendingCommand *agpcp, void *result)
+{
+	GsmCopsResult *res = (GsmCopsResult *) result;
+	int32_t mode, format;
+	char ibuf[16];
+	const char *oper = 0;
+
+	assert(res);
+
+	mode = res->mode;
+	format = res->format;
+	if (format == 2) {
+		sprintf(ibuf, "%d", res->nonalpha);
+		oper = ibuf;
+	} else {
+		oper = res->alpha;
+	}
+
+	if (!oper)
+		oper = "";
+	(void) SendReplyArgs(agpcp->m_msg,
+			     DBUS_TYPE_INT32, &mode,
+			     DBUS_TYPE_INT32, &format,
+			     DBUS_TYPE_STRING, &oper,
+			     DBUS_TYPE_INVALID);
+
+}
+
+bool AudioGateway::
+QueryOperator(DBusMessage *msgp)
+{
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	if (!CreatePendingCommand(msgp, agpcp))
+		return false;
+
+	agpcp->cb_success.Register(this, &AudioGateway::QueryOperatorComplete);
+	return DoPendingCommand(agpcp, error,
+				m_sess->CmdQueryOperator(&error));
+}
+
+void AudioGateway::
+QueryCurrentCallsComplete(AgPendingCommand *agpcp, void *result)
+{
+	ListItem *headp, *listp;
+	GsmClccResult *resp;
+	DBusMessage *replyp;
+	ErrorInfo error;
+	DBusMessageIter mi, ami, smi;
+
+	int32_t idx, dir, stat, mode, mpty, type;
+	const char *number, *alpha;
+
+	headp = (ListItem *) result;
+	replyp = NewMethodReturn(agpcp->m_msg);
+	if (!replyp)
+		goto failed;
+
+	dbus_message_iter_init_append(replyp, &mi);
+	if (!dbus_message_iter_open_container(&mi,
+					      DBUS_TYPE_ARRAY,
+					      DBUS_STRUCT_BEGIN_CHAR_AS_STRING
+					      DBUS_TYPE_INT32_AS_STRING
+					      DBUS_TYPE_INT32_AS_STRING
+					      DBUS_TYPE_INT32_AS_STRING
+					      DBUS_TYPE_INT32_AS_STRING
+					      DBUS_TYPE_INT32_AS_STRING
+					      DBUS_TYPE_STRING_AS_STRING
+					      DBUS_TYPE_INT32_AS_STRING
+					      DBUS_TYPE_STRING_AS_STRING
+					      DBUS_STRUCT_END_CHAR_AS_STRING,
+					      &ami)) {
+		error.SetNoMem();
+		goto failed;
+	}
+
+	ListForEach(listp, headp) {
+		resp = GetContainer(listp, GsmClccResult, m_links);
+
+		idx = resp->idx;
+		dir = resp->dir;
+		stat = resp->stat;
+		mode = resp->mode;
+		mpty = resp->mpty;
+		number = resp->number;
+		type = resp->type;
+		alpha = resp->alpha;
+
+		if (!number)
+			number = "";
+		if (!alpha)
+			alpha = "";
+
+		if (!dbus_message_iter_open_container(&ami,
+						      DBUS_TYPE_STRUCT,
+						      0,
+						      &smi) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_INT32,
+						    &idx) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_INT32,
+						    &dir) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_INT32,
+						    &stat) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_INT32,
+						    &mode) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_INT32,
+						    &mpty) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_STRING,
+						    &number) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_INT32,
+						    &type) ||
+		    !dbus_message_iter_append_basic(&smi,
+						    DBUS_TYPE_STRING,
+						    &alpha) ||
+		    !dbus_message_iter_close_container(&ami, &smi)) {
+			error.SetNoMem();
+			goto failed;
+		}
+	}		
+
+	if (!dbus_message_iter_close_container(&mi, &ami) ||
+	    !SendMessage(replyp))
+		goto failed;
+
+	return;
+
+failed:
+	SendReplyErrorInfo(agpcp->m_msg, error);
+}
+
+bool AudioGateway::
+QueryCurrentCalls(DBusMessage *msgp)
+{
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	if (!CreatePendingCommand(msgp, agpcp))
+		return false;
+
+	agpcp->cb_success.Register(this,
+				   &AudioGateway::QueryCurrentCallsComplete);
+	return DoPendingCommand(agpcp, error,
+				m_sess->CmdQueryCurrentCalls(&error));
+}
+
+bool AudioGateway::
+SetVoiceRecognition(DBusMessage *msgp)
+{
+	DBusMessageIter mi;
+	bool res;
+	dbus_bool_t st;
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	res = dbus_message_iter_init(msgp, &mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_BOOLEAN);
+	dbus_message_iter_get_basic(&mi, &st);
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdSetVoiceRecog(st, &error)));
+}
+
 bool AudioGateway::
 CallDropHeldUdub(DBusMessage *msgp)
 {
@@ -811,6 +1066,25 @@ CallSwapDropActive(DBusMessage *msgp)
 }
 
 bool AudioGateway::
+CallDropIndex(DBusMessage *msgp)
+{
+	DBusMessageIter mi;
+	int32_t index;
+	bool res;
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	res = dbus_message_iter_init(msgp, &mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_INT32);
+	dbus_message_iter_get_basic(&mi, &index);
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+				 m_sess->CmdCallDropIndex(index, &error)));
+}
+
+bool AudioGateway::
 CallSwapHoldActive(DBusMessage *msgp)
 {
 	AgPendingCommand *agpcp = 0;
@@ -830,6 +1104,25 @@ CallLink(DBusMessage *msgp)
 	return (CreatePendingCommand(msgp, agpcp) &&
 		DoPendingCommand(agpcp, error,
 				 m_sess->CmdCallLink(&error)));
+}
+
+bool AudioGateway::
+CallPrivateConsult(DBusMessage *msgp)
+{
+	DBusMessageIter mi;
+	int32_t index;
+	bool res;
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+
+	res = dbus_message_iter_init(msgp, &mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_INT32);
+	dbus_message_iter_get_basic(&mi, &index);
+
+	return (CreatePendingCommand(msgp, agpcp) &&
+		DoPendingCommand(agpcp, error,
+			 m_sess->CmdCallPrivateConsult(index, &error)));
 }
 
 bool AudioGateway::
@@ -862,6 +1155,20 @@ bool AudioGateway::
 GetAudioState(DBusMessage *msgp, uint8_t &val)
 {
 	val = AudioState();
+	return true;
+}
+
+bool AudioGateway::
+GetVoiceRecognitionActive(DBusMessage *msgp, bool &val)
+{
+	val = m_sess->GetVoiceRecogActive();
+	return true;
+}
+
+bool AudioGateway::
+GetInBandRingToneEnable(DBusMessage *msgp, bool &val)
+{
+	val = m_sess->GetInBandRingToneEnable();
 	return true;
 }
 
@@ -1003,8 +1310,8 @@ GetFeatures(DBusMessage *msgp, const DbusProperty *propp,
 			   m_sess->FeatureDropHeldUdub()) ||
 	    !AddStringBool(ami, "SwapDropActive",
 			   m_sess->FeatureSwapDropActive()) ||
-	    !AddStringBool(ami, "DropActive",
-			   m_sess->FeatureDropActive()) ||
+	    !AddStringBool(ami, "DropIndex",
+			   m_sess->FeatureDropIndex()) ||
 	    !AddStringBool(ami, "SwapHoldActive",
 			   m_sess->FeatureSwapHoldActive()) ||
 	    !AddStringBool(ami, "PrivateConsult",
@@ -1015,6 +1322,8 @@ GetFeatures(DBusMessage *msgp, const DbusProperty *propp,
 			   m_sess->FeatureTransfer()) ||
 	    !AddStringBool(ami, "CallSetupIndicator",
 			   m_sess->FeatureIndCallSetup()) ||
+	    !AddStringBool(ami, "CallHeldIndicator",
+			   m_sess->FeatureIndCallHeld()) ||
 	    !AddStringBool(ami, "SignalStrengthIndicator",
 			   m_sess->FeatureIndSignalStrength()) ||
 	    !AddStringBool(ami, "RoamingIndicator",
@@ -1814,7 +2123,7 @@ done:
 bool HandsFree::
 GetVersion(DBusMessage *msgp, dbus_uint32_t &val)
 {
-	val = 3;
+	val = 4;
 	return true;
 }
 
@@ -2070,7 +2379,12 @@ bool HandsFree::
 SetReportCapabilities(DBusMessage *msgp, const dbus_uint32_t &val,
 		      bool &doreply)
 {
-	m_hfp->SetCaps(val);
+	ErrorInfo error;
+
+	if (!m_hfp->SetCaps(val, &error)) {
+		doreply = false;
+		return SendReplyErrorInfo(msgp, error);
+	}
 	return true;
 }
 

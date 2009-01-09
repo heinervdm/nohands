@@ -97,7 +97,10 @@ RfcommService::
 RfcommService(uint16_t search_svclass_id)
 	: BtService(), m_rfcomm_listen(-1), m_rfcomm_listen_channel(0),
 	  m_rfcomm_listen_not(0), m_secmode(RFCOMM_SEC_NONE),
-	  m_search_svclass_id(search_svclass_id), m_bt_master(true)
+	  m_search_svclass_id(search_svclass_id), m_bt_master(true),
+	  m_autoreconnect_timeout(15000), m_autoreconnect_set(false),
+	  m_autoreconnect_timer(0),
+	  m_autoreconnect_now_set(false), m_autoreconnect_now_timer(0)
 {
 }
 
@@ -107,6 +110,9 @@ RfcommService::
 	/* Make sure that we have been cleaned up after */
 	assert(m_rfcomm_listen < 0);
 	assert(m_rfcomm_listen_not == 0);
+
+	assert(!m_autoreconnect_timer);
+	assert(!m_autoreconnect_now_timer);
 }
 
 bool RfcommService::
@@ -131,6 +137,140 @@ SetSecMode(rfcomm_secmode_t secmode, ErrorInfo *error)
 		m_secmode = secmode;
 	}
 	return true;
+}
+
+void RfcommService::
+AutoReconnectTimeout(TimerNotifier *timerp)
+{
+	ListItem retrylist;
+
+	if (timerp == m_autoreconnect_timer) {
+		assert(m_autoreconnect_set);
+		m_autoreconnect_set = false;
+		retrylist.AppendItemsFrom(m_autoreconnect_list);
+
+	} else {
+		assert(timerp == m_autoreconnect_now_timer);
+		assert(m_autoreconnect_now_set);
+		m_autoreconnect_now_set = false;
+		retrylist.AppendItemsFrom(m_autoreconnect_now_list);
+	}
+
+	while (!retrylist.Empty()) {
+		RfcommSession *sessp = GetContainer(retrylist.next,
+						    RfcommSession,
+						    m_autoreconnect_links);
+		sessp->m_autoreconnect_links.UnlinkOnly();
+
+		/* Always append to the delayed list */
+		m_autoreconnect_list.AppendItem(sessp->m_autoreconnect_links);
+
+		sessp->AutoReconnect();
+	}
+
+	if (!m_autoreconnect_list.Empty() && !m_autoreconnect_set) {
+		m_autoreconnect_set = true;
+		m_autoreconnect_timer->Set(m_autoreconnect_timeout);
+	}
+}
+
+void RfcommService::
+AddAutoReconnect(RfcommSession *sessp, bool now)
+{
+	assert(sessp->m_autoreconnect_links.Empty());
+	assert(!sessp->IsRfcommConnected() && !sessp->IsRfcommConnecting());
+
+	if (now) {
+		if (m_autoreconnect_now_timer && !m_autoreconnect_now_set) {
+			m_autoreconnect_now_set = true;
+			m_autoreconnect_now_timer->Set(0);
+		}
+		m_autoreconnect_now_list.AppendItem(sessp->
+						    m_autoreconnect_links);
+	} else {
+		if (m_autoreconnect_timer && !m_autoreconnect_set) {
+			m_autoreconnect_set = true;
+			m_autoreconnect_timer->Set(m_autoreconnect_timeout);
+		}
+		m_autoreconnect_list.AppendItem(sessp->m_autoreconnect_links);
+	}
+}
+
+void RfcommService::
+RemoveAutoReconnect(RfcommSession *sessp)
+{
+	assert(!sessp->m_autoreconnect_links.Empty());
+	sessp->m_autoreconnect_links.Unlink();
+
+	if (m_autoreconnect_timer &&
+	    m_autoreconnect_list.Empty() &&
+	    m_autoreconnect_set) {
+		m_autoreconnect_set = false;
+		m_autoreconnect_timer->Cancel();
+	}
+
+	if (m_autoreconnect_now_timer &&
+	    m_autoreconnect_now_list.Empty() &&
+	    m_autoreconnect_now_set) {
+		m_autoreconnect_now_set = false;
+		m_autoreconnect_now_timer->Cancel();
+	}
+}
+
+bool RfcommService::
+Start(ErrorInfo *error)
+{
+	assert(!m_autoreconnect_timer);
+	assert(!m_autoreconnect_now_timer);
+
+	m_autoreconnect_timer = GetDi()->NewTimer();
+	if (!m_autoreconnect_timer) {
+		if (error)
+			error->SetNoMem();
+		return false;
+	}
+	m_autoreconnect_timer->Register(this,
+				&RfcommService::AutoReconnectTimeout);
+
+	m_autoreconnect_now_timer = GetDi()->NewTimer();
+	if (!m_autoreconnect_now_timer) {
+		if (error)
+			error->SetNoMem();
+		goto failed;
+	}
+	m_autoreconnect_now_timer->Register(this,
+				&RfcommService::AutoReconnectTimeout);
+
+	if (!m_autoreconnect_list.Empty() && !m_autoreconnect_set) {
+		m_autoreconnect_set = true;
+		m_autoreconnect_timer->Set(0);
+	}
+
+	if (!m_autoreconnect_now_list.Empty() && !m_autoreconnect_now_set) {
+		m_autoreconnect_now_set = true;
+		m_autoreconnect_now_timer->Set(0);
+	}
+
+	return true;
+
+failed:
+	Stop();
+	return false;
+}
+
+void RfcommService::
+Stop(void)
+{
+	if (m_autoreconnect_timer) {
+		m_autoreconnect_set = false;
+		delete m_autoreconnect_timer;
+		m_autoreconnect_timer = 0;
+	}
+	if (m_autoreconnect_now_timer) {
+		m_autoreconnect_now_set = false;
+		delete m_autoreconnect_now_timer;
+		m_autoreconnect_now_timer = 0;
+	}
 }
 
 void RfcommService::
@@ -415,8 +555,8 @@ RfcommSession(RfcommService *svcp, BtDevice *devp)
 	: BtSession(svcp, devp), m_rfcomm_state(RFC_Disconnected),
 	  m_rfcomm_sdp_task(0), m_rfcomm_inbound(false),
 	  m_rfcomm_dcvoluntary(false), m_rfcomm_sock(-1),
-	  m_rfcomm_not(0), m_rfcomm_secmode(RFCOMM_SEC_NONE)
-	  
+	  m_rfcomm_not(0), m_rfcomm_secmode(RFCOMM_SEC_NONE),
+	  m_conn_autoreconnect(false), m_operation_timeout(0)
 {
 }
 
@@ -429,6 +569,22 @@ RfcommSession::
 	assert(!m_rfcomm_not);
 }
 
+void RfcommSession::
+SetAutoReconnect(bool enable)
+{
+	if (enable && !m_conn_autoreconnect) {
+		Get();
+		m_conn_autoreconnect = true;
+		if (m_rfcomm_state == RFC_Disconnected)
+			GetService()->AddAutoReconnect(this, true);
+	}
+	else if (!enable && m_conn_autoreconnect) {
+		m_conn_autoreconnect = false;
+		if (m_rfcomm_state == RFC_Disconnected)
+			GetService()->RemoveAutoReconnect(this);
+		Put();
+	}
+}
 
 bool RfcommSession::
 RfcommSdpLookupChannel(ErrorInfo *error)
@@ -461,6 +617,8 @@ RfcommSdpLookupChannel(ErrorInfo *error)
 	Get();
 	m_rfcomm_state = RFC_SdpLookupChannel;
 	m_rfcomm_sdp_task = taskp;
+	if (m_conn_autoreconnect)
+		GetService()->RemoveAutoReconnect(this);
 	return true;
 }
 
@@ -472,6 +630,8 @@ RfcommSdpLookupChannelComplete(SdpTask *taskp)
 
 	assert(taskp == m_rfcomm_sdp_task);
 	assert(m_rfcomm_state == RFC_SdpLookupChannel);
+
+	(void) RfcommSetOperationTimeout(0, 0);
 
 	m_rfcomm_inbound = false;
 
@@ -513,7 +673,7 @@ RfcommSdpLookupChannelComplete(SdpTask *taskp)
 
 
 bool RfcommSession::
-RfcommConnect(uint8_t channel, ErrorInfo *error)
+RfcommConnect(uint8_t channel, ErrorInfo *error, int timeout)
 {
 	struct sockaddr_rc raddr;
 	BtHci *hcip;
@@ -523,7 +683,8 @@ RfcommConnect(uint8_t channel, ErrorInfo *error)
 
 	hcip = GetHub()->GetHci();
 	if (!hcip) {
-		error->SetNoMem();
+		if (error)
+			error->SetNoMem();
 		return false;
 	}
 
@@ -583,6 +744,10 @@ RfcommConnect(uint8_t channel, ErrorInfo *error)
 			goto failure;
 		}
 
+		/* Set a connection attempt timeout */
+		if (!RfcommSetOperationTimeout(timeout, error))
+			goto failure;
+
 		/* We wait for the socket to become _writable_ */
 		m_rfcomm_not = GetDi()->NewSocket(rsock, true);
 		if (!m_rfcomm_not) {
@@ -601,12 +766,16 @@ RfcommConnect(uint8_t channel, ErrorInfo *error)
 	m_rfcomm_inbound = false;
 	m_rfcomm_sock = rsock;
 
+	if (!m_autoreconnect_links.Empty())
+		GetService()->RemoveAutoReconnect(this);
+
 	if (!m_rfcomm_not)
 		RfcommConnectNotify(NULL, rsock);
 
 	return true;
 
 failure:
+	(void) RfcommSetOperationTimeout(0, 0);
 	if (rsock >= 0) { close(rsock); }
 	assert(!error || error->IsSet());
 	return false;
@@ -631,6 +800,10 @@ RfcommAccept(int sock)
 
 	m_rfcomm_state = RFC_Connected;
 	Get();
+
+	if (m_conn_autoreconnect)
+		GetService()->RemoveAutoReconnect(this);
+
 	NotifyConnectionState(0);
 	return true;
 }
@@ -643,6 +816,8 @@ RfcommConnectNotify(SocketNotifier *notp, int fh)
 	ErrorInfo error;
 
 	assert(m_rfcomm_state == RFC_Connecting);
+
+	(void) RfcommSetOperationTimeout(0, 0);
 
 	if (notp) {
 		assert(notp == m_rfcomm_not);
@@ -681,12 +856,120 @@ RfcommConnectNotify(SocketNotifier *notp, int fh)
 }
 
 bool RfcommSession::
-RfcommConnect(ErrorInfo *error)
+RfcommConnect(ErrorInfo *error, int timeout)
 {
 	if (m_rfcomm_state != RFC_Disconnected)
 		return false;
 
-	return RfcommSdpLookupChannel(error);
+	if (!RfcommSetOperationTimeout(timeout, error))
+		return false;
+
+	if (!RfcommSdpLookupChannel(error)) {
+		(void) RfcommSetOperationTimeout(0, 0);
+		return false;
+	}
+
+	return true;
+}
+
+/*
+ * It seems sketchy to trust the Bluetooth stack to time out its
+ * operations correctly all the time.
+ */
+bool RfcommSession::
+RfcommSetOperationTimeout(int ms, ErrorInfo *error)
+{
+	if (!ms) {
+		if (m_operation_timeout) {
+			delete m_operation_timeout;
+			m_operation_timeout = 0;
+		}
+		return true;
+	}
+
+	if (!m_operation_timeout) {
+		m_operation_timeout = GetDi()->NewTimer();
+		if (!m_operation_timeout) {
+			if (error)
+				error->SetNoMem();
+			return false;
+		}
+
+		m_operation_timeout->Register(this,
+				&RfcommSession::RfcommOperationTimeout);
+
+	} else {
+		m_operation_timeout->Cancel();
+	}
+
+	m_operation_timeout->Set(ms);
+	return true;
+}
+
+void RfcommSession::
+RfcommOperationTimeout(TimerNotifier *timerp)
+{
+	ErrorInfo error;
+
+	assert(IsRfcommConnecting() || IsRfcommConnected());
+	assert(timerp == m_operation_timeout);
+
+	error.Set(LIBHFP_ERROR_SUBSYS_BT,
+		  LIBHFP_ERROR_BT_TIMEOUT,
+		  "RFCOMM operation timed out");
+
+	__Disconnect(&error);
+}
+
+
+bool RfcommSession::
+RfcommSend(const uint8_t *buf, size_t len, ErrorInfo *error)
+{
+	ssize_t rl;
+	int err;
+	ErrorInfo local_error;
+
+	if (!IsRfcommConnected()) {
+		if (error)
+			error->Set(LIBHFP_ERROR_SUBSYS_BT,
+				   LIBHFP_ERROR_BT_NOT_CONNECTED,
+				   "Device is not connected");
+		return false;
+	}
+
+	rl = send(m_rfcomm_sock, buf, len, MSG_NOSIGNAL);
+
+	if (rl < 0) {
+		err = errno;
+		/* Problems!! */
+		GetDi()->LogDebug(&local_error,
+				  LIBHFP_ERROR_SUBSYS_BT,
+				  LIBHFP_ERROR_BT_SYSCALL,
+				  "Write to RFCOMM socket: %s",
+				  strerror(err));
+		if (error)
+			*error = local_error;
+
+		__Disconnect(&local_error, ReadErrorVoluntary(err));
+
+		return false;
+	}
+
+	if ((size_t) rl != len) {
+		/* Short write!? */
+		GetDi()->LogWarn(&local_error,
+				 LIBHFP_ERROR_SUBSYS_BT,
+				 LIBHFP_ERROR_BT_SYSCALL,
+				 "Short write: expected:%d sent:%d",
+				 len, rl);
+		if (error)
+			*error = local_error;
+
+		__Disconnect(&local_error);
+		return false;
+	}
+
+	return true;
 }
 
 void RfcommSession::
@@ -699,6 +982,7 @@ void RfcommSession::
 __Disconnect(ErrorInfo *reason, bool voluntary)
 {
 	if (m_rfcomm_state != RFC_Disconnected) {
+		(void) RfcommSetOperationTimeout(0, 0);
 		if (m_rfcomm_not) {
 			assert(m_rfcomm_state > RFC_SdpLookupChannel);
 			assert(m_rfcomm_sock >= 0);
@@ -718,6 +1002,9 @@ __Disconnect(ErrorInfo *reason, bool voluntary)
 		}
 		m_rfcomm_dcvoluntary = voluntary;
 		m_rfcomm_state = RFC_Disconnected;
+
+		if (m_conn_autoreconnect)
+			GetService()->AddAutoReconnect(this);
 
 		NotifyConnectionState(reason);
 

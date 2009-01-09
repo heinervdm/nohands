@@ -63,7 +63,7 @@ class HfpSession;
  * callbacks, e.g. HfpService::cb_HfpSessionFactory, read known devices
  * from a configuration file, and instantiate an HfpSession object for
  * each with GetSession().  The HfpSession objects can be marked
- * auto-reconnect, via HfpSession::SetAutoReconnect(), so that they may
+ * auto-reconnect, via RfcommSession::SetAutoReconnect(), so that they may
  * be automatically connected when they enter radio range.
  *
  * Whenever Hands-Free Profile service is active, HfpService maintains
@@ -95,25 +95,11 @@ private:
 	char			*m_svc_desc;
 	sdp_record_t		*m_sdp_rec;
 
-	void AutoReconnectTimeout(TimerNotifier*);
-
 	bool			m_sco_enable;
-
-	ListItem		m_autoreconnect_list;
-	int			m_autoreconnect_timeout;
-	bool			m_autoreconnect_set;
-	TimerNotifier		*m_autoreconnect_timer;
-
-	ListItem		m_autoreconnect_now_list;
-	bool			m_autoreconnect_now_set;
-	TimerNotifier		*m_autoreconnect_now_timer;
 
 	bool			m_complaint_sco_mtu;
 	bool			m_complaint_sco_vs;
 	bool			m_complaint_sco_listen;
-
-	void AddAutoReconnect(HfpSession *sessp, bool now = false);
-	void RemoveAutoReconnect(HfpSession *sessp);
 
 	bool ScoListen(ErrorInfo *error);
 	void ScoCleanup(void);
@@ -132,7 +118,7 @@ private:
 
 public:
 
-	HfpService(int caps = 15);
+	HfpService(int caps = 63);
 	virtual ~HfpService();
 
 	/**
@@ -435,15 +421,24 @@ public:
 	 */
 	bool SetScoEnabled(bool sco_enable, ErrorInfo *error = 0);
 
+	/** Query advertised hands-free capabilities */
 	int GetCaps(void) const { return m_brsf_my_caps; }
-	void SetCaps(int caps) { m_brsf_my_caps = caps; }
 
+	/** Set advertised hands-free capabilities */
+	bool SetCaps(int caps, ErrorInfo *error = 0);
+
+	/** Query service name advertised in SDP record */
 	const char *GetServiceName(void) const
 		{ return m_svc_name ? m_svc_name : "Handsfree"; }
+
+	/** Set service name advertised in SDP record */
 	bool SetServiceName(const char *desc, ErrorInfo *error = 0);
 
+	/** Query service description advertised in SDP record */
 	const char *GetServiceDesc(void) const
 		{ return m_svc_desc ? m_svc_desc : ""; }
+
+	/** Set service description advertised in SDP record */
 	bool SetServiceDesc(const char *desc, ErrorInfo *error = 0);
 
 	static bool IsDeviceClassHf(uint32_t devclass) {
@@ -454,12 +449,16 @@ public:
 	}
 };
 
-class GsmClipPhoneNumber {
-	void *operator new(size_t nb, size_t extra);
+class GsmResult {
+protected:
+	char		*src_string;
 	size_t		extra;
+	void *operator new(size_t nb, const char *src_string, size_t len);
+public:
+	void operator delete(void *mem);
+};
 
-	static GsmClipPhoneNumber *Create(const char *src);
-
+class GsmClipResult : public GsmResult {
 public:
 	const char	*number;
 	int		type;
@@ -468,11 +467,47 @@ public:
 	const char	*alpha;
 	int		cli_validity;
 
-	void operator delete(void *mem);
-	static GsmClipPhoneNumber *Parse(const char *buffer);
-	static GsmClipPhoneNumber *ParseCcwa(const char *buffer);
-	bool Compare(const GsmClipPhoneNumber *clip) const;
-	GsmClipPhoneNumber *Duplicate(void) const;
+	static GsmClipResult *Parse(const char *buffer);
+	static GsmClipResult *ParseCcwa(const char *buffer);
+	bool Compare(const GsmClipResult *clip) const;
+	GsmClipResult *Duplicate(void) const;
+};
+
+class GsmCnumResult : public GsmResult {
+public:
+	const char	*alpha;
+	const char	*number;
+	int		type;
+	int		speed;
+	int		service;
+
+	static GsmCnumResult *Parse(const char *buffer);
+};
+
+class GsmCopsResult : public GsmResult {
+public:
+	int		mode;
+	int		format;
+	const char	*alpha;
+	int		nonalpha;
+
+	static GsmCopsResult *Parse(const char *buffer);
+};
+
+class GsmClccResult : public GsmResult {
+public:
+	ListItem	m_links;
+
+	int		idx;
+	int		dir;
+	int		stat;
+	int		mode;
+	int		mpty;
+	const char	*number;
+	int		type;
+	const char	*alpha;
+
+	static GsmClccResult *Parse(const char *buffer);
 };
 
 class AtCommand;
@@ -508,7 +543,7 @@ class AtCommand;
  * successful call to the Cancel() method.
  */
 class HfpPendingCommand
-	: public Callback<void, HfpPendingCommand*, ErrorInfo*, const char *> {
+	: public Callback<void, HfpPendingCommand*, ErrorInfo*, void *> {
 public:
 	/**
 	 * @brief Request that the command be canceled and not sent
@@ -558,7 +593,7 @@ public:
  * - Client reference count drops to zero.  Put().
  * - The HfpSession is in the Disconnected state.  See IsConnected(),
  * IsConnecting().
- * - Auto-reconnect is not enabled.  See SetAutoReconnect().
+ * - Auto-reconnect is not enabled.  See RfcommSession::SetAutoReconnect().
  * - As with all @ref managed "managed objects," the actual destruction
  * is performed in the context of a timer event.
  *
@@ -608,10 +643,12 @@ private:
 		BTS_Handshaking,
 		BTS_Connected
 	}			m_conn_state;
-	bool			m_conn_autoreconnect;
-	ListItem		m_autoreconnect_links;
 
 	ListItem		m_commands;
+
+	/* Timeout for completion of the topmost command */
+	TimerNotifier		*m_command_timer;
+	void CommandTimeout(TimerNotifier *notp);
 
 	int			m_brsf;
 
@@ -619,27 +656,31 @@ private:
 	virtual void __Disconnect(ErrorInfo *reason, bool voluntary = false);
 	virtual void NotifyConnectionState(ErrorInfo *async_error);
 	virtual void SdpSupportedFeatures(uint16_t features);
+	virtual void AutoReconnect(void);
 
 	/* New methods for HFP */
-	void AutoReconnect(void);
 	bool HfpHandshake(ErrorInfo *error);
 	void HfpHandshakeDone(void);
 	void HfpDataReady(SocketNotifier *notp, int fh);
 	size_t HfpConsume(char *buf, size_t len);
 	void DeleteFirstCommand(bool do_start = true);
-	bool AppendCommand(AtCommand *cmdp, ErrorInfo *error);
+	bool AddCommand(AtCommand *cmdp, bool top, ErrorInfo *error);
+	bool SendCommand(const char *cmd, ErrorInfo *error);
 	bool StartCommand(ErrorInfo *error);
 	bool CancelCommand(AtCommand *cmdp);
 	void ResponseDefault(char *buf);
 	HfpPendingCommand *PendingCommand(AtCommand *cmdp, ErrorInfo *error);
 
+	friend class CopsCommand;
 	friend class CindRCommand;	
+	friend class CmerCommand;	
 	friend class AtdCommand;
 	friend class AtCommandClearCallSetup;
 	void UpdateIndicator(int inum, const char *ival);
 	void UpdateCallSetup(int val, int ring = 0,
-			     GsmClipPhoneNumber *clip = 0,
+			     GsmClipResult *clip = 0,
 			     int timeout_ms = 0);
+	void ClearClip(void);
 
 	friend class ChldTCommand;
 	void SetSupportedHoldRange(int start, int end);
@@ -653,7 +694,7 @@ private:
 			m_chld_4: 1;
 
 	friend class BrsfCommand;
-	void SetSupportedFeatures(int ag_features) { m_brsf = ag_features; };
+	void SetSupportedFeatures(int ag_features);
 
 	friend class CindTCommand;
 	void SetIndicatorNum(int inum, const char *name, int namelen);
@@ -667,6 +708,7 @@ private:
 	int		m_inum_service;
 	int		m_inum_call;	
 	int		m_inum_callsetup;
+	int		m_inum_callheld;
 	int		m_inum_signal;
 	int		m_inum_roam;
 	int		m_inum_battchg;
@@ -679,7 +721,11 @@ private:
 
 	void CleanupIndicators(void);
 	void ExpandIndicators(int min_size);
+	bool VerifyIndicators(void);
 
+	friend class NrecCommand;
+	friend class BvraCommand;
+	void SetBvra(bool active);
 
 	/* Call state trackers */
 	bool		m_state_service;
@@ -688,9 +734,13 @@ private:
 	int		m_state_signal;
 	int		m_state_roam;
 	int		m_state_battchg;
+	bool		m_state_bvra;
+	bool		m_state_bsir;
+	bool		m_state_ecnr;
+	int		m_state_vgm;
+	int		m_state_vgs;
 
 	enum { PHONENUM_MAX_LEN = 31, };
-	GsmClipPhoneNumber	*m_state_incomplete_clip;
 
 	static bool ValidPhoneNumChar(char c, ErrorInfo *error);
 	static bool ValidPhoneNum(const char *ph, ErrorInfo *error);
@@ -724,15 +774,32 @@ private:
 	bool ScoSocketExists(void) const { return (m_sco_sock >= 0); }
 
 	/* Event handling stuff */
+	bool				m_callsetup_presumed;
 	TimerNotifier			*m_timer;
 
 	void Timeout(TimerNotifier *notp);
+
+	/*
+	 * Caller-ID timeout for RING events, to avoid reporting empty
+	 * CLIP information.
+	 */
+	TimerNotifier			*m_clip_timer;
+	enum {
+		CLIP_UNKNOWN,
+		CLIP_WAITING,
+		CLIP_FINAL,
+	}				m_clip_state;
+	GsmClipResult			*m_clip_value;
+
+	void ClipTimeout(TimerNotifier *notp);
 
 protected:
 	/* Timeouts for dealing with devices without the callsetup indicator */
 	int		m_timeout_ring;
 	int		m_timeout_ring_ccwa;
 	int		m_timeout_dial;
+	int		m_timeout_clip;
+	int		m_timeout_command;
 
 public:
 	HfpService *GetService(void) const
@@ -882,6 +949,51 @@ public:
 	 */
 	Callback<void, HfpSession *, const char *, int> cb_NotifyIndicator;
 
+	/**
+	 * @brief Notification of a change to the audio gateway's
+	 * voice recognition state
+	 *
+	 * @param bool Set to @em true if the audio gateway has activated
+	 * voice recognition mode, @em false otherwise
+	 *
+	 * The last known voice recognition state can also be accessed
+	 * via GetVoiceRecogActive().  Activation or deactivation can
+	 * be requested via CmdSetVoiceRecog().
+	 *
+	 * @sa Bluetooth HFP v1.5 section 4.25
+	 */
+	Callback<void, HfpSession *, bool>		cb_NotifyVoiceRecog;
+
+	/**
+	 * @brief Notification of a change to the negotiated speaker
+	 * or microphone gain level
+	 *
+	 * @param bool1 Set to @em true if the microphone gain level has
+	 * been changed by audio gateway
+	 * @param bool2 Set to @em true if the speaker gain level has
+	 * been changed by audio gateway
+	 *
+	 * The gain values can be accessed via GetVolumeMic() and
+	 * GetVolumeSpeaker().
+	 *
+	 * @sa Bluetooth HFP v1.5 section 4.28
+	 */
+	Callback<void, HfpSession *, bool, bool>	cb_NotifyVolume;
+
+	/**
+	 * @brief Notification of a change to the audio gateway's
+	 * in-band ring tone setting
+	 *
+	 * @param bool Set to @em true if the audio gateway has enabled
+	 * in-band ring tones, @em false otherwise
+	 *
+	 * The in-band ring tone setting can also be accessed via
+	 * GetInBandRingToneEnable()
+	 *
+	 * @sa Bluetooth HFP v1.5 section 4.13.4
+	 */
+	Callback<void, HfpSession *, bool>	cb_NotifyInBandRingTone;
+
 private:
 	/* Response buffer */
 	enum { RFCOMM_MAX_LINELEN = 512 };
@@ -979,36 +1091,10 @@ public:
 	 * - There are no available Bluetooth HCIs.
 	 * - The RFCOMM socket could not be created, e.g. because part or
 	 * all of the bluetooth stack could not be loaded.
-	 * @sa Disconnect(), SetAutoReconnect()
+	 * @sa Disconnect(), RfcommSession::SetAutoReconnect()
 	 * @sa HfpSession::cb_NotifyConnection
 	 */
 	bool Connect(ErrorInfo *error = 0);
-
-	/**
-	 * @brief Query whether the autoreconnect mechanism is enabled for
-	 * this device
-	 *
-	 * @retval true Autoreconnect is enabled
-	 * @retval false Autoreconnect is disabled.
-	 * @sa SetAutoReconnect()
-	 */
-	bool IsAutoReconnect(void) const { return m_conn_autoreconnect; }
-
-	/**
-	 * @brief Enable or disable the autoreconnect mechanism for this
-	 * device
-	 *
-	 * If enabled, whenever the device is disconnected, a reconnection
-	 * attempt will be made periodically through a timer.
-	 * Auto-reconnection is useful for phones that regularly move in
-	 * and out of range.
-	 *
-	 * This function can affect the @ref aglifecycle "life cycle management"
-	 * of the object it is called on.
-	 * @param enable Set to true to enable, false to disable.
-	 * @sa IsAutoReconnect(), Connect()
-	 */
-	void SetAutoReconnect(bool enable);
 
 
 	/*
@@ -1027,7 +1113,7 @@ public:
 	/**
 	 * @brief Query whether the device has an established call
 	 *
-	 * @retval true Established call exists
+	 * @retval true Established call, either active or on hold, exists
 	 * @retval false No established call exists
 	 */
 	bool HasEstablishedCall(void) const {
@@ -1047,14 +1133,15 @@ public:
 	 * @brief Retrieve the caller ID value of the last incomplete call,
 	 * either incoming or outgoing
 	 *
-	 * The string value may be used
-	 * until the global event handler is invoked again or
-	 * CmdDial() / CmdRedial() is invoked.
-	 * @return String pointer to the remote identity of the last
-	 * incomplete call, or NULL if the identity was not known.
+	 * @return a GsmClipResult object containing the calling line
+	 * identity, or NULL if the identity is not known, or there is no
+	 * waiting or unanswered call.  This object's contents are described
+	 * in GSM 07.07 7.6.  This object may be used until the global
+	 * event handler is invoked again or CmdDial() / CmdRedial() is
+	 * invoked.
 	 */
-	const GsmClipPhoneNumber *WaitingCallIdentity(void) const {
-		return m_state_incomplete_clip;
+	const GsmClipResult *WaitingCallIdentity(void) const {
+		return m_clip_value;
 	}
 
 
@@ -1133,6 +1220,71 @@ public:
 	 */
 	int GetBatteryCharge(void) const { return m_state_battchg; }
 
+	/**
+	 * @brief Query the voice recognition state
+	 *
+	 * If the audio gateway supports voice recognition, and is
+	 * connected, it will use the microphone of the hands-free to
+	 * listen for commands.  Voice recognition can be activated
+	 * directly on the audio gateway, or via CmdSetVoiceRecog().
+	 * Voice recognition can be deactivated when the audio gateway
+	 * has recognized a voice command, when the audio gateway times
+	 * out listening for a command, or via CmdSetVoiceRecog().
+	 *
+	 * Audio gateway support for voice recognition can be tested
+	 * via FeatureVoiceRecog().
+	 *
+	 * @retval true Voice recognition activated
+	 * @retval false Voice recognition deactivated or unsupported
+	 *
+	 * @note This function will only return meaningful values
+	 * when the device is in the connected state.
+	 */
+	bool GetVoiceRecogActive(void) const { return m_state_bvra; }
+
+	/**
+	 * @brief Query the microphone gain level
+	 *
+	 * If the audio gateway supports remote volume control, this
+	 * method can be used to retrieve the microphone volume level
+	 * synchronized with the audio gateway.
+	 *
+	 * @return The synchronized microphone volume level, 0-15,
+	 * or -1 if the microphone volume level is unsynchronized.
+	 */
+	int GetVolumeMic(void) const { return m_state_vgm; }
+
+	/**
+	 * @brief Query the speaker gain level
+	 *
+	 * If the audio gateway supports remote volume control, this
+	 * method can be used to retrieve the speaker volume level
+	 * synchronized with the audio gateway.
+	 *
+	 * @return The synchronized speaker volume level, 0-15,
+	 * or -1 if the speaker volume level is unsynchronized.
+	 */
+	int GetVolumeSpeaker(void) const { return m_state_vgs; }
+
+	/**
+	 * @brief Query the in-band ring tone setting
+	 *
+	 * If the audio gateway supports in-band ring tones, it will
+	 * send its in-band ring tone state on connection, and when it
+	 * is changed.  This accessor method can be used to query the
+	 * last known value.
+	 *
+	 * The in-band ring tone setting cannot be changed from the
+	 * hands-free; it can only be set on the audio gateway.
+	 *
+	 * @retval 0 In-band ring tones disabled or unsupported
+	 * @retval 1 In-band ring tones enabled
+	 *
+	 * @note This function will only return meaningful values
+	 * when the device is in the connected state.
+	 */
+	bool GetInBandRingToneEnable(void) const { return m_state_bsir; }
+
 
 	/*
 	 * Reported feature presence queries
@@ -1181,7 +1333,6 @@ public:
 	 *
 	 * @note This information is only valid when the device is in the
 	 * connected state.
-	 * @todo Voice recognition is not yet supported by libhfp.
 	 *
 	 * @retval true Voice recognition supported
 	 * @retval false Voice recognition not supported
@@ -1225,10 +1376,12 @@ public:
 		{ return (m_brsf & 256) ? true : false; }
 	bool FeatureIndCallSetup(void) const
 		{ return (m_inum_callsetup != 0); }
+	bool FeatureIndCallHeld(void) const
+		{ return (m_inum_callheld != 0); }
 
 	bool FeatureDropHeldUdub(void) const { return m_chld_0; }
 	bool FeatureSwapDropActive(void) const { return m_chld_1; }
-	bool FeatureDropActive(void) const { return m_chld_1x; }
+	bool FeatureDropIndex(void) const { return m_chld_1x; }
 	bool FeatureSwapHoldActive(void) const { return m_chld_2; }
 	bool FeaturePrivateConsult(void) const { return m_chld_2x; }
 	bool FeatureLink(void) const { return m_chld_3; }
@@ -1293,8 +1446,93 @@ public:
 	 */
 	bool IsCommandPending(void) const { return !m_commands.Empty(); }
 
-	HfpPendingCommand *CmdSetVoiceRecog(bool enabled,
+	/**
+	 * @brief Query the telephone number of the audio gateway
+	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
+	 *
+	 * On success, the last parameter of the callback method to the
+	 * resulting HfpPendingCommand object will be passed a
+	 * GsmCnumResult structure.  The object will be deleted after
+	 * the callback method returns, so the callback method must
+	 * duplicate the object if it wishes to reference it later.
+	 */
+	HfpPendingCommand *CmdQueryNumber(ErrorInfo *error = 0);
+
+	/**
+	 * @brief Query operator information from the audio gateway
+	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
+	 *
+	 * On success, the last parameter of the callback method to the
+	 * resulting HfpPendingCommand object will be passed a
+	 * GsmCopsResult structure.  The object will be deleted after
+	 * the callback method returns, so the callback method must
+	 * duplicate the object if it wishes to reference it later.
+	 */
+	HfpPendingCommand *CmdQueryOperator(ErrorInfo *error = 0);
+
+	/**
+	 * @brief Query current calls from the audio gateway
+	 *
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
+	 *
+	 * On success, the last parameter of the callback method to the
+	 * resulting HfpPendingCommand object will be passed a pointer to
+	 * a ListItem, which is the head of a list of GsmClccResult
+	 * objects.  The list head and all objects on the list will be
+	 * deleted after the callback method returns, so the callback
+	 * method must duplicate the objects that it wishes to reference
+	 * later.
+	 */
+	HfpPendingCommand *CmdQueryCurrentCalls(ErrorInfo *error = 0);
+
+	/**
+	 * @brief Request that the audio gateway activate or deactivate
+	 * voice recognition
+	 *
+	 * @note This command may only be expected to succeed if the device
+	 * claims support for voice recognition,
+	 * i.e. FeatureVoiceRecog() returns true.
+	 *
+	 * @param[in] active Set to @em true to request activation of
+	 * voice recognition mode, @em false to request deactivation.
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost
+	 *
+	 * If successful, the cb_NotifyVoiceRecog callback will be
+	 * invoked with the new voice recognition state.
+	 */
+	HfpPendingCommand *CmdSetVoiceRecog(bool active,
 					    ErrorInfo *error = 0);
+
+	HfpPendingCommand *CmdSetVolumeMic(uint8_t vol, ErrorInfo *error = 0);
+	HfpPendingCommand *CmdSetVolumeSpeaker(uint8_t vol,
+					       ErrorInfo *error = 0);
+
 	HfpPendingCommand *CmdSetEcnr(bool enabled, ErrorInfo *error = 0);
 
 	/**
@@ -1408,11 +1646,11 @@ public:
 	HfpPendingCommand *CmdCallSwapDropActive(ErrorInfo *error = 0);
 
 	/**
-	 * @brief Drop a specific active call
+	 * @brief Drop a specific call
 	 *
 	 * @note This command may only be expected to succeed if the
-	 * device supports dropping of specific active calls, i.e.
-	 * FeatureDropActive() returns true.
+	 * device supports dropping of specific calls, i.e.
+	 * FeatureDropIndex() returns true.
 	 * @param[in] actnum Call number to be dropped
 	 * @param[out] error Error information structure.  If this method
 	 * fails and returns @c 0, and @em error is not 0, @em error
@@ -1422,8 +1660,8 @@ public:
 	 * the command could not be queued, e.g. because the device
 	 * connection was lost
 	 */
-	HfpPendingCommand *CmdCallDropActive(unsigned int actnum,
-					     ErrorInfo *error = 0);
+	HfpPendingCommand *CmdCallDropIndex(unsigned int actnum,
+					    ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway hold the active call

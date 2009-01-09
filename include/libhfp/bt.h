@@ -172,6 +172,8 @@ enum {
 	LIBHFP_ERROR_BT_NOT_CONNECTED_SCO,
 	/** System or service has already been started */
 	LIBHFP_ERROR_BT_ALREADY_STARTED,
+	/** Operation timed out */
+	LIBHFP_ERROR_BT_TIMEOUT,
 	/** Protocol has been violated */
 	LIBHFP_ERROR_BT_PROTOCOL_VIOLATION,
 	/** User-initiated disconnection of device */

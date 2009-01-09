@@ -152,7 +152,7 @@
  *	- Set the net.sf.nohands.hfpd.AudioGateway.AutoReconnect property
  *	  to @c true.
  *	- Register to receive the
- *	  net.sf.nohands.hfpd.AudioGateway.AudiotateChanged signal, and use
+ *	  net.sf.nohands.hfpd.AudioGateway.AudioStateChanged signal, and use
  *	  the signal handler to start streaming audio to and from the audio
  *	  gateway device, using
  *	  net.sf.nohands.hfpd.SoundIo.AudioGatewayStart(), or failing that,
@@ -395,7 +395,7 @@ namespace net.sf.nohands.hfpd {
 		 * finds an unexpected value, it should fail and warn about
 		 * a version mismatch.
 		 *
-		 * This document describes version 2 of the HFPD D-Bus
+		 * This document describes version 4 of the HFPD D-Bus
 		 * interface.
 		 *
 		 * A version number value in this field covers all HFPD
@@ -1663,10 +1663,10 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public Dial(in string phone_num);
@@ -1686,10 +1686,10 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public Redial();
@@ -1712,10 +1712,10 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public HangUp();
@@ -1738,34 +1738,198 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public SendDtmf(in byte code);
 
 		/**
-		 * @brief Send an answer call command to the audio gateway
+		 * @brief Request the audio gateway answer the incoming call
 		 *
 		 * This method causes an answer call command to be sent to
 		 * the audio gateway.  If the audio gateway has an
 		 * incoming, incomplete, ringing call, the call will be
 		 * answered and will become the active call.
+
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
+		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note This method will not return until the audio gateway
+		 * has responded to the command.  An audio gateway that has
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
+		 * quickly and should invoke it asynchronously.
+		 */
+		public Answer();
+
+		/**
+		 * @brief Query the telephone number of the audio gateway
+		 *
+		 * This method queries the telephone number of the
+		 * audio gateway and returns the result.  This request is
+		 * described in GSM 07.07 7.1.
+		 *
+		 * @param[out] number The telephone number of the audio
+		 * gateway on the public telephone network.  The format
+		 * of this number, e.g. organizational, local, or
+		 * international, is described by the @em type parameter.
+		 * @param[out] type The format of the @em number
+		 * parameter.  See GSM 04.10 section 10.5.4.7 for more
+		 * information on the meaning.  Some common values include:
+		 * - 129: Unknown type of number in E.164 numbering plan
+		 * - 145: International number in E.164 numbering plan
+		 * @param[out] service Service related to the number.
+		 * Values are described in GSM 07.07 section 7.1, and
+		 * include:
+		 * - 4: voice
+		 * - 5: fax
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
-		public Answer();
+		public QueryNumber(out string number, out int32 type,
+				   out int32 service);
+
+		/** Structure used for AudioGateway.QueryCurrentCalls() */
+		struct CallInfo {
+			/** @brief Unique identifier of the call */
+			int32	idx;
+			/** @brief Direction: 0=outgoing, 1=incoming */
+			int32	dir;
+			/**
+			 * @brief State of the call
+			 * - 0: active
+			 * - 1: held
+			 * - 2: dialing outgoing call
+			 * - 3: remotely ringing outgoing call
+			 * - 4: incoming unanswered call
+			 * - 5: waiting (on hold)
+			 */
+			int32	stat;
+			/**
+			 * @brief bearer/teleservice
+			 * - 0: voice
+			 * - 1: data
+			 * - 2: fax
+			 * - 3: voice followed by data, voice mode
+			 * - 4: alternating voice/data, voice mode
+			 * - 5: alternating voice/fax, voice mode
+			 * - 6: voice followed by data, data mode
+			 * - 7: alternating voice/data, data mode
+			 * - 8: alternating voice/fax, fax mode
+			 * - 9: unknown
+			 */
+			int32	mode;
+			/** @brief Multiparty: 0=not linked, 1=linked */
+			int32	mpty;
+			/** @brief Telephone number of remote party */
+			string	number;
+			/** @brief Telephone number representation type */
+			int32	type;
+			/** @brief Phone book formatted name of remote party */
+			string	alpha;
+		};
+
+		/**
+		 * @brief Query the current calls of the audio gateway
+		 *
+		 * This method queries the current calls on the audio
+		 * gateway, and returns the result.  This request is
+		 * described in GSM 07.07 7.17.  The audio gateway is not
+		 * required to support this request, but is likely to
+		 * support it if the @c "EnhancedCallStatus" feature in
+		 * the AudioGateway.Features property is set to @c true.
+		 *
+		 * @param[out] calls An array of CallInfo structures, one
+		 * per active call being handled by the audio gateway.
+		 * If no calls are present, the array will be empty.  The
+		 * index members may be used
+		 *
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
+		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note This method will not return until the audio gateway
+		 * has responded to the command.  An audio gateway that has
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
+		 * quickly and should invoke it asynchronously.
+		 */
+		public QueryCurrentCalls(out CallInfo[] calls);
+
+		/**
+		 * @brief Query the operator of the audio gateway
+		 *
+		 * This method queries the current operator information
+		 * from the audio gateway and returns the result.  This
+		 * request is described in GSM 07.07 7.3, but as per
+		 * Bluetooth HFP 1.5, only the long alphanumeric form of
+		 * the operator information is available, e.g. "T-Mobile"
+		 * or "Verizon".
+		 *
+		 * @param[out] mode Operator selection mode.  See GSM 07.07
+		 * @param[out] format Operator display format, always 0.
+		 * @param[out] oper Operator name as an alphanumeric
+		 * string, e.g. "AT&T".
+		 *
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
+		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note This method will not return until the audio gateway
+		 * has responded to the command.  An audio gateway that has
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
+		 * quickly and should invoke it asynchronously.
+		 */
+		public QueryOperator(out int32 mode, out int32 format,
+				     out string oper);
+
+		/**
+		 * @brief Request activation or deactivation of voice
+		 * recognition on the audio gateway
+		 *
+		 * Some audio gateway devices support voice recognition,
+		 * and can use the audio link and the microphone of the
+		 * hands-free for voice recognition.  Support for voice
+		 * recognition is indicated by the @c "VoiceRecognition"
+		 * feature in the AudioGateway.Features property being
+		 * @c true.
+		 *
+		 * @param[in] activate Set to @c true to request
+		 * activation of voice recognition, @c false to request
+		 * deactivation.
+		 *
+		 * The current state of voice recognition can be retrieved
+		 * from the AudioGateway.VoiceRecognitionActive property.
+		 * Changes to the state, including changes induced by calls
+		 * to this method, are reported by the
+		 * VoiceRecognitionActiveChanged() signal.
+		 *
+		 * @note This method will not return until the audio gateway
+		 * has responded to the command.  An audio gateway that has
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
+		 * quickly and should invoke it asynchronously.
+		 */
+		public SetVoiceRecognition(in bool activate);
 
 		/**
 		 * @brief Send a drop held / UDUB command to the audio gateway
@@ -1779,19 +1943,25 @@ namespace net.sf.nohands.hfpd {
 		 * - Otherwise, if there is a call that is on hold, the call
 		 * will be terminated.
 		 *
-		 * Support for this command is optional, and is indicated
-		 * by the @c "DropHeldUdub" feature in the
-		 * AudioGateway.Features property being @c true.
+		 * Support for this command by the audio gateway is
+		 * optional, and is indicated by the @c "DropHeldUdub"
+		 * feature in the AudioGateway.Features property being @c true.
+		 *
+		 * Many audio gateways do not perform a unique action when
+		 * this request is issued, and will often reject or ignore
+		 * the incoming call.  In general, the UDUB request is
+		 * implemented so inconsistently that it is not worth
+		 * presenting to the user.
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public CallDropHeldUdub();
@@ -1807,22 +1977,51 @@ namespace net.sf.nohands.hfpd {
 		 * incoming, unanswered call, it will be connected and
 		 * will become the active call.
 		 *
-		 * Support for this command is optional, and is indicated
-		 * by the @c "SwapDropActive" feature in the
-		 * AudioGateway.Features property being @c true.
+		 * Support for this command by the audio gateway is
+		 * optional, and is indicated by the @c "SwapDropActive"
+		 * feature in the AudioGateway.Features property being @c true.
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public CallSwapDropActive();
+
+		/**
+		 * @brief Send a drop specific call command to the audio
+		 * gateway
+		 *
+		 * This method causes a command to be sent to the audio
+		 * gateway requesting that it drop a specific call.
+		 * This method is only useful when the audio gateway has the
+		 * @c "EnhancedCallStatus" feature, in which case call index
+		 * numbers can be retrieved via QueryCurrentCalls().
+		 * Additionally, the audio gateway is only likely to support
+		 * the command if it has the @c "EnhancedCallControl" and
+		 * @c "DropIndex" features in the AudioGateway.Features
+		 * property being @c true.
+		 *
+		 * @param[in] idx Index of the call to be dropped.  
+		 *
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
+		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note This method will not return until the audio gateway
+		 * has responded to the command.  An audio gateway that has
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
+		 * quickly and should invoke it asynchronously.
+		 */
+		public CallDropIndex(int idx);
 
 		/**
 		 * @brief Send a hold active call command to the audio gateway
@@ -1835,19 +2034,19 @@ namespace net.sf.nohands.hfpd {
 		 * incoming, unanswered call, it will be connected and
 		 * will become the active call.
 		 *
-		 * Support for this command is optional, and is indicated
-		 * by the @c "SwapHoldActive" feature in the
-		 * AudioGateway.Features property being @c true.
+		 * Support for this command by the audio gateway is
+		 * optional, and is indicated by the @c "SwapHoldActive"
+		 * feature in the AudioGateway.Features property being @c true.
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public CallSwapHoldActive();
@@ -1858,10 +2057,10 @@ namespace net.sf.nohands.hfpd {
 		 * This method causes a link calls command to be sent to the
 		 * audio gateway.  If the audio gateway has an active call,
 		 * and a call placed on hold, the calls will be linked
-		 * into a single three-way call.
+		 * into a single three-way multiparty call.
 		 *
-		 * Support for this command is optional, and is indicated
-		 * by the @c "Link" feature in the
+		 * Support for this command by the audio gateway is
+		 * optional, and is indicated by the @c "Link" feature in the
 		 * AudioGateway.Features property being @c true.
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
@@ -1869,13 +2068,45 @@ namespace net.sf.nohands.hfpd {
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public CallLink();
+
+		/**
+		 * @brief Send a private consult command to the audio
+		 * gateway
+		 *
+		 * This method causes a command to be sent to the audio
+		 * gateway requesting that it remove all calls from the
+		 * multiparty call except for a specific call.  All calls
+		 * removed from the multiparty will be placed on hold.
+		 * This method is only useful when the audio gateway has the
+		 * @c "EnhancedCallStatus" feature, in which case call index
+		 * numbers can be retrieved via QueryCurrentCalls().
+		 * Additionally, the audio gateway is only likely to support
+		 * the command if it has the @c "EnhancedCallControl" and
+		 * @c "PrivateConsult" features in the AudioGateway.Features
+		 * property set to @c true.
+		 *
+		 * @param[in] idx Index of the call to go to private
+		 * consult mode.
+		 *
+		 * @throw net.sf.nohands.hfpd.Error Thrown on any
+		 * sort of error, unspecific of the reason of failure.
+		 *
+		 * @note This method will not return until the audio gateway
+		 * has responded to the command.  An audio gateway that has
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
+		 * quickly and should invoke it asynchronously.
+		 */
+		public CallPrivateConsult(int idx);
 
 		/**
 		 * @brief Send a transfer call command to the audio gateway
@@ -1885,19 +2116,19 @@ namespace net.sf.nohands.hfpd {
 		 * call, and a call placed on hold, the calls will be linked
 		 * to each other, and disconnected from the audio gateway.
 		 *
-		 * Support for this command is optional, and is indicated
-		 * by the @c "Transfer" feature in the
-		 * AudioGateway.Features property being @c true.
+		 * Support for this command by the audio gateway is
+		 * optional, and is indicated by the @c "Transfer" feature
+		 * in the AudioGateway.Features property being @c true.
 		 *
 		 * @throw net.sf.nohands.hfpd.Error Thrown on any
 		 * sort of error, unspecific of the reason of failure.
 		 *
 		 * @note This method will not return until the audio gateway
 		 * has responded to the command.  An audio gateway that has
-		 * moved out of radio range may not be identified as being
-		 * inaccessible for several seconds, and a poorly designed
-		 * audio gateway may fail to respond altogether.  D-Bus
-		 * clients should not expect this method to complete
+		 * moved out of Bluetooth radio range may not be identified
+		 * as being inaccessible for several seconds, and a poorly
+		 * designed audio gateway may fail to respond altogether.
+		 * D-Bus clients should not expect this method to complete
 		 * quickly and should invoke it asynchronously.
 		 */
 		public CallTransfer();
@@ -1973,6 +2204,61 @@ namespace net.sf.nohands.hfpd {
 		 * section for more details.
 		 */
 		const byte AudioState;
+
+		/**
+		 * @brief Voice recognition state of the device
+		 *
+		 * This property can be accessed using the
+		 * @ref property "standard D-Bus property interface".
+		 *
+		 * This read-only property describes whether the audio
+		 * gateway has its voice recognition feature activated.
+		 * When activated, the audio gateway will use the
+		 * audio link to feed its built-in voice recogintion
+		 * mechanism, and recognize commands spoken into the
+		 * microphone of the hands-free.
+		 *
+		 * This property is present on all AudioGateway objects,
+		 * but is only useful with devices that support voice
+		 * recogintion.  Such devices will have the
+		 * @c "VoiceRecognition" feature in AudioGateway.Features
+		 * set to @c true.
+		 *
+		 * Changes to this value are reported by the
+		 * VoiceRecognitionActiveChanged() signal.
+		 *
+		 * This property is read-only, but changes may be
+		 * effected by SetVoiceRecognition().
+		 */
+		const bool VoiceRecognitionActive;
+
+		/**
+		 * @brief In-Band ring tone state of the device
+		 *
+		 * This property can be accessed using the
+		 * @ref property "standard D-Bus property interface".
+		 *
+		 * This read-only property describes whether the audio
+		 * gateway has its in-band ring tone feature enabled.
+		 * When in-band ring tones are enabled, the audio gateway
+		 * will use the audio link to play its normal alerting
+		 * ring tone, which will be played over the speakers of
+		 * the hands-free.
+		 *
+		 * Changes to this value are reported by the
+		 * InBandRingToneEnableChanged() signal.
+		 *
+		 * This property is read-only.  Changes may only be
+		 * effected by changing the setting on the audio gateway
+		 * itself, typically through an option in the user
+		 * interface of the audio gateway.
+		 *
+		 * This setting can be used to inhibit playback of alert
+		 * sounds in situations where alert sounds take priority
+		 * over the audio gateway audio link, or coexist with
+		 * the audio link.
+		 */
+		const bool InBandRingToneEnable;
 
 		/**
 		 * @brief D-Bus ownership state of the device
@@ -2113,12 +2399,13 @@ namespace net.sf.nohands.hfpd {
 		 * - EnhancedCallControl
 		 * - DropHeldUdub
 		 * - SwapDropActive
-		 * - DropActive
+		 * - DropIndex
 		 * - SwapHoldActive
 		 * - PrivateConsult
 		 * - Link
 		 * - Transfer
 		 * - CallSetupIndicator
+		 * - CallHeldIndicator
 		 * - SignalStrengthIndicator
 		 * - RoamingIndicator
 		 * - BatteryChargeIndicator
@@ -2239,15 +2526,28 @@ namespace net.sf.nohands.hfpd {
 		 * AudioGateway should use this signal to start alerting
 		 * the user and possibly start playing a ring tone.
 		 *
-		 * @param[out] caller_id The caller line identification
-		 * reported by the audio gateway, typically a set of digits
-		 * occasionally prefixed by a "+".  The D-Bus client may
-		 * use this value as a key for a phone book search.
+		 * @param[out] number The caller line identification
+		 * reported by the audio gateway.  The format of this
+		 * number, e.g. organizational, local, or international,
+		 * is described by the @em number_type parameter.
+		 * The D-Bus client may use this value as a key for a
+		 * phone book search.
+		 * @param[out] number_type The format of the @em number
+		 * parameter.  See GSM 04.10 section 10.5.4.7 for more
+		 * information on the meaning.  Some common values include:
+		 * - 129: Unknown type of number in E.164 numbering plan
+		 * - 145: International number in E.164 numbering plan
+		 * @param[out] subaddr The ISDN subaddress of the caller.
+		 * This is unused in most situations.  For more information,
+		 * see ITU-T recommendation I.330.
+		 * @param[out] subaddr_type The format of the @em subaddr
+		 * parameter, in the same format as the @em number_type
+		 * parameter.
 		 * @param[out] caller_name Some audio gateway devices
 		 * have built-in phone books, which may have an entry for
 		 * the phone number of the caller.  In such cases, this
-		 * parameter contains the caller name reported by the
-		 * audio gateway.
+		 * parameter contains the contact name associated with the
+		 * phone number as reported by the audio gateway.
 		 *
 		 * The D-Bus client has a number of options for dealing
 		 * with the incoming call, although some are optionally
@@ -2256,7 +2556,10 @@ namespace net.sf.nohands.hfpd {
 		 * - Reject the call with HangUp().
 		 * - Report User Determined User Busy with CallDropHeldUdub().
 		 */
-		public signal Ring(out string caller_id,
+		public signal Ring(out string number,
+				   out int32 number_type,
+				   out string subaddr,
+				   out int32 subaddr_type,
 				   out string caller_name);
 
 		/**
@@ -2298,5 +2601,41 @@ namespace net.sf.nohands.hfpd {
 		 * gateway device.
 		 */
 		public signal NameResolved(out string name);
+
+		/**
+		 * @brief Notification of voice recognition activatation or
+		 * deactivatation
+		 *
+		 * When the audio gateway activates or deactivates its
+		 * built-in voice recognition feature, this signal will
+		 * be emitted as a notification.
+		 *
+		 * @param[out] state Set to @em true if voice recognition
+		 * is being activated, @em false if deactivated.
+		 *
+		 * The voice recognition state is also available from
+		 * the AudioGateway.VoiceRecognitionActive property.
+		 */
+		public signal VoiceRecognitionActiveChanged(out bool state);
+
+		/**
+		 * @brief Notification of change to the in-band ring tone
+		 * setting of the audio gateway
+		 *
+		 * When the audio gateway's in-band ring tone setting is
+		 * changed, this signal will be emitted as a notification.
+		 *
+		 * @param[out] state The new value of the in-band ring tone
+		 * setting.  Set to @em true if the in-band ring tones are
+		 * enabled, @em false if disabled.
+		 *
+		 * The in-band ring tone state is also available from
+		 * the AudioGateway.InBandRingToneEnable property.
+		 *
+		 * The in-band ring tone setting may only be changed by
+		 * the audio gateway itself, typically through an option
+		 * in the user interface of the audio gateway.
+		 */
+		public signal InBandRingToneEnableChanged(out bool state);
 	}
 }

@@ -105,8 +105,24 @@ protected:
 	/* Call me from Stop() */
 	void RfcommCleanup(void);
 
+	ListItem		m_autoreconnect_list;
+	int			m_autoreconnect_timeout;
+	bool			m_autoreconnect_set;
+	TimerNotifier		*m_autoreconnect_timer;
+
+	ListItem		m_autoreconnect_now_list;
+	bool			m_autoreconnect_now_set;
+	TimerNotifier		*m_autoreconnect_now_timer;
+
+	void AddAutoReconnect(RfcommSession *sessp, bool now = false);
+	void RemoveAutoReconnect(RfcommSession *sessp);
+	void AutoReconnectTimeout(TimerNotifier*);
+
 	RfcommService(uint16_t search_svclass_id = 0);
 	virtual ~RfcommService();
+
+	bool Start(ErrorInfo *error);
+	void Stop(void);
 
 public:
 	RfcommSession *GetSession(BtDevice *devp, bool create = true);
@@ -178,17 +194,30 @@ protected:
 
 	bool RfcommSdpLookupChannel(ErrorInfo *error);
 	void RfcommSdpLookupChannelComplete(SdpTask *taskp);
-	bool RfcommConnect(uint8_t channel, ErrorInfo *error);
+	bool RfcommConnect(uint8_t channel, ErrorInfo *error,
+			   int timeout = 15000);
 	void RfcommConnectNotify(SocketNotifier *notp, int fh);
 
 	/* This is the primary overload and handles SDP channel lookups */
-	bool RfcommConnect(ErrorInfo *error);
+	bool RfcommConnect(ErrorInfo *error, int timeout = 30000);
 
 	virtual bool RfcommAccept(int sock);
 
 	int			m_rfcomm_sock;
 	SocketNotifier		*m_rfcomm_not;
 	rfcomm_secmode_t	m_rfcomm_secmode;
+
+	bool			m_conn_autoreconnect;
+	ListItem		m_autoreconnect_links;
+
+	virtual void AutoReconnect(void) = 0;
+
+	TimerNotifier		*m_operation_timeout;
+
+	bool RfcommSetOperationTimeout(int ms, ErrorInfo *error);
+	void RfcommOperationTimeout(TimerNotifier *);
+
+	bool RfcommSend(const uint8_t *buf, size_t len, ErrorInfo *error);
 
 	RfcommSession(RfcommService *svcp, BtDevice *devp);
 	virtual ~RfcommSession();
@@ -222,7 +251,6 @@ protected:
 		return (err == ECONNRESET);
 	}
 
-
 public:
 	RfcommService *GetService(void) const
 		{ return (RfcommService*) BtSession::GetService(); }
@@ -254,6 +282,32 @@ public:
 	 * @sa RfcommService::SetSecMode()
 	 */
 	rfcomm_secmode_t GetSecMode(void) const { return m_rfcomm_secmode; }
+
+	/**
+	 * @brief Query whether the autoreconnect mechanism is enabled for
+	 * this device
+	 *
+	 * @retval true Autoreconnect is enabled
+	 * @retval false Autoreconnect is disabled.
+	 * @sa SetAutoReconnect()
+	 */
+	bool IsAutoReconnect(void) const { return m_conn_autoreconnect; }
+
+	/**
+	 * @brief Enable or disable the autoreconnect mechanism for this
+	 * device
+	 *
+	 * If enabled, whenever the device is disconnected, a reconnection
+	 * attempt will be made periodically through a timer.
+	 * Auto-reconnection is useful for devices such as phones that
+	 * regularly move in and out of range.
+	 *
+	 * This function can affect the @ref aglifecycle "life cycle management"
+	 * of the object it is called on.
+	 * @param enable Set to true to enable, false to disable.
+	 * @sa IsAutoReconnect(), Connect()
+	 */
+	void SetAutoReconnect(bool enable);
 
 	/**
 	 * @brief Query whether an in-progress or complete connection to the

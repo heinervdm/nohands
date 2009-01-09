@@ -15,6 +15,7 @@ pygtk.require("2.0")
 import gtk
 import gtk.glade
 import gobject
+import pango
 
 import gettext
 _ = gettext.gettext
@@ -47,7 +48,10 @@ class GtkAlerter:
 			self['CallAlertReject'].show()
 		else:
 			self['CallAlertReject'].hide()
-		if ag.can_drop_held_udub():
+		# The UDUB feature seems to be implemented very
+		# inconsistently across phones and handset makers.
+		# Presenting it to the user is almost silly.
+		if False and ag.can_drop_held_udub():
 			self['CallAlertBusy'].show()
 		else:
 			self['CallAlertBusy'].hide()
@@ -114,21 +118,206 @@ class GtkAlerter:
 		if not self.removed:
 			self.complete()
 
+# Telephone number processing is a serious pain in the rear.
+# In order to be able to compare telephone numbers, we must convert them
+# to a normalized form, which will be international form.
+class TelNormalizer:
+	"""A hacky telephone number normalizer"""
+	def __init__(self):
+		pass
+	def _isnum(self, c):
+		x = ord(c)
+		return (x >= ord('0') and x <= ord('9'))
+	def _isalpha(self, c):
+		x = ord(c)
+		return ((x >= ord('a') and x <= ord('z')) or
+			(x >= ord('A') and x <= ord('Z')))
+	def _alpha_convert(self, c):
+		x = ord(c)
+		if x >= ord('a') and x <= ord('z'):
+			c = c.upper()
+			x = ord(c)
+		if x >= ord('A') and x <= ord('C'):
+			c = '2'
+		elif x >= ord('D') and x <= ord('F'):
+			c = '3'
+		elif x >= ord('G') and x <= ord('I'):
+			c = '4'
+		elif x >= ord('J') and x <= ord('L'):
+			c = '5'
+		elif x >= ord('M') and x <= ord('O'):
+			c = '6'
+		elif x >= ord('P') and x <= ord('S'):
+			c = '7'
+		elif x >= ord('T') and x <= ord('V'):
+			c = '8'
+		elif x >= ord('W') and x <= ord('Z'):
+			c = '9'
+		return c
+	def _simplify(self, tel):
+		new = ''
+		if not tel:
+			return new
+		if tel[0] == '+':
+			new = '+'
+			tel = tel[1:]
+		for c in tel:
+			if self._isnum(c) or c == '#' or c == '*':
+				new = new + c
+			elif self._isalpha(c):
+				new = new + self._tel_alpha_convert(c)
+			elif (self._iswsp(c) or c == '-' or c == '.' or
+			      c == '(' or c == ')' or c == '~' or c == '/'):
+				continue
+			else:
+				print "Odd character \"%s\" in tel" % c
+		return new
+	def normalize(self, tel, teltype):
+		return self._simplify(tel)
+	def compare(self, tel1, tel2):
+		# FIXME: this is a horrible hack!
+		if ((tel1[0] == '+' and tel2[0] == '+') or
+		    (tel1[0] != '+' and tel2[0] != '+')):
+			return tel1 == tel2
+		if tel2[0] == '+':
+			tmp = tel1
+			tel1 = tel2
+			tel2 = tmp
+		if len(tel1) < len(tel2):
+			return False
+		start = len(tel1) - len(tel2)
+		return tel1[start:] == tel2
+
+
 # This is really _really_ stupid
 # If there was a vCard parser that was part of the standard
 # Python distribution, it would be used here.  But there isn't
 # and the job isn't very complicated.
 class VCard:
 	"""A hacky vCard representation"""
+	def __init__(self, fillbasic):
+		self.vtype = 'vcard'
+		self.attribs = []
+		if fillbasic:
+			self.attribs.append(['version', None, None, '3.0'])
+			self.attribs.append(['n', None, None, ';;;;'])
+			self.attribs.append(['fn', None, None, ''])
+	def findattrs(self, name):
+		opts = []
+		for x in self.attribs:
+			if x[0] == name:
+				opts.append(x)
+		return opts
+	def findtype(self, attrs, xtype):
+		opts = []
+		for x in attrs:
+			if not xtype:
+				opts.append(x)
+			elif 'type' in x[2]:
+				types = x[2]['type']
+				for y in types:
+					if y == xtype:
+						opts.append(x)
+		return opts
+	def findtels(self, teltype):
+		return self.findtype(self.findattrs('tel'), teltype)
+	def getuid(self):
+		opts = self.findattrs('uid')
+		if opts:
+			return opts[0][3]
+		return None
+	def getname(self):
+		opts = self.findattrs('name')
+		if not opts:
+			opts = self.findattrs('fn')
+		opt = opts[0]
+		# fixme: decode the name!
+		return opt[3]
+	def setname(self, name):
+		opts = self.findattrs('name')
+		if not opts:
+			opts = self.findattrs('fn')
+		opt = opts[0]
+		# fixme: encode the name!
+		opt[3] = name
+	def gettel(self, teltype):
+		opts = self.findtels(teltype)
+		if opts:
+			return opts[0][3]
+		return ''
+	def settel(self, teltype, num):
+		opts = self.findtels(teltype)
+		if opts:
+			opts[0][3] = num
+		else:
+			self.attribs.append(
+				['tel', None, {'type': teltype}, num])
+	def remove(self):
+		if hasattr(self, '_container'):
+			self._container.remove(self)
+	def merge(self, object):
+		# TODO: merge changes to attributes
+		print "Merge entry %s" % self.getuid()
+	def _parse_error(self, message):
+		raise Exception('VCARD object: %s' % message)
+	def _parse_case_insensitive_param(self, name):
+		return (name == 'type' or
+			name == 'charset' or
+			name == 'encoding')
+	def _parse_case_list(self, list):
+		out = []
+		for x in list:
+			out.append(x.lower())
+		return out
+	def _parse_add_content(self, name, groups, params, value):
+		self.attribs.append([name, groups, params, value])
+		#print 'Name:%s groups:%s Value:%s' % (name, groups, value)
+		for x in params:
+			if self._parse_case_insensitive_param(x):
+				params[x] = self._parse_case_list(params[x])
+			#print '\tParam: %s Value:%s' % (x, params[x])
+	def _parse_get_single(self, attr, reqd):
+		al = self.findattrs(attr)
+		v = None
+		if not len(al):
+			if not reqd:
+				return None
+			self._parse_error(_('Missing \"%s\" attribute') % attr)
+		elif len(al) > 1:
+			self._parse_error(_('Multiple \"%s\" attributes') %
+					  attr)
+		else:
+			v = al[0][3]
+		return v
+	def _parse_end(self):
+		v = self._parse_get_single('n', True)
+		v = self._parse_get_single('fn', True)
+		v = self._parse_get_single('version', True)
+		if v != '2.1' and v != '3.0':
+			self._parse_error(_('Unrecognized version \'%s\'') % v)
+		v = self._parse_get_single('uid', False)
 
 class VCardSet:
 	"""A hacky vCard container/manager object"""
+
+	# This module implements a parser for vCard 2.1 and 3.0.
+	# It does not parse each format strictly, as there are low-level
+	# differences in the following areas:
+	# - Whitespace is permitted between content tokens in 2.1, not 3.0
+	# - All parameters must be explicitly named in 3.0, not in 2.1
+	#
+	# Input that claims to be of one standard but does not strictly
+	# comply with that standard is silently accepted.
 
 	def __init__(self):
 		self._file_line = 0
 		self._save_line = None
 		self._current_object = None
-		pass
+		self._objects = []
+		self._uids = {}
+		self._object_list = gtk.ListStore(gobject.TYPE_PYOBJECT,
+						  gobject.TYPE_STRING)
+		self.normalizer = TelNormalizer()
 
 	def _isalpha(self, c):
 		x = ord(c)
@@ -141,26 +330,83 @@ class VCardSet:
 		return c == ' ' or c == '\t'
 	def _issafe(self, c):
 		x = ord(c)
-		return (self._iswsp(c)
-			or x == 0x21 or
+		return (self._iswsp(c) or
+			x == 0x21 or
 			(x >= 0x23 and x <= 0x2b) or
 			(x >= 0x2d and x <= 0x39) or
 			(x >= 0x3c and x <= 0x7e) or
 			x > 0x7f)
 	def _isqsafe(self, c):
 		x = ord(c)
-		return (_iswsp(c)
-			or x == 0x21 or
+		return (_iswsp(c) or
+			x == 0x21 or
 			(x >= 0x23 and x <= 0x7e) or
 			x > 0x7f)
-
+	def _create_object(self, vtype):
+		if vtype == 'vcard':
+			return VCard(False)
+		else:
+			self._parse_error(_('Unknown value type %s') % vtype)
+	def _add_object(self, object):
+		if not hasattr(object, '_container'):
+			uid = object.getuid()
+			if uid and uid in self._uids:
+				mergeit = self._uids[uid]
+				mergeit.merge(object)
+			else:
+				object._container = self
+				self._objects.append(object)
+				self._uids[uid] = object
+				iterx = self._object_list.append(
+					row = [object, object.getname()])
+				object._iter = iterx
+	def _remove_object(self, object):
+		if hasattr(object, '_container'):
+			i = 0
+			while i < len(self._objects):
+				if self._objects[i] == object:
+					del self._objects[i]
+				else:
+					i += 1
+			uid = object.getuid()
+			if uid:
+				del self._uids[uid]
+			del object._container
+			self._object_list.remove(object._iter)
+			del object._iter
 	def _process_line(self, name, groups, params, value):
-		print "Name:%s groups:%s value:%s" % (name, groups, value)
-		for param in params:
-			print "\t%s=%s" % (param, params[param])
+		if name == 'begin':
+			if self._current_object:
+				self._parse_error(_('Nested directory object'))
+			else:
+				self._current_object = (
+					self._create_object(value.lower()))
+		elif name == 'end':
+			if not self._current_object:
+				self._parse_error(_('Mismatched directory '
+						    'object END'))
+			elif self._current_object.vtype != value.lower():
+				self._parse_error(_('Mismatched directory '
+						    'object type for END'))
+			else:
+				self._current_object._parse_end()
+				self._add_object(self._current_object)
+				self._current_object = None
+		elif not self._current_object:
+			self._parse_error(_('Content line outside '
+					    'directory object'))
+		else:
+			self._current_object._parse_add_content(name, groups,
+								params, value)
 
 	def _parse_error(self, message):
-		raise Exception('Line %d: %s' % (self._file_line, message))
+		raise Exception(_('Line %d: %s') % (self._file_line, message))
+
+	def _parse_skip_ws(self, line):
+		pos = 0
+		while pos < len(line) and self._iswsp(line[pos]):
+			pos += 1
+		return line[pos:]
 	def _parse_name_groups(self, line):
 		groups = []
 		name = None
@@ -185,7 +431,7 @@ class VCardSet:
 				self._parse_error(_("Empty content name"))
 			name = line[:sep]
 			line = line[sep:]
-			return (groups, name, line)
+			return (groups, name.lower(), line)
 	def _parse_param_value(self, line):
 		sep = 0
 		if line[0] == '"':
@@ -240,36 +486,51 @@ class VCardSet:
 					self._parse_error(
 						_("Empty parameter name"))
 				name = line[:sep]
+				# vCard 2.1 hack
+				line = self._parse_skip_ws(line[sep:])
 				if x == '=':
-					line = line[(sep + 1):]
+					# vCard 2.1 hack
+					line = self._parse_skip_ws(line[1:])
 					break
-				line = line[sep:]
-				return (name, values, line)
 
+				# vCard 2.1 hack
+				# Property names without '=' are equivalent
+				# to type=name
+				values.append(name)
+				return ('type', values, line)
+
+		name = name.lower()
 		while True:
 			(x, line) = self._parse_param_value(line)
 			values.append(x)
 			if not len(line):
 				return (name, values, line)
+			# vCard 2.1 hack
+			line = self._parse_skip_ws(line)
 			x = line[0]
 			if x != ',':
 				return (name, values, line)
 			line = line[1:]
 	def _parse_line(self, line):
-		print "Line:%s" % line
 		(groups, name, line) = self._parse_name_groups(line)
 		params = {}
 		if not line:
 			self._parse_error(_('Malformed content line'))
+		# vCard 2.1 hack
+		line = self._parse_skip_ws(line)
 		while line[0] == ';':
 			(param, values, line) = self._parse_param(line[1:])
 			if param in params:
 				params[param].extend(values)
 			else:
 				params[param] = values
+			# vCard 2.1 hack
+			line = self._parse_skip_ws(line)
 		if line[0] != ':':
 			self._parse_error(_('Malformed content line'))
-		self._process_line(name, groups, params, line[1:])
+		# vCard 2.1 hack
+		line = self._parse_skip_ws(line[1:])
+		self._process_line(name, groups, params, line)
 
 	def _feed_line(self, line):
 		if not line or not self._iswsp(line[0]):
@@ -292,10 +553,31 @@ class VCardSet:
 			self._feed_line(x)
 		self._feed_done()
 	def import_file(self, path):
-		f = open(path, 'r')
+		f = open(os.path.expanduser(path), 'r')
 		contents = f.read()
 		f.close()
 		self.import_string(contents)
+
+	def search_tel(self, num_norm):
+		print "Search for %s" % num_norm
+		if not num_norm:
+			return (None, None)
+		for vc in self._objects:
+			if vc.vtype != 'vcard':
+				continue
+			nums = vc.findtels(None)
+			for ent in nums:
+				xnum = self.normalizer.normalize(ent[3], 129)
+				print "Check: %s" % xnum
+				if self.normalizer.compare(num_norm, xnum):
+					types = None
+					if 'type' in ent[2]:
+						types = ent[2]['type']
+					return (vc, types)
+		return (None, None)
+
+	def get_gtk_model(self):
+		return self._object_list
 
 
 class HfConsole:
@@ -321,6 +603,12 @@ class HfConsole:
 		val = (addr[0:2] + ':' + addr[2:4] + ':' + addr[4:6] + ':' +
 		       addr[6:8] + ':' + addr[8:10] + ':' + addr[10:12])
 		return val.upper()
+
+	def create_cellrenderertext(self):
+		cell = gtk.CellRendererText()
+		cell.set_property('scale-set', True)
+		cell.set_property('scale', pango.SCALE_X_LARGE)
+		return cell
 
 	def __init__(self):
 		
@@ -355,6 +643,8 @@ class HfConsole:
 			"BarDialPad_clicked_cb" : self.bar_dialpad_clicked,
 			"BarContacts_clicked_cb" : self.bar_contacts_clicked,
 			"AgAudioToggle_toggled_cb" : self.bar_ag_audio_toggled,
+			"AgVoiceRecogToggle_toggled_cb" :
+			self.bar_ag_voice_recognition_toggled,
 			"AgHangUp_clicked_cb" : self.bar_ag_hangup_clicked,
 			"AgHoldCall_clicked_cb" : self.bar_ag_swaphold_clicked,
 			"AgSwapCall_clicked_cb" : self.bar_ag_swaphold_clicked,
@@ -362,10 +652,16 @@ class HfConsole:
 			"AgRedial_clicked_cb" : self.bar_ag_redial_clicked,
 			"ConfigOpen_clicked_cb" : self.bar_config_clicked,
 			"DigitButton_pressed_cb" : self.digit_button_pressed,
+			"DigitButton_released_cb" : self.digit_button_released,
 			"DigitButton_clicked_cb" : self.digit_button_clicked,
+			"PhoneNumEntry_changed_cb" : self.phone_num_changed,
 			"PhoneNumBs_clicked_cb" : self.phone_num_bs,
 			"Mute_toggled_cb" : self.mute_toggled,
 			"on_MainWindow_destroy" : gtk.main_quit,
+			"ContactsDelete_clicked_cb" :
+			self.contacts_delete_clicked,
+			"ContactsNew_clicked_cb" : self.contacts_new_clicked,
+			"ContactsEdit_clicked_cb" : self.contacts_edit_clicked,
 
 			# Known Devices tab
 			"DevicesClose_clicked_cb" : self.devices_close_clicked,
@@ -401,6 +697,16 @@ class HfConsole:
 			"HistoryOK_clicked_cb" : self.history_ok_clicked,
 			"HistoryCancel_clicked_cb" :
 			self.history_cancel_clicked,
+
+			# Callbacks for the choose number tab
+			"ChooseNumberCancel_clicked_cb" :
+			self.choose_number_cancel_clicked,
+			"ChooseNumberMobile_clicked_cb" :
+			self.choose_number_mobile_clicked,
+			"ChooseNumberHome_clicked_cb" :
+			self.choose_number_home_clicked,
+			"ChooseNumberWork_clicked_cb" :
+			self.choose_number_work_clicked,
 
 			# Callbacks for the config tab
 			"ConfigOK_clicked_cb" : self.config_ok_clicked,
@@ -491,12 +797,12 @@ class HfConsole:
 		self['DevicesList'].set_model(self.ag_list_detail)
 		tvcolumn = gtk.TreeViewColumn(_('Name'))
 		self['DevicesList'].append_column(tvcolumn)
-		cell = gtk.CellRendererText()
+		cell = self.create_cellrenderertext()
 		tvcolumn.pack_start(cell, True)
 		tvcolumn.add_attribute(cell, 'text', 0)
 		tvcolumn = gtk.TreeViewColumn(_('Address'))
 		self['DevicesList'].append_column(tvcolumn)
-		cell = gtk.CellRendererText()
+		cell = self.create_cellrenderertext()
 		tvcolumn.pack_start(cell, True)
 		tvcolumn.add_attribute(cell, 'text', 1)
 		self['DevicesList'].get_selection().connect('changed',
@@ -509,12 +815,12 @@ class HfConsole:
 		self['NewDeviceList'].set_model(self.ag_list_new)
 		tvcolumn = gtk.TreeViewColumn(_('Name'))
 		self['NewDeviceList'].append_column(tvcolumn)
-		cell = gtk.CellRendererText()
+		cell = self.create_cellrenderertext()
 		tvcolumn.pack_start(cell, True)
 		tvcolumn.add_attribute(cell, 'text', 0)
 		tvcolumn = gtk.TreeViewColumn(_('Address'))
 		self['NewDeviceList'].append_column(tvcolumn)
-		cell = gtk.CellRendererText()
+		cell = self.create_cellrenderertext()
 		tvcolumn.pack_start(cell, True)
 		tvcolumn.add_attribute(cell, 'text', 1)
 		self['NewDeviceList'].get_selection().connect('changed',
@@ -543,7 +849,7 @@ class HfConsole:
 		self['ScanResults'].set_model(self.scanresults)
 		tvcolumn = gtk.TreeViewColumn(_('Device'))
 		self['ScanResults'].append_column(tvcolumn)
-		cell = gtk.CellRendererText()
+		cell = self.create_cellrenderertext()
 		tvcolumn.pack_start(cell, True)
 		tvcolumn.add_attribute(cell, 'text', 0)
 		self.scanselect = self['ScanResults'].get_selection()
@@ -555,7 +861,7 @@ class HfConsole:
 		self['HistoryResults'].set_model(self.historyresults)
 		tvcolumn = gtk.TreeViewColumn(_('Device'))
 		self['HistoryResults'].append_column(tvcolumn)
-		cell = gtk.CellRendererText()
+		cell = self.create_cellrenderertext()
 		tvcolumn.pack_start(cell, True)
 		tvcolumn.add_attribute(cell, 'text', 0)
 		self.historyselect = self['HistoryResults'].get_selection()
@@ -574,11 +880,32 @@ class HfConsole:
 		self.nobt = False
 		self.nested = False
 
-		self.frontpage = 0 #1
+		self.frontpage = 1
 		self.frontnotebook_set(self.frontpage)
 
 		self.alerter_factory = (lambda x:
 					GtkAlerter(self.gladefile, x))
+
+		self.vcards = VCardSet()
+		sort = gtk.TreeModelSort(self.vcards.get_gtk_model())
+		def name_sort(model, iter1, iter2):
+			n1 = model.get_value(iter1, 1)
+			n2 = model.get_value(iter2, 1)
+			if n1 < n2:
+				return -1
+			if n1 == n2:
+				return 0
+			return 1
+		sort.set_sort_func(0, name_sort)
+		sort.set_sort_column_id(0, gtk.SORT_ASCENDING)
+		self['ContactsList'].set_model(sort)
+		tvcolumn = gtk.TreeViewColumn(_('Name'))
+		self['ContactsList'].append_column(tvcolumn)
+		cell = self.create_cellrenderertext()
+		tvcolumn.pack_start(cell, True)
+		tvcolumn.add_attribute(cell, 'text', 1)
+		contactselect = self['ContactsList'].get_selection()
+		contactselect.connect('changed', self.contacts_select)
 
 	def command_audio_attach(self, state):
 		if state == self.command_audio_attach_state:
@@ -650,7 +977,7 @@ class HfConsole:
 		except:
 			v = 0
 
-		my_version = 3
+		my_version = 4
 		if v < my_version:
 			self.fatal(_('Version mismatch with hfpd!\n'
 				     'hfpd version: %(hfpdver)d\n'
@@ -693,6 +1020,12 @@ class HfConsole:
 		for x in loadags:
 			x = self.addr_untransform(x[0])
 			self.add_audiogateway(x, False)
+
+		try:
+			pass
+			#self.vcards.import_file('~/.hfconsole.vcf')
+		except Exception, (ex):
+			print 'Load contacts: %s' % str(ex)
 
 		self.busctl.connect_to_signal("NameOwnerChanged",
 					      self.hfpd_lost)
@@ -779,6 +1112,8 @@ class HfConsole:
 			self.message = False
 			self.vm = False
 			self.noservice = False
+			self.voicerecog = False
+			self.inbandringtone = False
 		def __init__(self, hfc, sbus, hfpd, agpath, box):
 			self.hfc = hfc
 			self.path = agpath
@@ -788,6 +1123,7 @@ class HfConsole:
 			self.reset_indicators()
 			self.autoreconnect = 1
 			self.autoreconnect_flag = False
+			self.normalizer = TelNormalizer()
 
 			self.state = 0
 			self.callstate = 0
@@ -826,6 +1162,14 @@ class HfConsole:
 			sig = self.ag.connect_to_signal("Ring",
 						self.ring_notify)
 			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal(
+				"VoiceRecognitionActiveChanged",
+				self.voice_recognition_changed)
+			self.sigs.append(sig)
+			sig = self.ag.connect_to_signal(
+				"InBandRingToneEnableChanged",
+				self.inbandringtone_changed)
+			self.sigs.append(sig)
 
 			self.addr = self.getprop('Address')
 			self.name = self.getprop('Name')
@@ -835,6 +1179,10 @@ class HfConsole:
 			self.state = self.getprop('State')
 			self.callstate = self.getprop('CallState')
 			self.audiostate = self.getprop('AudioState')
+			self.voicerecog = self.getprop(
+				'VoiceRecognitionActive')
+			self.inbandringtone = self.getprop(
+				'InBandRingToneEnable')
 			self.state_changed(self.state, False)
 			self.call_state_changed(self.callstate)
 			self.audio_state_changed(self.audiostate)
@@ -872,6 +1220,18 @@ class HfConsole:
 			return self.has_feature('RejectCall')
 		def can_drop_held_udub(self):
 			return self.has_feature('DropHeldUdub')
+		def has_voice_recognition(self):
+			return (self.is_connected() and
+				self.has_feature('VoiceRecognition'))
+		def get_voice_recognition(self):
+			return self.voicerecog
+		def set_voice_recognition(self, st):
+			self.ag.SetVoiceRecognition(dbus.Boolean(st),
+				     reply_handler=lambda : None,
+				     error_handler=self.command_failed)
+		def voice_recognition_changed(self, st):
+			self.voicerecog = st
+			self.disp.set_state()
 		def selectable(self):
 			return self.is_mine()
 		def select_priority(self):
@@ -965,6 +1325,11 @@ class HfConsole:
 			self.disp.set_state()
 		def soundio_state_changed(self):
 			self.disp.set_state()
+		def inbandringtone_changed(self, st):
+			self.inbandringtone = st
+			# So far we don't really care about this,
+			# because audio gateways get priority for the
+			# sound card.
 		def autoreconnect_changed(self, value):
 			value = bool(value)
 			if self.autoreconnect_flag != value:
@@ -1001,9 +1366,16 @@ class HfConsole:
 			if not self.alerter:
 				self.alerter = self.hfc.alerter_factory(self)
 			self.alerter.update_state()
-		def ring_notify(self, caller_id, phbook_ent):
-			self.caller_id = caller_id
-			self.caller_phbook = phbook_ent
+		def ring_notify(self, number, number_type, subaddr, satype,
+				phbook_ent):
+			if self.caller_id != number:
+				self.caller_id = number
+				if not phbook_ent:
+					num_norm = self.normalizer.normalize(
+						number, number_type)
+					phbook_ent = self.hfc.contacts_lookup(
+						num_norm)
+				self.caller_phbook = phbook_ent
 			self.alert_open()
 		def waiting_caller_info(self):
 			return (self.caller_id, self.caller_phbook)
@@ -1451,19 +1823,47 @@ class HfConsole:
 			text = '#'
 		return text
 
+	def digit_button_output_char(self, char):
+		entry = self['PhoneNumEntry']
+		entry.set_text(entry.get_text() + char)
+	def digit_button_plus_timeout_cancel(self):
+		if hasattr(self, 'digit_plus_timeout'):
+			gobject.source_remove(self.digit_plus_timeout)
+			del self.digit_plus_timeout
+	def digit_button_plus_timeout_set(self, timeout):
+		self.digit_plus_timeout = gobject.timeout_add(
+			timeout, self.digit_button_plus_timeout)
+	def digit_button_plus_timeout(self):
+		self.digit_button_plus_timeout_cancel()
+		self.nested = True
+		self['DigitButton0'].released()
+		self.nested = False
+		self.digit_button_output_char('+')
+		return False
 	def digit_button_pressed(self, but):
 		ag = self.selected_ag
+		text = self.digit_button_char(but)
 		if not ag or not ag.can_dtmf():
+			if text == '0' and ag and ag.can_dial():
+				self.digit_button_plus_timeout_set(1000)
+			return
+		ag.dtmf(text)
+	def digit_button_released(self, but):
+		if self.nested:
 			return
 		text = self.digit_button_char(but)
-		ag.dtmf(text)
+		if text == '0':
+			self.digit_button_plus_timeout_cancel()
 	def digit_button_clicked(self, but):
+		if self.nested:
+			return
 		ag = self.selected_ag
 		if not ag or not ag.can_dial():
 			return
 		text = self.digit_button_char(but)
-		entry = self['PhoneNumEntry']
-		entry.set_text(entry.get_text() + text)
+		self.digit_button_output_char(text)
+	def phone_num_changed(self, widget):
+		self.ag_configure_gui(self.selected_ag)
 	def phone_num_bs(self, but):
 		entry = self['PhoneNumEntry']
 		entry.set_text(entry.get_text()[:-1])
@@ -1474,12 +1874,15 @@ class HfConsole:
 		digits = False
 		do_notebook = False
 		dial = False
+		dial_gray = False
 		hold = False
 		swap = False
 		hangup = False
 		audio = False
 		audio_ip = False
 		audio_dn = False
+		voicerecog = False
+		voicerecog_dn = False
 		record = False
 		record_dn = False
 		mainstatus = False
@@ -1504,9 +1907,9 @@ class HfConsole:
 				hold = ag.can_hold()
 				do_notebook = not ag.can_dial()
 				hangup = not dial
-				if hold:
-					swap = ag.has_waiting_call()
-					hold = not swap
+				if hold and ag.has_waiting_call():
+					swap = True
+					hold = False
 				audio = True
 				if ag.has_audio():
 					audio_dn = True
@@ -1518,6 +1921,11 @@ class HfConsole:
 				if batt_page < 0 or batt_page > 5:
 					batt_page = 0
 					battstatus = False
+				if (ag.has_voice_recognition() and
+				    ag.can_dial()):
+					voicerecog = True
+					voicerecog_dn = (
+						ag.get_voice_recognition())
 
 		# Display the "no bluetooth" icon if BT is disconnected
 		# and the AG is not connected
@@ -1527,10 +1935,24 @@ class HfConsole:
 			status_page = 9
 			sel_dis = True
 
+		# Gray out the dial button if the UI does not have a
+		# phone number entered or a contact selected
+		if dial:
+			pad = True
+			if not do_notebook and self.frontpage == 1:
+				pad = False
+			if pad:
+				dial_gray = not bool(self['PhoneNumEntry'].
+						     get_text())
+			else:
+				sel = self['ContactsList'].get_selection()
+				dial_gray = (sel.count_selected_rows() == 0)
+
 		def set_vis(widget, visible):
 			if visible: widget.show()
 			else: widget.hide()
 
+		self.nested = True
 		self['AgSelector'].set_sensitive(not sel_dis)
 		self['DigitButtonBox'].set_sensitive(digits)
 		self['PhoneNumEntryBox'].set_sensitive(dial)
@@ -1540,10 +1962,13 @@ class HfConsole:
 		set_vis(self['AgHoldCall'], hold)
 		set_vis(self['AgSwapCall'], swap)
 		set_vis(self['AgDial'], dial)
+		self['AgDial'].set_sensitive(not dial_gray)
 		set_vis(self['AgRedial'], dial)
 		set_vis(self['AgAudioToggle'], audio)
 		self['AgAudioToggle'].set_active(audio_dn)
 		self['AgAudioToggle'].set_sensitive(not audio_ip)
+		set_vis(self['AgVoiceRecogToggle'], voicerecog)
+		self['AgVoiceRecogToggle'].set_active(voicerecog_dn)
 		set_vis(self['RecordCall'], record)
 		self['RecordCall'].set_active(record_dn)
 		set_vis(self['AgMainStatus'], mainstatus)
@@ -1551,6 +1976,7 @@ class HfConsole:
 		set_vis(self['AgBatteryStatus'], battstatus)
 		self['AgBatteryStatus'].set_current_page(batt_page)
 		set_vis(self['MessageIndicator'], message)
+		self.nested = False
 		if do_notebook:
 			self.frontnotebook_set(0)
 		else:
@@ -1558,14 +1984,32 @@ class HfConsole:
 
 	def bar_ag_dial_clicked(self, widget):
 		ag = self.selected_ag
-		entry = self['PhoneNumEntry']
 		if not ag:
 			return
 		if not ag.can_dial():
 			return
-		num = entry.get_text()
-		entry.set_text('')
-		ag.dial(num)
+		if self.frontpage == 0:
+			entry = self['PhoneNumEntry']
+			num = entry.get_text()
+			entry.set_text('')
+			if not num:
+				return
+			ag.dial(num)
+		else:
+			sel = self['ContactsList'].get_selection()
+			(model, iterx) = sel.get_selected()
+			if not iterx:
+				return
+			vcard = model.get_value(iterx, 0)
+			nums = vcard.findtels(None)
+			if not len(nums):
+				pass
+			elif len(nums) == 1:
+				num = vcard.gettel(None)
+				ag.dial(num)
+			else:
+				# Ask the user to pick a number
+				self.choose_number_open(vcard)
 
 	def bar_ag_scan_clicked(self, widget):
 		self.scan_open()
@@ -1581,13 +2025,15 @@ class HfConsole:
 	def frontnotebook_set(self, page):
 		dialpad_but = False
 		contacts_but = False
+		page = 0
 		if page == 0:
 			#contacts_but = True
 			if (self.selected_ag and
 			    self.selected_ag.is_connected() and
 			    not self.selected_ag.can_dial()):
 				contacts_but = False
-		if page == 1:
+				pass
+		elif page == 1:
 			dialpad_but = True
 			
 		def set_vis(widget, visible):
@@ -1600,10 +2046,11 @@ class HfConsole:
 
 	def bar_dialpad_clicked(self, widget):
 		self.frontpage = 0
-		self.frontnotebook_set(0)
+		self.ag_configure_gui(self.selected_ag)
+
 	def bar_contacts_clicked(self, widget):
 		self.frontpage = 1
-		self.frontnotebook_set(1)
+		self.ag_configure_gui(self.selected_ag)
 
 	def bar_ag_hangup_clicked(self, widget):
 		ag = self.selected_ag
@@ -1638,8 +2085,68 @@ class HfConsole:
 				_('Could not open audio connection: %s') %
 				str(ex))
 			widget.set_active(False)
+	def bar_ag_voice_recognition_toggled(self, widget):
+		if (self.nested or
+		    not self.selected_ag or
+		    not self.selected_ag.has_voice_recognition()):
+			return
+		self.selected_ag.set_voice_recognition(widget.get_active())
 	def bar_config_clicked(self, widget):
 		self.config_open()
+
+	def contacts_new_clicked(self, widget):
+		pass
+	def contacts_edit_clicked(self, widget):
+		pass
+	def contacts_delete_clicked(self, widget):
+		pass
+	def contacts_select(self, widget):
+		self.ag_configure_gui(self.selected_ag)
+	def contacts_lookup(self, num_norm):
+		(vcard, types) = self.vcards.search_tel(num_norm)
+		if not vcard:
+			return None
+		nfmt = _('%s (Home)')
+		for x in types:
+			if x == 'cell':
+				nfmt = _('%s (Mobile)')
+			elif x == 'work':
+				nfmt = _('%s (Work)')
+		return nfmt % vcard.getname()
+
+	def choose_number_open(self, vcard):
+		tel_cell = vcard.gettel('cell')
+		tel_home = vcard.gettel('home')
+		tel_work = vcard.gettel('work')
+
+		def fix_button(prefix, tel):
+			prefix = 'ChooseNumber' + prefix
+			if tel:
+				self[prefix + 'Label'].set_text(tel)
+				self[prefix].show()
+			else:
+				self[prefix].hide()
+		fix_button('Mobile', tel_cell)
+		fix_button('Home', tel_home)
+		fix_button('Work', tel_work)
+		self.topnotebook_set(self['ChooseNumberTab'])
+	def choose_number_done(self):
+		self.topnotebook_set(None)
+	def choose_number_cancel_clicked(self, widget):
+		self.choose_number_done()
+	def choose_number_finish(self, num):
+		self.choose_number_done()
+		if self.selected_ag and self.selected_ag.can_dial():
+			self.selected_ag.dial(num)
+	def choose_number_mobile_clicked(self, widget):
+		num = self['ChooseNumberMobileLabel'].get_text()
+		self.choose_number_finish(num)
+	def choose_number_home_clicked(self, widget):
+		num = self['ChooseNumberHomeLabel'].get_text()
+		self.choose_number_finish(num)
+	def choose_number_work_clicked(self, widget):
+		num = self['ChooseNumberWorkLabel'].get_text()
+		self.choose_number_finish(num)
 	def hfpd_system_msg_clear(self):
 		if hasattr(self, 'system_msg'):
 			self['StatusBar'].remove(self.system_ctx,
@@ -2568,6 +3075,7 @@ class HfConsole:
 			self.initconf_set_buttons(False, True)
 		elif page_num == 1:
 			self.initconf_set_buttons(True, False)
+
 if __name__ == "__main__":
 	hwg = HfConsole()
 	hwg.Start()
