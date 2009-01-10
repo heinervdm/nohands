@@ -165,7 +165,7 @@ class TelNormalizer:
 			if self._isnum(c) or c == '#' or c == '*':
 				new = new + c
 			elif self._isalpha(c):
-				new = new + self._tel_alpha_convert(c)
+				new = new + self._alpha_convert(c)
 			elif (self._iswsp(c) or c == '-' or c == '.' or
 			      c == '(' or c == ')' or c == '~' or c == '/'):
 				continue
@@ -613,10 +613,10 @@ class HfConsole:
 	def __init__(self):
 		
 		# Set the Glade file
-		gladedirs = ['.', './data', '@gladedir@']
+		self.share_path = ['.', './data', '@gladedir@']
 		gladefile = 'hfconsole.glade'
 		found = False
-		for x in gladedirs:
+		for x in self.share_path:
 			try:
 				self.widgets = gtk.glade.XML(x + '/' +
 							     gladefile)
@@ -1016,6 +1016,23 @@ class HfConsole:
 		if self.configfile.has_option('options', 'detach_command'):
 			cmd = self.configfile.get('options', 'detach_command')
 		self.command_audio_attach_dcmd = cmd
+		cmd = None
+		if self.configfile.has_option('options', 'default_ringtone'):
+			cmd = self.configfile.get('options',
+						  'default_ringtone')
+		if not cmd:
+			# Search for the default ringtone file
+			for x in self.share_path:
+				cmd = x + '/hfconsole_ring.wav'
+				cmd = os.path.normpath(
+					os.path.join(os.getcwd(),
+						     os.path.expanduser(cmd)))
+
+				if os.access(cmd, os.R_OK):
+					break
+				cmd = None
+		self.default_ringtone = cmd
+
 		loadags = self.configfile.items('devices')
 		for x in loadags:
 			x = self.addr_untransform(x[0])
@@ -1360,6 +1377,7 @@ class HfConsole:
 			if self.alerter:
 				self.alerter.remove()
 				self.alerter = None
+				self.hfc.ag_ring_stop(self)
 			self.caller_id = None
 			self.caller_phbook = None
 		def alert_open(self):
@@ -1377,6 +1395,10 @@ class HfConsole:
 						num_norm)
 				self.caller_phbook = phbook_ent
 			self.alert_open()
+			if (self.alerter and
+			    not self.alerter.completed and
+			    self.callstate == 4):
+				self.hfc.ag_ring(self)
 		def waiting_caller_info(self):
 			return (self.caller_id, self.caller_phbook)
 			
@@ -1706,7 +1728,10 @@ class HfConsole:
 		# we don't initiate audio connections.
 		if (self.selected_ag and
 		    self.selected_ag.has_audio() and
-		    self.soundstate == 2):
+		    (self.soundstate == 2 or
+		     self.soundstate == 5 or
+		     self.soundstate == 6 or
+		     self.soundstate == 7)):
 			try:
 				self.soundio.AudioGatewayStart(
 					self.selected_ag.path, False)
@@ -1748,6 +1773,21 @@ class HfConsole:
 			self.ag_configure_gui(None)
 		if ag:
 			self.ag_push_audio()
+
+	def ag_ring(self, ag):
+		if (self.default_ringtone and
+		    self.soundstate == 2):
+			# Try to play the ring tone
+			try:
+				self.soundio.FileStart(self.default_ringtone,
+						       False)
+				self.ag_play_target = ag
+			except: pass
+	def ag_ring_stop(self, ag):
+		if (hasattr(self, 'ag_play_target') and
+		    self.ag_play_target == ag):
+			del self.ag_play_target
+			self.soundio.Stop()
 
 	def ag_config_has_option(self, addr, name):
 		section = 'ag_' + self.addr_transform(addr)
@@ -2460,6 +2500,9 @@ class HfConsole:
 		cmd = self.command_audio_attach_dcmd
 		if cmd:
 			self['ConfigAudioDetachCommand'].set_text(cmd)
+		cmd = self.default_ringtone
+		if cmd:
+			self['ConfigRingerFile'].set_filename(cmd)
 		self.config_savecfg = savecfg
 		self.topnotebook_set(self['ConfigTab'])
 	def config_close(self):
@@ -2538,6 +2581,10 @@ class HfConsole:
 		cmd = self['ConfigAudioDetachCommand'].get_text()
 		self.command_audio_attach_dcmd = cmd
 		self.configfile.set('options', 'detach_command', cmd)
+		cmd = self['ConfigRingerFile'].get_filename()
+		if self.default_ringtone != cmd:
+			self.default_ringtone = cmd
+			self.configfile.set('options', 'default_ringtone', cmd)
 		self.configfile.write(open(self.configfile_name, 'w+'))
 	def config_restore_vals(self, vals):
 		self['ConfigFeedbackTest'].set_active(False)
@@ -2852,10 +2899,7 @@ class HfConsole:
 			self.setprop_soundio('DereverbDecay',
 					      dbus.Double(value))
 	def config_ringer_file_set(self, widget):
-		value = widget.get_filename()	
-		self.config['ringer'] = value
-		print "Ringer: " + value
-
+		pass
 
 	def config_dsptest_pageid(self, widget):
 		return widget.get_current_page()
@@ -2979,6 +3023,8 @@ class HfConsole:
 		agpath = self.getprop_soundio('AudioGateway')
 		self.soundstate = int(state)
 		if self.soundstate == 2:
+			if hasattr(self, 'ag_play_target'):
+				del self.ag_play_target
 			self.command_audio_attach(False)
 			if (hasattr(self, 'loopback_active') and
 			    self.loopback_active):

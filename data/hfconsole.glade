@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE glade-interface SYSTEM "glade-2.0.dtd">
-<!--Generated with glade3 3.4.5 on Fri Jan  9 01:42:09 2009 -->
+<!--Generated with glade3 3.4.5 on Fri Jan  9 07:39:11 2009 -->
 <glade-interface>
   <widget class="GtkWindow" id="MainWindow">
     <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
@@ -3006,7 +3006,7 @@ The contact you wish to call has multiple telephone numbers.  Select the number 
                             <property name="visible">True</property>
                             <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                             <property name="xalign">0</property>
-                            <property name="label" translatable="yes">Ringer Sound:</property>
+                            <property name="label" translatable="yes">Default Ringer Sound:</property>
                           </widget>
                           <packing>
                             <property name="x_options">GTK_FILL</property>
