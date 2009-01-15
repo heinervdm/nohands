@@ -880,7 +880,7 @@ class HfConsole:
 		self.nobt = False
 		self.nested = False
 
-		self.frontpage = 1
+		self.frontpage = 0
 		self.frontnotebook_set(self.frontpage)
 
 		self.alerter_factory = (lambda x:
