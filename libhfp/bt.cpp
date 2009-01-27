@@ -59,6 +59,15 @@ namespace libhfp {
  *
  * Eventually this will be replaced with an asynchronous alternative.
  */
+
+/*
+ * Some versions of libbluetooth define the supported features attribute ID
+ * as below.
+ */
+#if !defined(SDP_ATTR_SUPPORTED_FEATURES)
+#define SDP_ATTR_SUPPORTED_FEATURES SDP_SUPPORTED_FEATURES
+#endif
+
 int SdpAsyncTaskHandler::
 SdpLookupChannel(SdpTaskParams &htp)
 {
