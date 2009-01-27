@@ -960,7 +960,7 @@ RfcommSend(const uint8_t *buf, size_t len, ErrorInfo *error)
 		GetDi()->LogWarn(&local_error,
 				 LIBHFP_ERROR_SUBSYS_BT,
 				 LIBHFP_ERROR_BT_SYSCALL,
-				 "Short write: expected:%d sent:%d",
+				 "Short write: expected:%zd sent:%zd",
 				 len, rl);
 		if (error)
 			*error = local_error;
