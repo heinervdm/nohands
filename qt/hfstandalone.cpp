@@ -796,9 +796,10 @@ public:
 		m_sound->SetJitterWindowHint(10);
 
 		m_sigproc = SoundIoFltCreateSpeex(&g_qt_ei);
-		m_sigproc->Configure(m_sigproc_props);
-
-		m_sound->SetDsp(m_sigproc);
+		if (m_sigproc) {
+			m_sigproc->Configure(m_sigproc_props);
+			m_sound->SetDsp(m_sigproc);
+		}
 
 		m_sound_user = SC_NONE;
 		return true;
@@ -1082,7 +1083,8 @@ public slots:
 		if (m_sound_user != SC_NONE)
 			SoundCardRelease();
 
-		if (!m_sigproc->Configure(m_sigproc_props)) {
+		if (m_sigproc &&
+		    !m_sigproc->Configure(m_sigproc_props)) {
 			fprintf(stderr, "%s: sigproc failed\n", __FUNCTION__);
 			return;
 		}
