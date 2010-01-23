@@ -11,7 +11,7 @@ endif
 
 # Glade XML files
 hfconsole_IMAGES = icon.png agconnect.png audioconnect.png \
-	contacts.png dialpad.png tel-cell.png \
+	contacts.png dialpad.png tel-cell.png vr.png \
 	battery-0.png battery-1.png battery-2.png battery-3.png \
 	battery-4.png battery-5.png \
 	mute.png nobt.png noag.png message.png \
