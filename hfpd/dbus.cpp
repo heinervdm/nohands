@@ -1757,7 +1757,8 @@ DbusPropertyGet(DBusMessage *srcp)
 	}
 
 	if (!propp->prop_get) {
-		return SendReplyError(msgp,
+		dbus_message_unref(msgp);
+		return SendReplyError(srcp,
 				      DBUS_ERROR_INVALID_ARGS,
 				      "Property cannot be read");
 	}
