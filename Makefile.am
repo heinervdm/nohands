@@ -16,7 +16,7 @@ else !BUILD_DBUS
 DBUS=
 endif !BUILD_DBUS
 
-SUBDIRS = libhfp $(DBUS) $(NHANDSFREE) $(QT) data test
+SUBDIRS = libhfp $(DBUS) $(NHANDSFREE) $(QT) data
 DIST_SUBDIRS = $(SUBDIRS) include
 
 # Do not attempt to install the D-Bus service file when
