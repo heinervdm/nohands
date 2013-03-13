@@ -733,7 +733,7 @@ public:
 	template <typename TargT>
 	void Register(TargT *targp, TRet (TargT::*mfp)(TA1, TA2, TA3,
 						       TA4, TA5, TA6)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 
 	/**
@@ -765,13 +765,13 @@ class Callback<void> : public CallbackAdapter<void, ArgSet<> > {
 public:
 	template <typename TargT>
 	void Register(TargT *targp, void (TargT::*mfp)(void)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	void operator()(void) {
 		if (BaseT::m_marshall) {
 			InArgset ia;
-			Invoke(ia);
+			this->Invoke(ia);
 		} else {
 			((BaseT::m_targ)->*(mfp_t)BaseT::m_method)();
 		}
@@ -786,7 +786,7 @@ class Callback<TRet> : public CallbackAdapter<TRet, ArgSet<> > {
 public:
 	template <typename TargT>
 	void Register(TargT *targp, TRet (TargT::*mfp)(void)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	TRet operator()(void) {
@@ -807,13 +807,13 @@ class Callback<void, TA1> : public CallbackAdapter<void, ArgSet<TA1> > {
 public:
 	template <typename TargT>
 	void Register(TargT *targp, void (TargT::*mfp)(TA1)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	void operator()(TA1 a1) {
 		if (BaseT::m_marshall) {
 			InArgset ia(a1);
-			Invoke(ia);
+			this->Invoke(ia);
 		} else {
 			((BaseT::m_targ)->*(mfp_t)BaseT::m_method)(a1);
 		}
@@ -828,7 +828,7 @@ class Callback<TRet, TA1> : public CallbackAdapter<TRet, ArgSet<TA1> > {
 public:
 	template <typename TargT>
 	void Register(TargT *targp, TRet (TargT::*mfp)(TA1)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	TRet operator()(TA1 a1) {
@@ -850,13 +850,13 @@ class Callback<void, TA1, TA2> :
 public:
 	template <typename TargT>
 	void Register(TargT *targp, void (TargT::*mfp)(TA1, TA2)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	void operator()(TA1 a1, TA2 a2) {
 		if (BaseT::m_marshall) {
 			InArgset ia(a1, a2);
-			Invoke(ia);
+			this->Invoke(ia);
 		} else {
 			((BaseT::m_targ)->*(mfp_t)BaseT::m_method)(a1, a2);
 		}
@@ -872,7 +872,7 @@ class Callback<TRet, TA1, TA2> :
 public:
 	template <typename TargT>
 	void Register(TargT *targp, TRet (TargT::*mfp)(TA1, TA2)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	TRet operator()(TA1 a1, TA2 a2) {
@@ -894,13 +894,13 @@ class Callback<void, TA1, TA2, TA3> :
 public:
 	template <typename TargT>
 	void Register(TargT *targp, void (TargT::*mfp)(TA1, TA2, TA3)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	void operator()(TA1 a1, TA2 a2, TA3 a3) {
 		if (BaseT::m_marshall) {
 			InArgset ia(a1, a2, a3);
-			Invoke(ia);
+			this->Invoke(ia);
 		} else {
 			((BaseT::m_targ)->*(mfp_t)BaseT::m_method)(a1, a2, a3);
 		}
@@ -916,7 +916,7 @@ class Callback<TRet, TA1, TA2, TA3> :
 public:
 	template <typename TargT>
 	void Register(TargT *targp, TRet (TargT::*mfp)(TA1, TA2, TA3)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	TRet operator()(TA1 a1, TA2 a2, TA3 a3) {
@@ -938,13 +938,13 @@ class Callback<void, TA1, TA2, TA3, TA4> :
 public:
 	template <typename TargT>
 	void Register(TargT *targp, void (TargT::*mfp)(TA1, TA2, TA3, TA4)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	void operator()(TA1 a1, TA2 a2, TA3 a3, TA4 a4) {
 		if (BaseT::m_marshall) {
 			InArgset ia(a1, a2, a3, a4);
-			Invoke(ia);
+			this->Invoke(ia);
 		} else {
 			((BaseT::m_targ)->*(mfp_t)BaseT::m_method)(
 				a1, a2, a3, a4);
@@ -962,7 +962,7 @@ class Callback<TRet, TA1, TA2, TA3, TA4> :
 public:
 	template <typename TargT>
 	void Register(TargT *targp, TRet (TargT::*mfp)(TA1, TA2, TA3, TA4)) {
-		RegisterDirect(targp, mfp);
+		this->RegisterDirect(targp, mfp);
 	}
 	void Register(BaseT const &src) { Copy(src); }
 	TRet operator()(TA1 a1, TA2 a2, TA3 a3, TA4 a4) {
