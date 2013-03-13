@@ -1,6 +1,6 @@
 # $Id: $
 
-AM_CXXFLAGS = -Wshadow -fno-exceptions
+AM_CXXFLAGS = -Wshadow -fno-exceptions -fpermissive
 INCLUDES = -I$(top_srcdir)/include -include config.h
 
 noinst_LIBRARIES = libhfp.a
