@@ -10,7 +10,7 @@
 ** destructor.
 *****************************************************************************/
 
-void ScanDialog::SelectDevice( QListBoxItem *item ) {
+void ScanDialog::SelectDevice( Q3ListBoxItem *item ) {
     if (item == NULL) {
 	buttonOk->setEnabled(false);
     } else {

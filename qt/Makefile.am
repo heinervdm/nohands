@@ -1,6 +1,6 @@
 # $Id: $
 
-INCLUDES = -I$(top_srcdir)/include -include config.h $(QT_INCLUDES)
+INCLUDES = -I$(top_srcdir)/include -include config.h $(QT_CFLAGS)
 
 bin_PROGRAMS = hfstandalone
 

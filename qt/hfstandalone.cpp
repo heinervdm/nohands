@@ -20,18 +20,18 @@
 #include <qsocketnotifier.h>
 #include <qtimer.h>
 #include <qapplication.h>
-#include <qvbox.h>
-#include <qvbox.h>
+#include <q3vbox.h>
+#include <q3hbox.h>
 #include <qlayout.h>
-#include <qscrollview.h>
+#include <q3scrollview.h>
 #include <qlabel.h>
-#include <qlistbox.h>
+#include <q3listbox.h>
 #include <qcheckbox.h>
 #include <qradiobutton.h>
 #include <qsettings.h>
 #include <qmessagebox.h>
 #include <qlineedit.h>
-#include <qcombobox.h>
+#include <q3combobox.h>
 
 #include "events-qt.h"
 
@@ -45,7 +45,7 @@ static QtEventDispatchInterface g_qt_ei;
  * audio gateway is focused, and allow it to make itself focused by
  * clicking.
  */
-class SelectableBox : public QVBox {
+class SelectableBox : public Q3VBox {
 	Q_OBJECT;
 signals:
 	void selected(void);
@@ -62,7 +62,7 @@ public:
 		selected();
 	}
 	SelectableBox(QWidget *parent, const char *name)
-		: QVBox(parent, name) {}
+		: Q3VBox(parent, name) {}
 };
 
 
@@ -129,13 +129,13 @@ public:
 };
 
 
-class ScanResult : public QListBoxText {
+class ScanResult : public Q3ListBoxText {
 	friend class RealUI;
 	BtDevice 	*m_device;
 
 public:
 	ScanResult(BtDevice *devp)
-		: QListBoxText(QString(devp->GetName())),
+		: Q3ListBoxText(QString(devp->GetName())),
 		  m_device(devp) {
 		m_device->Get();
 		m_device->SetPrivate(this);
@@ -172,7 +172,7 @@ public:
 	bool			m_autoreconnect;
 
 	/* UI details */
-	QScrollView		*m_device_scroll;
+	Q3ScrollView		*m_device_scroll;
 	QVBoxLayout		*m_device_layout;
 	QWidget			*m_device_filler;
 
@@ -196,7 +196,7 @@ public:
 		int idx;
 		QLabel *lp;
 		QPushButton *pbp;
-		QHBox *hbp;
+		Q3HBox *hbp;
 		SelectableBox *sbp =
 			new SelectableBox(m_device_scroll, 0);
 
@@ -207,7 +207,7 @@ public:
 		sbp->hide();
 		devp->m_devlist_box = sbp;
 
-		hbp = new QHBox(sbp, NULL);
+		hbp = new Q3HBox(sbp, NULL);
 		hbp->show();
 
 		lp = new QLabel(hbp, "status");
@@ -226,14 +226,14 @@ public:
 			devp, SLOT(DetachConnectionClicked()));
 		pbp->hide();
 
-		hbp = new QHBox(sbp, NULL);
+		hbp = new Q3HBox(sbp, NULL);
 		hbp->show();
 
 		lp = new QLabel(hbp, "activecall");
 		lp->setText("");
 		lp->hide();
 
-		hbp = new QHBox(sbp, NULL);
+		hbp = new Q3HBox(sbp, NULL);
 		hbp->show();
 
 		pbp = new QPushButton(hbp, "hold");
@@ -246,14 +246,14 @@ public:
 		connect(pbp, SIGNAL(clicked()), devp, SLOT(HangupClicked()));
 		pbp->hide();
 
-		hbp = new QHBox(sbp, NULL);
+		hbp = new Q3HBox(sbp, NULL);
 		hbp->show();
 
 		lp = new QLabel(hbp, "setupcall");
 		lp->setText("");
 		lp->hide();
 
-		hbp = new QHBox(sbp, NULL);
+		hbp = new Q3HBox(sbp, NULL);
 		hbp->show();
 
 		pbp = new QPushButton(hbp, "acceptcall");
@@ -1186,8 +1186,8 @@ public:
 		prefsp->AutoReconnect->setChecked(m_autoreconnect);
 
 		static const char *drivers[] = { "ALSA", "OSS", 0 };
-		prefsp->DriverSelect->insertStrList(drivers);
 		for (i = 0; drivers[i]; i++) {
+			prefsp->DriverSelect->addItem(drivers[i]);
 			if (m_sound_driver == drivers[i]) {
 				prefsp->DriverSelect->setCurrentItem(i);
 				break;
@@ -1653,7 +1653,7 @@ public:
 	}
 
 	RealUI(QWidget *parent = 0, const char *name = 0,
-	       bool modal = FALSE, WFlags fl = 0)
+	       bool modal = FALSE, Qt::WindowFlags fl = 0)
 		: NoHands(parent, name, modal, fl),
 		  m_known_devices_only(true), m_autoreconnect(false),
 		  m_active_dev(NULL), m_ringtone_src(0),
@@ -1680,10 +1680,11 @@ public:
 		StateDummy1->hide();
 		StateDummy2->hide();
 
-		m_device_scroll = new QScrollView(this, NULL);
-		StateShell->addWidget(m_device_scroll);
+		m_device_scroll = new Q3ScrollView(this, NULL);
+// 		StateShell->addWidget(m_device_scroll);
+		vboxLayout1->addWidget(m_device_scroll);
 		//m_device_scroll->resize(StateShell->size());
-		m_device_scroll->setHScrollBarMode(QScrollView::AlwaysOn);
+		m_device_scroll->setHScrollBarMode(Q3ScrollView::AlwaysOn);
 		m_device_scroll->setSizePolicy(QSizePolicy::Expanding,
 					       QSizePolicy::Expanding);
 		m_device_scroll->show();

@@ -41,6 +41,7 @@ using namespace libhfp;
 class QtEiTimerNotifier : public QObject, public TimerNotifier {
 	Q_OBJECT;
 	bool timer_set;
+	int timer_id;
 public:
 	void timerEvent(QTimerEvent *e) {
 		killTimer(e->timerId());
@@ -51,12 +52,12 @@ public:
 		assert(Registered());
 		if (timer_set)
 			Cancel();
-		startTimer(msec);
+		timer_id = startTimer(msec);
 		timer_set = true;
 	}
 	virtual void Cancel(void) {
 		if (timer_set) {
-			killTimers();
+			killTimer(timer_id);
 			timer_set = false;
 		}
 	}
