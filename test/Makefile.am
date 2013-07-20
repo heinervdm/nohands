@@ -7,12 +7,15 @@ noinst_PROGRAMS = soundtest timertest pumpunit
 
 soundtest_SOURCES = soundtest.cpp
 soundtest_LDADD = -L../libhfp -lhfp $(libhfp_LIBS)
+soundtest_LDFLAGS = -pthread
 soundtest_DEPENDENCIES = ../libhfp/libhfp.a
 
 timertest_SOURCES = timertest.cpp
 timertest_LDADD = -L../libhfp -lhfp $(libhfp_LIBS)
+timertest_LDFLAGS = -pthread
 timertest_DEPENDENCIES = ../libhfp/libhfp.a
 
 pumpunit_SOURCES = pumpunit.cpp
 pumpunit_LDADD = -L../libhfp -lhfp $(libhfp_LIBS)
+pumpunit_LDFLAGS = -pthread
 pumpunit_DEPENDENCIES = ../libhfp/libhfp.a
