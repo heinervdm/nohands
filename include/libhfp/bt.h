@@ -1078,7 +1078,7 @@ public:
 	 * disconnected if they are in a connected state.  No client
 	 * callbacks will be issued for any sessions.
 	 */
-	void DisconnectAll(void) { __DisconnectAll(false); }
+	void DisconnectAll(void) { __DisconnectAll((ErrorInfo *)false); }
 
 	/**
 	 * @brief Notification that a query of the Bluetooth name of the device
