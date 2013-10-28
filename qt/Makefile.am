@@ -15,6 +15,7 @@ commonsrc = events-qt.h nohands.ui.h prefs.ui.h scandialog.ui.h
 nodist_hfstandalone_SOURCES = $(commonbuiltsrc)
 hfstandalone_SOURCES = $(commonsrc) hfstandalone.cpp
 hfstandalone_LDADD = $(QT_LDFLAGS) $(QT_LIBS) -L../libhfp -lhfp $(libhfp_LIBS)
+hfstandalone_LDFLAGS = -pthread
 hfstandalone_DEPENDENCIES = ../libhfp/libhfp.a
 
 CLEANFILES = $(commonbuiltsrc) hfstandalone.moc
