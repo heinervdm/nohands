@@ -450,12 +450,18 @@ public:
 };
 
 class GsmResult {
-protected:
+public:
 	char		*src_string;
+protected:
 	size_t		extra;
 	void *operator new(size_t nb, const char *src_string, size_t len);
 public:
 	void operator delete(void *mem);
+};
+
+class GenericAtCommandResult : public GsmResult {
+public:
+	static GenericAtCommandResult *Parse(const char *buffer);
 };
 
 class GsmClipResult : public GsmResult {
@@ -1576,6 +1582,20 @@ public:
 	 * connection was lost or the phone number is too long
 	 */
 	HfpPendingCommand *CmdDial(const char *phnum, ErrorInfo *error = 0);
+
+	/**
+	 * @brief Run a generic AT command
+	 *
+	 * @param[in] AtCmd AT command to call
+	 * @param[out] error Error information structure.  If this method
+	 * fails and returns @c 0, and @em error is not 0, @em error
+	 * will be filled out with information on the cause of the failure.
+	 * @return An HfpPendingCommand to receive a notification when
+	 * the command completes, with the command status, or @c 0 if
+	 * the command could not be queued, e.g. because the device
+	 * connection was lost or the phone number is too long
+	 */
+	HfpPendingCommand *CmdGenericAtCommand(const char *atCmd, ErrorInfo *error = 0);
 
 	/**
 	 * @brief Request that the audio gateway place a new outgoing call

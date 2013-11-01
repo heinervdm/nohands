@@ -85,6 +85,7 @@ class AudioGateway : public HfpdExportObject {
 
 	bool DoSetAutoReconnect(bool value, libhfp::ErrorInfo *error = 0);
 
+	void AtCommandComplete(class AgPendingCommand *agpcp, void *result);
 	void QueryNumberComplete(class AgPendingCommand *agpcp, void *result);
 	void QueryOperatorComplete(class AgPendingCommand *agpcp,
 				   void *result);
@@ -133,6 +134,7 @@ public:
 	bool CloseAudio(DBusMessage *msgp);
 	bool Dial(DBusMessage *msgp);
 	bool Redial(DBusMessage *msgp);
+	bool SendAtCommand(DBusMessage *msgp);
 	bool HangUp(DBusMessage *msgp);
 	bool SendDtmf(DBusMessage *msgp);
 	bool Answer(DBusMessage *msgp);
@@ -177,6 +179,7 @@ static const DbusMethod g_AudioGateway_methods[] = {
 	DbusMethodEntry(AudioGateway, CloseAudio, "", ""),
 	DbusMethodEntry(AudioGateway, Dial, "s", ""),
 	DbusMethodEntry(AudioGateway, Redial, "", ""),
+	DbusMethodEntry(AudioGateway, SendAtCommand, "s", "s"),
 	DbusMethodEntry(AudioGateway, HangUp, "", ""),
 	DbusMethodEntry(AudioGateway, SendDtmf, "y", ""),
 	DbusMethodEntry(AudioGateway, Answer, "", ""),
