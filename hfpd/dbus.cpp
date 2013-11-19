@@ -1485,10 +1485,16 @@ DbusDispatch(DBusMessage *msgp)
 	assert(!strcmp(dbus_message_get_path(msgp), m_path));
 
 	ifname = dbus_message_get_interface(msgp);
-	ifp = DbusFindInterface(m_ifaces, ifname);
-	if (!ifp) {
-		ifp = DbusFindInterface(s_ifaces_common, ifname);
-		if (!ifp)
+	if(ifname) {
+		ifp = DbusFindInterface(m_ifaces, ifname);
+		if (!ifp) {
+			ifp = DbusFindInterface(s_ifaces_common, ifname);
+			if (!ifp)
+				return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+		}
+	} else {
+		ifp = m_ifaces;
+		if(!ifp)
 			return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 	methp = DbusFindMethod(ifp->if_meths, dbus_message_get_member(msgp));
