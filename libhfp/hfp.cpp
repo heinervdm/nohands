@@ -1770,6 +1770,14 @@ operator delete(void *mem)
 	free(mem);
 }
 
+GenericAtCommandResult *GenericAtCommandResult::Parse(const char* result)
+{
+	GenericAtCommandResult *res = new (result, 0) GenericAtCommandResult;
+	if (!res)
+		return 0;
+	return res;
+}
+
 GsmClipResult *GsmClipResult::
 Parse(const char *clip)
 {
@@ -2393,6 +2401,26 @@ parsefailed:
 			 hold_mode_list);
 	free(alloc);
 }
+
+/* Generic At Command that stores the result */
+class GenericAtCommand : public AtCommand {
+public:
+	GenericAtCommandResult *m_res;
+	GenericAtCommand(HfpSession *sessp, const char *cmd) : AtCommand(sessp, cmd), m_res(0) {}
+	bool Response(const char *buf) {
+		m_res = GenericAtCommandResult::Parse(buf);
+		return false;
+	}
+	bool OK(void) {
+		ErrorInfo local_error;
+		if (!m_res) {
+			return AtCommand::OK();
+		} else {
+			CompletePending(0, m_res);
+		}
+		return true;
+	}
+};
 
 /* Cellular Hold Command Test */
 class ChldTCommand : public AtCommand {
@@ -3448,6 +3476,12 @@ CmdCallTransfer(ErrorInfo *error)
 				 "but AG does not claim support");
 	}
 	return PendingCommand(new AtCommand(this, "AT+CHLD=4"), error);
+}
+
+HfpPendingCommand *HfpSession::
+CmdGenericAtCommand(const char *atCmd, ErrorInfo *error)
+{
+	return PendingCommand(new GenericAtCommand(this, atCmd), error);
 }
 
 } /* namespace libhfp */

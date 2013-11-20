@@ -792,6 +792,45 @@ Redial(DBusMessage *msgp)
 				 m_sess->CmdRedial(&error)));
 }
 
+void AudioGateway::
+AtCommandComplete(AgPendingCommand *agpcp, void *result)
+{
+	GenericAtCommandResult *res = (GenericAtCommandResult *) result;
+	const char *str = 0;
+	if(res)
+		str = res->src_string;
+	else
+		str = "";
+
+	(void) SendReplyArgs(agpcp->m_msg,
+			     DBUS_TYPE_STRING, &str,
+			     DBUS_TYPE_INVALID);
+
+}
+
+bool AudioGateway::
+SendAtCommand(DBusMessage *msgp)
+{
+	DBusMessageIter mi;
+	char *atCommand;
+	AgPendingCommand *agpcp = 0;
+	ErrorInfo error;
+	bool res;
+
+	res = dbus_message_iter_init(msgp, &mi);
+	assert(res);
+	assert(dbus_message_iter_get_arg_type(&mi) == DBUS_TYPE_STRING);
+	dbus_message_iter_get_basic(&mi, &atCommand);
+
+	if (!CreatePendingCommand(msgp, agpcp))
+		return false;
+
+	agpcp->cb_success.Register(this, &AudioGateway::AtCommandComplete);
+
+	return DoPendingCommand(agpcp, error,
+		 m_sess->CmdGenericAtCommand(atCommand, &error));
+}
+
 bool AudioGateway::
 HangUp(DBusMessage *msgp)
 {
