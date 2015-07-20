@@ -194,7 +194,7 @@ static const DbusMethod g_AudioGateway_methods[] = {
 	DbusMethodEntry(AudioGateway, CallLink, "", ""),
 	DbusMethodEntry(AudioGateway, CallPrivateConsult, "i", ""),
 	DbusMethodEntry(AudioGateway, CallTransfer, "", ""),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 static const DbusMethod g_AudioGateway_signals[] = {
@@ -209,7 +209,7 @@ static const DbusMethod g_AudioGateway_signals[] = {
 	DbusSignalEntry(VoiceRecognitionActiveChanged, "b"),
 	DbusSignalEntry(InBandRingToneEnableChanged, "b"),
 	DbusSignalEntry(VolumeChanged, "yy"),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 /*
@@ -242,7 +242,7 @@ static const DbusProperty g_AudioGateway_properties[] = {
 	DbusPropertyRawImmutable("a{sb}", Features, AudioGateway, GetFeatures),
 	DbusPropertyMarshallImmutable(dbus_uint32_t, RawFeatures, AudioGateway,
 				      GetRawFeatures),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 const DbusInterface AudioGateway::s_ifaces[] = {
@@ -250,7 +250,7 @@ const DbusInterface AudioGateway::s_ifaces[] = {
 	  g_AudioGateway_methods,
 	  g_AudioGateway_signals,
 	  g_AudioGateway_properties },
-	{ 0, }
+	  { 0, 0, 0, 0 }
 };
 #endif /* defined(HFPD_AUDIOGATEWAY_DEFINE_INTERFACES) */
 
@@ -371,7 +371,7 @@ static const DbusMethod g_HandsFree_methods[] = {
 	DbusMethodEntry(HandsFree, AddDevice, "sb", "o"),
 	DbusMethodEntry(HandsFree, RemoveDevice, "s", ""),
 	DbusMethodEntry(HandsFree, SaveSettings, "", ""),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 static const DbusMethod g_HandsFree_signals[] = {
@@ -381,7 +381,7 @@ static const DbusMethod g_HandsFree_signals[] = {
 	DbusSignalEntry(AudioGatewayAdded, "o"),
 	DbusSignalEntry(AudioGatewayRemoved, "o"),
 	DbusSignalEntry(LogMessage, "us"),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 static const DbusProperty g_HandsFree_properties[] = {
@@ -413,7 +413,7 @@ static const DbusProperty g_HandsFree_properties[] = {
 			     GetServiceName, SetServiceName),
 	DbusPropertyMarshall(const char *, ServiceDesc, HandsFree,
 			     GetServiceDesc, SetServiceDesc),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 const DbusInterface HandsFree::s_ifaces[] = {
@@ -421,7 +421,7 @@ const DbusInterface HandsFree::s_ifaces[] = {
 	  g_HandsFree_methods,
 	  g_HandsFree_signals,
 	  g_HandsFree_properties },
-	{ 0, }
+	  { 0, 0, 0, 0 }
 };
 #endif /* defined(HFPD_HANDSFREE_DEFINE_INTERFACES) */
 
@@ -559,7 +559,7 @@ static const DbusMethod g_SoundIo_methods[] = {
 	DbusMethodEntry(SoundIoObj, MembufStart, "bbuu", ""),
 	DbusMethodEntry(SoundIoObj, MembufClear, "", ""),
 	DbusMethodEntry(SoundIoObj, SetSnoopFile, "sbb", ""),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 static const DbusMethod g_SoundIo_signals[] = {
@@ -569,7 +569,7 @@ static const DbusMethod g_SoundIo_signals[] = {
 	DbusSignalEntry(MuteChanged, "b"),
 	DbusSignalEntry(SkewNotify, "yd"),
 	DbusSignalEntry(MonitorNotify, "uq"),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 static const DbusProperty g_SoundIo_properties[] = {
@@ -610,7 +610,7 @@ static const DbusProperty g_SoundIo_properties[] = {
 	DbusPropertyMarshall(float, DereverbDecay, SoundIoObj,
 			     GetDereverbDecay, SetDereverbDecay),
 #endif /* defined(USE_SPEEXDSP) */
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 const DbusInterface SoundIoObj::s_ifaces[] = {
@@ -618,7 +618,7 @@ const DbusInterface SoundIoObj::s_ifaces[] = {
 	  g_SoundIo_methods,
 	  g_SoundIo_signals,
 	  g_SoundIo_properties },
-	{ 0, }
+	  { 0, 0, 0, 0 }
 };
 #endif /* defined(HFPD_SOUNDIO_DEFINE_INTERFACES) */
 

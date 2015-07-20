@@ -350,7 +350,7 @@ run_test(SoundIoPump *pump, SoundIoTestEp *bot, SoundIoTestEp *top,
 }
 
 int
-main(int argc, char **argv)
+main(int /*argc*/, char **/*argv*/)
 {
 	IndepEventDispatcher disp;
 	SoundIoTestEp top("Top", 10000), bot("Bot", 10000), div("Div", 10000);

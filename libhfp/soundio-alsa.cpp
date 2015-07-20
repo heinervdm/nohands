@@ -581,7 +581,7 @@ public:
 		return false;
 	}
 
-	bool Prepare(bool playback, bool capture, ErrorInfo *error) {
+	bool Prepare(bool playback, bool capture, ErrorInfo */*error*/) {
 		if (playback) {
 			assert(m_play_handle);
 			m_ei->LogDebug("ALSA play state: %d",
@@ -762,7 +762,7 @@ public:
 		return exp;
 	}
 
-	bool HandleInterruption(snd_pcm_t *pcmp, snd_pcm_sframes_t res,
+	bool HandleInterruption(snd_pcm_t *pcmp, snd_pcm_sframes_t /*res*/,
 				ErrorInfo *error) {
 		int err;
 		const char *streamtype;
@@ -1071,7 +1071,7 @@ public:
 		}
 	}
 
-	void AsyncProcess(SocketNotifier *notp, int fh) {
+	void AsyncProcess(SocketNotifier */*notp*/, int /*fh*/) {
 		bool overrun = false, underrun = false;
 		snd_pcm_sframes_t exp = 0;
 		OpLatencyMonitor olat(m_alsa.m_ei, "ALSA async overall");
@@ -1826,7 +1826,7 @@ public:
 			cb_NotifyAsyncStop(this, error);
 	}
 
-	void AsyncProcess(SocketNotifier *notp, int fh) {
+	void AsyncProcess(SocketNotifier */*notp*/, int /*fh*/) {
 		SoundIoQueueState qs;
 		ErrorInfo error;
 

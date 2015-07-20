@@ -40,12 +40,12 @@ public:
 
 
 int
-main(int argc, char **argv)
+main(int /*argc*/, char **/*argv*/)
 {
-	SoundIoFormat soundio_format;
+// 	SoundIoFormat soundio_format;
 	SoundIoManager *soundp;
 	SoundIo *sndp;
-	SoundIoFilter *fltp;
+// 	SoundIoFilter *fltp;
 	SoundIoFltSpeex *fltsp;
 	SoundIoSpeexProps sprops;
 	bool res;
@@ -60,11 +60,11 @@ main(int argc, char **argv)
 
 	if (!do_file) {
 
-		soundio_format.samplerate = 8000;
-		soundio_format.sampletype = SIO_PCM_S16_LE;
-		soundio_format.nchannels = 1;
-		soundio_format.bytes_per_record = 2;
-		soundio_format.packet_samps = 64;
+// 		soundio_format.samplerate = 8000;
+// 		soundio_format.sampletype = SIO_PCM_S16_LE;
+// 		soundio_format.nchannels = 1;
+// 		soundio_format.bytes_per_record = 2;
+// 		soundio_format.packet_samps = 64;
 
 		sndp = SoundIoCreateAlsa(&g_dispatcher,
 					 "plughw:1", 0);
@@ -90,7 +90,8 @@ main(int argc, char **argv)
 	fltsp->Configure(sprops);
 	//soundp->AddBottom(fltsp);
 
-	fltp = SoundIoFltCreateDummy();
+// 	fltp = 
+	SoundIoFltCreateDummy();
 	//soundp->AddTop(fltp);
 
 	res = sndp->SndOpen(!do_file, true);

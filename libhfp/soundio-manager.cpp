@@ -63,7 +63,7 @@ static SoundIoDriver sound_drivers[] = {
 	  SoundIoCreateOss,
 	  SoundIoGetDeviceListOss },
 #endif
-	{ 0 }
+	{ "","",0,0 }
 };
 
 
@@ -80,7 +80,7 @@ public:
 	SoundIoLoop(void) {}
 	virtual ~SoundIoLoop() { SndClose(); }
 
-	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
+	virtual bool SndOpen(bool /*play*/, bool /*capture*/, ErrorInfo */*error*/) {
 		return true;
 	}
 	virtual void SndClose(void) {
@@ -91,7 +91,7 @@ public:
 		format = m_fmt;
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo */*error*/) {
 		m_fmt = format;
 		return true;
 	}
@@ -170,7 +170,7 @@ public:
 	SoundIoNull() {}
 	virtual ~SoundIoNull() { SndClose(); }
 
-	virtual bool SndOpen(bool play, bool capture, ErrorInfo *error) {
+	virtual bool SndOpen(bool /*play*/, bool /*capture*/, ErrorInfo */*error*/) {
 		return true;
 	}
 	virtual void SndClose(void) {}
@@ -188,7 +188,7 @@ public:
 		format = m_fmt;
 	}
 
-	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo *error) {
+	virtual bool SndSetFormat(SoundIoFormat &format, ErrorInfo */*error*/) {
 		m_fmt = format;
 		return true;
 	}
@@ -431,7 +431,7 @@ StopStats(void)
 }
 
 void SoundIoManager::
-DoStatistics(SoundIoPump *pumpp, SoundIoPumpStatistics &stat, bool loss)
+DoStatistics(SoundIoPump *pumpp, SoundIoPumpStatistics &stat, bool /*loss*/)
 {
 	/* Compile-time debugging flags for this method */
 	const bool skew_debug = false;

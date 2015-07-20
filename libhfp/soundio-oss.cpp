@@ -441,7 +441,7 @@ public:
 		}
 	}
 
-	void AsyncProcess(SocketNotifier *notp, int fh) {
+	void AsyncProcess(SocketNotifier */*notp*/, int /*fh*/) {
 		int delay = 0;
 		struct count_info count;
 		bool play_xrun = false;

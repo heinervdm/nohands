@@ -89,14 +89,14 @@ struct DbusTimerBridge {
 		return TRUE;
 	}
 
-	static void TimerRemove(DBusTimeout *dbt, void *ptr) {
+	static void TimerRemove(DBusTimeout *dbt, void */*ptr*/) {
 		DbusTimerBridge *bridgep;
 		bridgep = (DbusTimerBridge *) dbus_timeout_get_data(dbt);
 		assert(bridgep && (bridgep->m_dbt == dbt));
 		bridgep->m_not->Cancel();
 	}
 
-	static void TimerToggle(DBusTimeout *dbt, void *ptr) {
+	static void TimerToggle(DBusTimeout *dbt, void */*ptr*/) {
 		DbusTimerBridge *bridgep;
 		bridgep = (DbusTimerBridge *) dbus_timeout_get_data(dbt);
 		assert(bridgep && (bridgep->m_dbt == dbt));
@@ -134,7 +134,7 @@ struct DbusWatchBridge {
 	libhfp::SocketNotifier	*m_rnot;
 	libhfp::SocketNotifier	*m_wnot;
 
-	void SocketNotify(libhfp::SocketNotifier *notp, int fh) {
+	void SocketNotify(libhfp::SocketNotifier *notp, int /*fh*/) {
 		int flags = (notp == m_rnot)
 			? DBUS_WATCH_READABLE : DBUS_WATCH_WRITABLE;
 		(void) dbus_watch_handle(m_dbw, flags);
@@ -195,7 +195,7 @@ struct DbusWatchBridge {
 		return TRUE;
 	}
 
-	static void WatchRemove(DBusWatch *dbw, void *ptr) {
+	static void WatchRemove(DBusWatch *dbw, void */*ptr*/) {
 		DbusWatchBridge *bridgep;
 		bridgep = (DbusWatchBridge *) dbus_watch_get_data(dbw);
 		assert(bridgep && (bridgep->m_dbw == dbw));
@@ -203,7 +203,7 @@ struct DbusWatchBridge {
 		bridgep->m_wnot->SetEnabled(false);
 	}
 
-	static void WatchToggle(DBusWatch *dbw, void *ptr) {
+	static void WatchToggle(DBusWatch *dbw, void */*ptr*/) {
 		DbusWatchBridge *bridgep;
 		bool enabled;
 		bridgep = (DbusWatchBridge *) dbus_watch_get_data(dbw);
@@ -249,7 +249,7 @@ class DbusObjectLocal : public DbusExportObject {
 	static const DbusInterface ifaces[];
 
 protected:
-	virtual bool Disconnected(DBusMessage *msgp) {
+	virtual bool Disconnected(DBusMessage */*msgp*/) {
 		GetDbusSession()->__Disconnect(true);
 		return true;
 	}
@@ -261,12 +261,12 @@ public:
 
 const DbusMethod DbusObjectLocal::meths[] = {
 	DbusMethodEntry(DbusObjectLocal, Disconnected, 0, 0),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 const DbusInterface DbusObjectLocal::ifaces[] = {
-	{ DBUS_INTERFACE_LOCAL, meths },
-	{ 0, }
+	{ DBUS_INTERFACE_LOCAL, meths, 0, 0 },
+	{ 0, 0, 0, 0 }
 };
 
 
@@ -304,7 +304,7 @@ static const DbusFieldMap g_fields[] = {
 	{ "member",		DBUS_MFIELD_MEMBER },
 	{ "path",		DBUS_MFIELD_PATH },
 	{ "destination",	DBUS_MFIELD_DEST },
-	{ 0, }
+	{ 0, DBUS_MFIELD_INVALID }
 };
 
 static DbusFieldType
@@ -337,7 +337,7 @@ static const DbusMessageTypeMap g_messagetypes[] = {
 	{ "method_call",	DBUS_MESSAGE_TYPE_METHOD_CALL },
 	{ "method_return",	DBUS_MESSAGE_TYPE_METHOD_RETURN },
 	{ "error",		DBUS_MESSAGE_TYPE_ERROR },
-	{ 0, }
+	{ 0, 0 }
 };
 
 static int
@@ -673,7 +673,7 @@ BuildMatchExpression(const char *exprstring, libhfp::DispatchInterface *di)
 	expr = new (extra) DbusMatchExpr;
 	if (!expr) {
 		FreeParseNodes(parserules);
-		return false;
+		return 0;
 	}
 
 	expr->m_nnotifiers = 0;
@@ -804,7 +804,7 @@ RemoveMatchNotifier(DbusMatchNotifierImpl *matchp)
 }
 
 DBusHandlerResult DbusSession::
-FilterHelper(DBusConnection *connection, DBusMessage *message,
+FilterHelper(DBusConnection */*connection*/, DBusMessage *message,
 	     void *user_data)
 {
 	DbusSession *sessp = (DbusSession *) user_data;
@@ -896,7 +896,7 @@ public:
 		Put();
 	}
 
-	void MatchNotify(DbusMatchNotifier *notp, DBusMessage *msgp) {
+	void MatchNotify(DbusMatchNotifier *notp, DBusMessage */*msgp*/) {
 		assert(notp == m_match);
 		delete m_match;
 		m_match = 0;
@@ -1392,7 +1392,7 @@ SendWithCompletion(DBusMessage *msgp)
 const DbusMethod DbusExportObject::s_methods_introspect[] = {
 	DbusMethodEntryName("Introspect", DbusExportObject, DbusIntrospect,
 			    "", "s"),
-	{ 0, }
+	{ 0, 0, 0, 0}
 };
 
 const DbusMethod DbusExportObject::s_methods_properties[] = {
@@ -1402,7 +1402,7 @@ const DbusMethod DbusExportObject::s_methods_properties[] = {
 			    "ssv", ""),
 	DbusMethodEntryName("GetAll", DbusExportObject, DbusPropertyGetAll,
 			    "s", 0),
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 const DbusInterface DbusExportObject::s_ifaces_common[] = {
@@ -1414,12 +1414,13 @@ const DbusInterface DbusExportObject::s_ifaces_common[] = {
 	  s_methods_properties,
 	  0,
 	  0 },
-	{ 0, }
+	{ 0, 0, 0, 0 }
 };
 
 const DBusObjectPathVTable DbusExportObject::s_vtable = {
 	DbusExportObject::UnregisterHelper,
 	DbusExportObject::DispatchHelper,
+	0, 0, 0, 0
 };
 
 DbusExportObject::
@@ -1429,7 +1430,7 @@ DbusExportObject::
 }
 
 DBusHandlerResult DbusExportObject::
-DispatchHelper(DBusConnection *conn, DBusMessage *msg, void *ptr)
+DispatchHelper(DBusConnection */*conn*/, DBusMessage *msg, void *ptr)
 {
 	DbusExportObject *objp;
 	objp = (DbusExportObject *) ptr;
@@ -1924,7 +1925,7 @@ nomem:
 }
 
 void DbusExportObject::
-UnregisterHelper(DBusConnection *conn, void *ptr)
+UnregisterHelper(DBusConnection */*conn*/, void *ptr)
 {
 	DbusExportObject *objp;
 	objp = (DbusExportObject *) ptr;

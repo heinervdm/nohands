@@ -559,8 +559,8 @@ public:
 
 
 SoundIo *
-SoundIoCreateFileHandler(DispatchInterface *ei,
-			 const char *filename, bool create, ErrorInfo *error)
+SoundIoCreateFileHandler(DispatchInterface */*ei*/,
+			 const char *filename, bool /*create*/, ErrorInfo *error)
 {
 	SoundIo *siop = 0;
 
@@ -726,7 +726,7 @@ public:
 
 	virtual SoundIoBuffer const *FltProcess(bool up,
 						SoundIoBuffer const &src,
-						SoundIoBuffer &dest) {
+						SoundIoBuffer &/*dest*/) {
 		if (!m_buf) {
 			if ((up && !m_no_up) || (!up && !m_no_dn)) {
 				assert(m_open);
@@ -1033,7 +1033,7 @@ public:
 	sio_sampnum_t m_pktsize;
 
 	bool FltPrepare(SoundIoFormat const &fmt, bool up, bool dn,
-			ErrorInfo *error) {
+			ErrorInfo */*error*/) {
 		assert(!m_started);
 		m_up = up;
 		m_dn = dn;

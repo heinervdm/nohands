@@ -122,7 +122,7 @@ public:
 			{ return sec ? tup->key : 0; }
 		const char *GetValue(void) const
 			{ return sec ? tup->value : 0; }
-		const bool GetValueBool(void) const;
+		bool GetValueBool(void) const;
 	};
 
 	bool First(ConfigFile::Iterator &it);

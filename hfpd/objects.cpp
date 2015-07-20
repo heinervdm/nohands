@@ -474,7 +474,7 @@ DoDisconnect(void)
 }
 
 void AudioGateway::
-NotifyConnection(libhfp::HfpSession *sessp, ErrorInfo *reason)
+NotifyConnection(libhfp::HfpSession *sessp, ErrorInfo */*reason*/)
 {
 	AudioGatewayState st;
 	char buf[32];
@@ -567,7 +567,7 @@ NotifyCall(libhfp::HfpSession *sessp, bool act, bool waiting, bool ring)
 }
 
 void AudioGateway::
-NotifyIndicator(libhfp::HfpSession *sessp, const char *indname, int val)
+NotifyIndicator(libhfp::HfpSession */*sessp*/, const char *indname, int val)
 {
 	dbus_int32_t ival = val;
 	SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
@@ -578,7 +578,7 @@ NotifyIndicator(libhfp::HfpSession *sessp, const char *indname, int val)
 }
 
 void AudioGateway::
-NotifyAudioConnection(libhfp::HfpSession *sessp, libhfp::ErrorInfo *error)
+NotifyAudioConnection(libhfp::HfpSession */*sessp*/, libhfp::ErrorInfo */*error*/)
 {
 	AudioGatewayAudioState st;
 	st = AudioState();
@@ -621,7 +621,7 @@ NotifyAudioConnection(libhfp::HfpSession *sessp, libhfp::ErrorInfo *error)
 }
 
 void AudioGateway::
-NotifyVoiceRecog(libhfp::HfpSession *sessp, bool active)
+NotifyVoiceRecog(libhfp::HfpSession */*sessp*/, bool active)
 {
 	dbus_bool_t st = active;
 	(void) SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
@@ -631,12 +631,12 @@ NotifyVoiceRecog(libhfp::HfpSession *sessp, bool active)
 }
 
 void AudioGateway::
-NotifyVolume(libhfp::HfpSession *sessp, bool mic, bool speaker)
+NotifyVolume(libhfp::HfpSession */*sessp*/, bool /*mic*/, bool /*speaker*/)
 {
 }
 
 void AudioGateway::
-NotifyInBandRingTone(libhfp::HfpSession *sessp, bool enabled)
+NotifyInBandRingTone(libhfp::HfpSession */*sessp*/, bool enabled)
 {
 	dbus_bool_t st = enabled;
 	(void) SendSignalArgs(HFPD_AUDIOGATEWAY_INTERFACE_NAME,
@@ -1177,56 +1177,56 @@ CallTransfer(DBusMessage *msgp)
 
 
 bool AudioGateway::
-GetState(DBusMessage *msgp, uint8_t &val)
+GetState(DBusMessage */*msgp*/, uint8_t &val)
 {
 	val = State();
 	return true;
 }
 
 bool AudioGateway::
-GetCallState(DBusMessage *msgp, uint8_t &val)
+GetCallState(DBusMessage */*msgp*/, uint8_t &val)
 {
 	val = CallState();
 	return true;
 }
 
 bool AudioGateway::
-GetAudioState(DBusMessage *msgp, uint8_t &val)
+GetAudioState(DBusMessage */*msgp*/, uint8_t &val)
 {
 	val = AudioState();
 	return true;
 }
 
 bool AudioGateway::
-GetVoiceRecognitionActive(DBusMessage *msgp, bool &val)
+GetVoiceRecognitionActive(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_sess->GetVoiceRecogActive();
 	return true;
 }
 
 bool AudioGateway::
-GetInBandRingToneEnable(DBusMessage *msgp, bool &val)
+GetInBandRingToneEnable(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_sess->GetInBandRingToneEnable();
 	return true;
 }
 
 bool AudioGateway::
-GetClaimed(DBusMessage *msgp, bool &val)
+GetClaimed(DBusMessage */*msgp*/, bool &val)
 {
 	val = (m_owner != 0);
 	return true;
 }
 
 bool AudioGateway::
-GetVoluntaryDisconnect(DBusMessage *msgp, bool &val)
+GetVoluntaryDisconnect(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_sess->IsPriorDisconnectVoluntary();
 	return true;
 }
 
 bool AudioGateway::
-GetAddress(DBusMessage *msgp, const DbusProperty *propp, DBusMessageIter &mi)
+GetAddress(DBusMessage */*msgp*/, const DbusProperty */*propp*/, DBusMessageIter &mi)
 {
 	char bdaddr[32], *bap;
 	m_sess->GetDevice()->GetAddr(bdaddr);
@@ -1237,14 +1237,14 @@ GetAddress(DBusMessage *msgp, const DbusProperty *propp, DBusMessageIter &mi)
 }
 
 bool AudioGateway::
-GetName(DBusMessage *msgp, const char * &val)
+GetName(DBusMessage */*msgp*/, const char * &val)
 {
 	val = m_sess->GetDevice()->GetName();
 	return true;
 }
 
 bool AudioGateway::
-GetKnown(DBusMessage *msgp, bool &val)
+GetKnown(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_known;
 	return true;
@@ -1270,7 +1270,7 @@ SetKnown(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool AudioGateway::
-GetAutoReconnect(DBusMessage *msgp, bool &val)
+GetAutoReconnect(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_sess->IsAutoReconnect();
 	return true;
@@ -1315,7 +1315,7 @@ AddStringBool(DBusMessageIter &ami, const char *str, dbus_bool_t val)
 }
 
 bool AudioGateway::
-GetFeatures(DBusMessage *msgp, const DbusProperty *propp,
+GetFeatures(DBusMessage */*msgp*/, const DbusProperty */*propp*/,
 	    DBusMessageIter &mi)
 {
 	DBusMessageIter ami;
@@ -1378,7 +1378,7 @@ GetFeatures(DBusMessage *msgp, const DbusProperty *propp,
 }
 
 bool AudioGateway::
-GetRawFeatures(DBusMessage *msgp, dbus_uint32_t &val)
+GetRawFeatures(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = (State() == HFPD_AG_CONNECTED) ? m_sess->GetFeatures() : 0;
 	return true;
@@ -1745,7 +1745,7 @@ DoStarted(void)
 }
 
 void HandsFree::
-NotifySystemState(ErrorInfo *reason)
+NotifySystemState(ErrorInfo */*reason*/)
 {
 	if (!m_hub->IsStarted()) {
 		DoStopped();
@@ -1756,7 +1756,7 @@ NotifySystemState(ErrorInfo *reason)
 }
 
 void HandsFree::
-NotifyInquiryResult(BtDevice *devp, ErrorInfo *error)
+NotifyInquiryResult(BtDevice *devp, ErrorInfo */*error*/)
 {
 	char buf[32];
 	dbus_uint32_t dclass;
@@ -1839,10 +1839,11 @@ SaveSettings(DBusMessage *msgp)
 bool HandsFree::
 Start(DBusMessage *msgp)
 {
-	bool oldstate;
+// 	bool oldstate;
 	ErrorInfo hfperror;
 
-	oldstate = m_hub->IsStarted();
+// 	oldstate = 
+	m_hub->IsStarted();
 	if (!m_hub->Start(&hfperror))
 		return SendReplyErrorInfo(msgp, hfperror);
 
@@ -1872,7 +1873,7 @@ Stop(DBusMessage *msgp)
 	if (oldstate)
 		DoStopped();
 
-	return true;
+	return res;
 }
 
 bool HandsFree::
@@ -2160,14 +2161,14 @@ done:
 }
 
 bool HandsFree::
-GetVersion(DBusMessage *msgp, dbus_uint32_t &val)
+GetVersion(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = 4;
 	return true;
 }
 
 bool HandsFree::
-GetAutoSave(DBusMessage *msgp, bool &val)
+GetAutoSave(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_config->GetAutoSave();
 	return true;
@@ -2192,7 +2193,7 @@ SetAutoSave(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
-GetSaveFile(DBusMessage *msgp, const char * &val)
+GetSaveFile(DBusMessage */*msgp*/, const char * &val)
 {
 	val = m_config->GetConfigFile();
 	return true;
@@ -2213,14 +2214,14 @@ SetSaveFile(DBusMessage *msgp, const char * const &val, bool &doreply)
 
 
 bool HandsFree::
-GetSystemState(DBusMessage *msgp, bool &val)
+GetSystemState(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_hub->IsStarted();
 	return true;
 }
 
 bool HandsFree::
-GetAutoRestart(DBusMessage *msgp, bool &val)
+GetAutoRestart(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_hub->GetAutoRestart();
 	return true;
@@ -2245,7 +2246,7 @@ SetAutoRestart(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
-GetSecMode(DBusMessage *msgp, uint8_t &val)
+GetSecMode(DBusMessage */*msgp*/, uint8_t &val)
 {
 	val = m_hfp->GetSecMode();
 	return true;
@@ -2273,7 +2274,7 @@ SetSecMode(DBusMessage *msgp, const uint8_t &val, bool &doreply)
 }
 
 bool HandsFree::
-GetAcceptUnknown(DBusMessage *msgp, bool &val)
+GetAcceptUnknown(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_accept_unknown;
 	return true;
@@ -2298,7 +2299,7 @@ SetAcceptUnknown(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
-GetScoEnabled(DBusMessage *msgp, bool &val)
+GetScoEnabled(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_hfp->GetScoEnabled();
 	return true;
@@ -2328,7 +2329,7 @@ SetScoEnabled(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
-GetVoicePersist(DBusMessage *msgp, bool &val)
+GetVoicePersist(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_voice_persist;
 	return true;
@@ -2353,7 +2354,7 @@ SetVoicePersist(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
-GetVoiceAutoConnect(DBusMessage *msgp, bool &val)
+GetVoiceAutoConnect(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_voice_autoconnect;
 	return true;
@@ -2378,7 +2379,7 @@ SetVoiceAutoConnect(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool HandsFree::
-GetAudioGateways(DBusMessage *msgp, const DbusProperty *propp,
+GetAudioGateways(DBusMessage */*msgp*/, const DbusProperty */*propp*/,
 		 DBusMessageIter &mi)
 {
 	DBusMessageIter ami;
@@ -2408,7 +2409,7 @@ GetAudioGateways(DBusMessage *msgp, const DbusProperty *propp,
 }
 
 bool HandsFree::
-GetReportCapabilities(DBusMessage *msgp, dbus_uint32_t &val)
+GetReportCapabilities(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_hfp->GetCaps();
 	return true;
@@ -2428,7 +2429,7 @@ SetReportCapabilities(DBusMessage *msgp, const dbus_uint32_t &val,
 }
 
 bool HandsFree::
-GetServiceName(DBusMessage *msgp, const char * &val)
+GetServiceName(DBusMessage */*msgp*/, const char * &val)
 {
 	val = m_hfp->GetServiceName();
 	return true;
@@ -2447,7 +2448,7 @@ SetServiceName(DBusMessage *msgp, const char * const &val, bool &doreply)
 }
 
 bool HandsFree::
-GetServiceDesc(DBusMessage *msgp, const char * &val)
+GetServiceDesc(DBusMessage */*msgp*/, const char * &val)
 {
 	val = m_hfp->GetServiceDesc();
 	return true;
@@ -2508,7 +2509,7 @@ public:
 	}
 
 	virtual bool FltPrepare(SoundIoFormat const &fmt,
-				bool up, bool dn, ErrorInfo *error) {
+				bool up, bool /*dn*/, ErrorInfo *error) {
 		if ((fmt.sampletype != SIO_PCM_S16_LE) ||
 		    (fmt.nchannels != 1)) {
 			if (error)
@@ -2530,7 +2531,7 @@ public:
 
 	virtual SoundIoBuffer const *FltProcess(bool up,
 						SoundIoBuffer const &src,
-						SoundIoBuffer &dest) {
+						SoundIoBuffer &/*dest*/) {
 		sio_sampnum_t count, remain, pd;
 		uint16_t *sampp, *endp, samp, h, l;
 
@@ -2604,7 +2605,7 @@ NotifySoundStop(SoundIoManager *mgrp, ErrorInfo &error)
 }
 
 void SoundIoObj::
-NotifySkew(SoundIoManager *mgrp, sio_stream_skewinfo_t reason, double value)
+NotifySkew(SoundIoManager */*mgrp*/, sio_stream_skewinfo_t reason, double value)
 {
 	uint8_t val = (uint8_t) reason;
 
@@ -3550,14 +3551,14 @@ SetSnoopFile(DBusMessage *msgp)
 
 
 bool SoundIoObj::
-GetState(DBusMessage *msgp, uint8_t &val)
+GetState(DBusMessage */*msgp*/, uint8_t &val)
 {
 	val = m_state;
 	return true;
 }
 
 bool SoundIoObj::
-GetAudioGateway(DBusMessage *msgp, const DbusProperty *propp,
+GetAudioGateway(DBusMessage */*msgp*/, const DbusProperty */*propp*/,
 		DBusMessageIter &mi)
 {
 	DBusMessageIter vmi;
@@ -3590,14 +3591,14 @@ GetAudioGateway(DBusMessage *msgp, const DbusProperty *propp,
 }
 
 bool SoundIoObj::
-GetMute(DBusMessage *msgp, bool &val)
+GetMute(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_sound->GetMute();
 	return true;
 }
 
 bool SoundIoObj::
-SetMute(DBusMessage *msgp, const bool &val, bool &doreply)
+SetMute(DBusMessage */*msgp*/, const bool &val, bool &/*doreply*/)
 {
 	dbus_bool_t st;
 	bool oldstate = m_sound->GetMute();
@@ -3615,7 +3616,7 @@ SetMute(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool SoundIoObj::
-GetSnoopFileName(DBusMessage *msgp, const char * &val)
+GetSnoopFileName(DBusMessage */*msgp*/, const char * &val)
 {
 	val = m_snoop_filename;
 	if (!val)
@@ -3624,7 +3625,7 @@ GetSnoopFileName(DBusMessage *msgp, const char * &val)
 }
 
 bool SoundIoObj::
-GetDriverName(DBusMessage *msgp, const char * &val)
+GetDriverName(DBusMessage */*msgp*/, const char * &val)
 {
 	val = m_sound->GetDriverName();
 	if (!val)
@@ -3633,7 +3634,7 @@ GetDriverName(DBusMessage *msgp, const char * &val)
 }
 
 bool SoundIoObj::
-GetDriverOpts(DBusMessage *msgp, const char * &val)
+GetDriverOpts(DBusMessage */*msgp*/, const char * &val)
 {
 	val = m_sound->GetDriverOpts();
 	if (!val)
@@ -3642,7 +3643,7 @@ GetDriverOpts(DBusMessage *msgp, const char * &val)
 }
 
 bool SoundIoObj::
-GetDrivers(DBusMessage *msgp, const DbusProperty *propp,
+GetDrivers(DBusMessage */*msgp*/, const DbusProperty */*propp*/,
 		DBusMessageIter &mi)
 {
 	DBusMessageIter ami, smi;
@@ -3680,7 +3681,7 @@ GetDrivers(DBusMessage *msgp, const DbusProperty *propp,
 }
 
 bool SoundIoObj::
-GetPacketInterval(DBusMessage *msgp, dbus_uint32_t &val)
+GetPacketInterval(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 
 	val = m_sound->GetPacketInterval();
@@ -3688,21 +3689,21 @@ GetPacketInterval(DBusMessage *msgp, dbus_uint32_t &val)
 }
 
 bool SoundIoObj::
-GetMinBufferFill(DBusMessage *msgp, dbus_uint32_t &val)
+GetMinBufferFill(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_sound->GetMinBufferFill();
 	return true;
 }
 
 bool SoundIoObj::
-GetJitterWindow(DBusMessage *msgp, dbus_uint32_t &val)
+GetJitterWindow(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_sound->GetJitterWindow();
 	return true;
 }
 
 bool SoundIoObj::
-GetPacketIntervalHint(DBusMessage *msgp, dbus_uint32_t &val)
+GetPacketIntervalHint(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_sound->GetPacketIntervalHint();
 	return true;
@@ -3724,7 +3725,7 @@ SetPacketIntervalHint(DBusMessage *msgp, const dbus_uint32_t &val,
 }
 
 bool SoundIoObj::
-GetMinBufferFillHint(DBusMessage *msgp, dbus_uint32_t &val)
+GetMinBufferFillHint(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_sound->GetMinBufferFillHint();
 	return true;
@@ -3746,7 +3747,7 @@ SetMinBufferFillHint(DBusMessage *msgp, const dbus_uint32_t &val,
 }
 
 bool SoundIoObj::
-GetJitterWindowHint(DBusMessage *msgp, dbus_uint32_t &val)
+GetJitterWindowHint(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_sound->GetJitterWindowHint();
 	return true;
@@ -3769,7 +3770,7 @@ SetJitterWindowHint(DBusMessage *msgp, const dbus_uint32_t &val,
 
 
 bool SoundIoObj::
-GetDenoise(DBusMessage *msgp, bool &val)
+GetDenoise(DBusMessage */*msgp*/, bool &val)
 {
 	val = m_procprops.noisereduce;
 	return true;
@@ -3797,7 +3798,7 @@ SetDenoise(DBusMessage *msgp, const bool &val, bool &doreply)
 }
 
 bool SoundIoObj::
-GetAutoGain(DBusMessage *msgp, dbus_uint32_t &val)
+GetAutoGain(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_procprops.agc_level;
 	return true;
@@ -3824,7 +3825,7 @@ SetAutoGain(DBusMessage *msgp, const dbus_uint32_t &val, bool &doreply)
 }
 
 bool SoundIoObj::
-GetEchoCancelTail(DBusMessage *msgp, dbus_uint32_t &val)
+GetEchoCancelTail(DBusMessage */*msgp*/, dbus_uint32_t &val)
 {
 	val = m_procprops.echocancel_ms;
 	return true;
@@ -3851,7 +3852,7 @@ SetEchoCancelTail(DBusMessage *msgp, const dbus_uint32_t &val, bool &doreply)
 }
 
 bool SoundIoObj::
-GetDereverbLevel(DBusMessage *msgp, float &val)
+GetDereverbLevel(DBusMessage */*msgp*/, float &val)
 {
 	val = m_procprops.dereverb_level;
 	return true;
@@ -3878,7 +3879,7 @@ SetDereverbLevel(DBusMessage *msgp, const float &val, bool &doreply)
 }
 
 bool SoundIoObj::
-GetDereverbDecay(DBusMessage *msgp, float &val)
+GetDereverbDecay(DBusMessage */*msgp*/, float &val)
 {
 	val = m_procprops.dereverb_decay;
 	return true;

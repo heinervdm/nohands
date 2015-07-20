@@ -65,7 +65,7 @@ private:
 	void WakeCleanup(void);
 #else
 	void Lock(void) {}
-	void Unlock(bool wake = false) {}
+	void Unlock(bool wake = false) {(void)wake;}
 	bool WakeSetup(void) { return true; }
 	void WakeCleanup(void) {}
 #endif

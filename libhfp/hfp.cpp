@@ -823,9 +823,7 @@ ScoGetParams(int ssock, ErrorInfo *error)
 	struct sco_conninfo sci;
 	struct sco_options sopts;
 	socklen_t size;
-	int outq;
 
-	outq = 0;
 	size = sizeof(sci);
 	if (getsockopt(ssock, SOL_SCO, SCO_CONNINFO, &sci, &size) < 0) {
 		GetDi()->LogWarn(error,
@@ -848,6 +846,9 @@ ScoGetParams(int ssock, ErrorInfo *error)
 
 	m_sco_use_tiocoutq = false;
 #if 0
+	int outq;
+	
+	outq = 0;
 	/* Test support for TIOCOUTQ */
 	if (!ioctl(m_sco_sock, TIOCOUTQ, &outq)) {
 		m_sco_use_tiocoutq = true;
@@ -984,7 +985,7 @@ ScoAccept(int ssock)
 }
 
 void HfpSession::
-ScoConnectNotify(SocketNotifier *notp, int fh)
+ScoConnectNotify(SocketNotifier *notp, int /*fh*/)
 {
 	int sockerr;
 	socklen_t sl;
@@ -1438,7 +1439,7 @@ protected:
 	}
 public:
 	const char	*m_command_text;
-	virtual bool Response(const char *buf)
+	virtual bool Response(const char */*buf*/)
 		{ return false; };
 	virtual bool OK() {
 		CompletePending(0, 0);
@@ -2811,7 +2812,7 @@ Timeout(TimerNotifier *notp)
 }
 
 void HfpSession::
-ClipTimeout(TimerNotifier *notp)
+ClipTimeout(TimerNotifier */*notp*/)
 {
 	assert(IsConnected());
 	assert(m_clip_state == CLIP_WAITING);

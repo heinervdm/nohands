@@ -94,7 +94,7 @@ struct DbusTypeTraitsBasic {
 		dbus_message_iter_get_basic(&iter, &arg);
 		return true;
 	}
-	static void DemarshallDestroy(T &arg) {}
+	static void DemarshallDestroy(T &/*arg*/) {}
 };
 
 /* DbusTypeTraits for most basic types, defined below */
@@ -207,7 +207,7 @@ template <typename TraitsT, typename T,
 	  bool (T::*Func)(DBusMessage *msgp, typename TraitsT::type_t &)>
 bool
 DbusPropGetMarshallMember(DbusExportObject *objp, DBusMessage *msgp,
-			  const DbusProperty *propp, DBusMessageIter &mi)
+			  const DbusProperty */*propp*/, DBusMessageIter &mi)
 {
 	typename TraitsT::type_t value;
 
@@ -222,7 +222,7 @@ template <typename TraitsT, typename T,
 			  const typename TraitsT::type_t &, bool &accept)>
 bool
 DbusPropSetMarshallMember(DbusExportObject *objp, DBusMessage *msgp,
-			  const DbusProperty *propp, DBusMessageIter &mi)
+			  const DbusProperty */*propp*/, DBusMessageIter &mi)
 {
 	typename TraitsT::type_t value;
 	bool res, accept;

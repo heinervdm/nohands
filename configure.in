@@ -67,8 +67,8 @@ AC_ARG_ENABLE(debug,
 	want_debug=$enableval, want_debug=$default_want_debug)
 
 dnl Add -Wall to the CFLAGS unconditionally
-CFLAGS="$CFLAGS -Wall"
-CXXFLAGS="$CXXFLAGS -Wall"
+CFLAGS="$CFLAGS -Wall -Werror -fstack-protector-all -Wstack-protector -Woverloaded-virtual -Wextra -Wshadow"
+CXXFLAGS="$CXXFLAGS -Wall -Werror -fstack-protector-all -Wstack-protector -Woverloaded-virtual -Wextra -Wshadow"
 
 dnl If debugging is enabled, and the user didn't supply CFLAGS or CXXFLAGS,
 dnl remove the autoconf default -O2.  This is kind of a pain in the @$$

@@ -805,7 +805,7 @@ Prev(ConfigFile::Iterator &it)
 	return true;
 }
 
-const bool ConfigFile::Iterator::
+bool ConfigFile::Iterator::
 GetValueBool(void) const
 {
 	int intval;

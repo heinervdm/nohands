@@ -64,7 +64,7 @@ public:
 libhfp::IndepEventDispatcher g_dispatcher;
 
 int
-main(int argc, char **argv)
+main(int /*argc*/, char **/*argv*/)
 {
 	TestObj tester;
 	tester.PrimeTest(&g_dispatcher);

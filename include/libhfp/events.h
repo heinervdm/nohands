@@ -344,7 +344,7 @@ public:
 	TA6 operator[](_Arg6) const { return m_a6; }
 
 	template <typename StoreT>
-	void *operator new(size_t size, StoreT &place) {
+	void *operator new(size_t /*size*/, StoreT &place) {
 		CompileAssert<sizeof(place) >= sizeof(ThisType)>::check();
 		return &place;
 	}
@@ -852,7 +852,7 @@ public:
 	void Register(TargT *targp, void (TargT::*mfp)(TA1, TA2)) {
 		this->RegisterDirect(targp, mfp);
 	}
-	void Register(BaseT const &src) { Copy(src); }
+	void Register(BaseT const &src) { this->Copy(src); }
 	void operator()(TA1 a1, TA2 a2) {
 		if (BaseT::m_marshall) {
 			InArgset ia(a1, a2);

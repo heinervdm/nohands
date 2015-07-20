@@ -809,7 +809,7 @@ RfcommAccept(int sock)
 }
 
 void RfcommSession::
-RfcommConnectNotify(SocketNotifier *notp, int fh)
+RfcommConnectNotify(SocketNotifier *notp, int /*fh*/)
 {
 	int sockerr;
 	socklen_t sl;
@@ -973,7 +973,7 @@ RfcommSend(const uint8_t *buf, size_t len, ErrorInfo *error)
 }
 
 void RfcommSession::
-SdpSupportedFeatures(uint16_t features)
+SdpSupportedFeatures(uint16_t /*features*/)
 {
 	/* We don't care about this, but subclasses might */
 }
