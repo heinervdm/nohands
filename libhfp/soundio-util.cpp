@@ -559,8 +559,8 @@ public:
 
 
 SoundIo *
-SoundIoCreateFileHandler(DispatchInterface */*ei*/,
-			 const char *filename, bool /*create*/, ErrorInfo *error)
+SoundIoCreateFileHandler(DispatchInterface *ei,
+			 const char *filename, bool create, ErrorInfo *error)
 {
 	SoundIo *siop = 0;
 
@@ -588,6 +588,9 @@ SoundIoCreateFileHandler(DispatchInterface */*ei*/,
 				error->SetNoMem();
 		}
 	}
+#else
+	(void)ei;
+	(void)create;
 #endif
 
 	if (!siop && error && !error->IsSet())
