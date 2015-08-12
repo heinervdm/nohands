@@ -13,6 +13,7 @@ public:
 		setupUi(this);
 	}
 
+public slots:
 	virtual void KeypadPress( char c ) {
 	}
 

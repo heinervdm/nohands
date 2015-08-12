@@ -14,6 +14,7 @@ public:
 		setupUi(this);
 	}
 
+public slots:
 	virtual void SelectDevice( Q3ListBoxItem *item ) {
 		if (item == NULL) {
 			buttonOk->setEnabled(false);

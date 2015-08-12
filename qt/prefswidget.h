@@ -36,6 +36,7 @@ public:
 		return (int) round((log2(val) * 82));
 	}
 
+public slots:
 	virtual void PacketSize_valueChanged( int val) {
 		QString label;
 		val = _ExpToVal(val);
