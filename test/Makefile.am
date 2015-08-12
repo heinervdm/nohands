@@ -1,6 +1,6 @@
 # $Id: $
 
-INCLUDES = -I$(top_srcdir)/include -include config.h $(libnghost_CFLAGS)
+AM_CPPFLAGS = -I$(top_srcdir)/include -include config.h $(libnghost_CFLAGS)
 AM_CXXFLAGS = -Wshadow
 
 noinst_PROGRAMS = soundtest timertest pumpunit

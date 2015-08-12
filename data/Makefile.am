@@ -26,7 +26,7 @@ bin_PROGRAMS = hfconsole
 
 hfconsole_SOURCES = hfconsole.in
 
-hfconsole: hfconsole.in Makefile
+hfconsole$(EXEEXT): hfconsole.in Makefile
 	@sed -e "s|\@gladedir\@|$(gladedir)|" $< > $@
 	@chmod +x $@
 

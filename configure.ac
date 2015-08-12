@@ -262,7 +262,7 @@ if test $have_qt = "maybe"; then
 		have_moc=yes
 	fi
 	have_uic=no
-	AC_PATH_PROG([UIC],uic3)
+	AC_PATH_PROG([UIC],uic)
 	if test "x$UIC" != "x"; then
 		have_uic=yes
 	fi
