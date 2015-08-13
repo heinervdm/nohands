@@ -1,7 +1,7 @@
 # $Id: $
 
 AM_CXXFLAGS = -Wshadow -fno-exceptions -fpermissive
-INCLUDES = -I$(top_srcdir)/include -include config.h
+AM_CPPFLAGS = -I$(top_srcdir)/include -include config.h
 
 noinst_LIBRARIES = libhfp.a
 libhfp_a_SOURCES = bt.cpp rfcomm.cpp hfp.cpp soundio-pump.cpp \

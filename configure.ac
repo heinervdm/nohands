@@ -257,12 +257,12 @@ fi
 if test $have_qt = "maybe"; then
 	PKG_CHECK_MODULES([QT], [QtCore QtGui Qt3Support], [have_qt="yes"])
 	have_moc=no
-	AC_PATH_PROG([MOC],moc)
+	AC_PATH_PROGS([MOC],[moc-qt4 moc4 moc])
 	if test "x$MOC" != "x"; then
 		have_moc=yes
 	fi
 	have_uic=no
-	AC_PATH_PROG([UIC],uic3)
+	AC_PATH_PROGS([UIC], [uic-qt4 uic4 uic])
 	if test "x$UIC" != "x"; then
 		have_uic=yes
 	fi
@@ -294,9 +294,9 @@ if test $want_qt = "yes"; then
 	if test $have_uic = "no"; then
 	        AC_MSG_ERROR([[
 ***
-*** No Qt3 user interface compiler (uic3) found!
+*** No Qt4 user interface compiler (uic) found!
 *** Please check whether you installed Qt correctly.
-*** You need to have a running moc binary.
+*** You need to have a running uic binary.
 *** configure tried to run $ac_cv_path_uic and the test didn't
 *** succeed. If configure shouldn't have tried this one, set
 *** the environment variable UIC to the right one before running

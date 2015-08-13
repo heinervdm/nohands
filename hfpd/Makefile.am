@@ -1,7 +1,7 @@
 # $Id: $
 
 AM_CXXFLAGS = -Wshadow -fno-exceptions
-INCLUDES = -I$(top_srcdir)/include -include config.h $(DBUS_CFLAGS)
+AM_CPPFLAGS = -I$(top_srcdir)/include -include config.h $(DBUS_CFLAGS)
 
 bin_PROGRAMS = hfpd
 EXTRA_PROGRAMS = hfpdtext

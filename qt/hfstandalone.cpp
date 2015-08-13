@@ -12,25 +12,25 @@
 #include <libhfp/hfp.h>
 #include <libhfp/soundio.h>
 
-#include "nohands.h"
-#include "scandialog.h"
-#include "prefs.h"
+#include "nohandswidget.h"
+#include "scandialogwidget.h"
+#include "prefswidget.h"
 
-#include <qpushbutton.h>
-#include <qsocketnotifier.h>
-#include <qtimer.h>
-#include <qapplication.h>
+#include <QPushButton>
+#include <QSocketNotifier>
+#include <QTimer>
+#include <QApplication>
 #include <q3vbox.h>
 #include <q3hbox.h>
-#include <qlayout.h>
+#include <QLayout>
 #include <q3scrollview.h>
-#include <qlabel.h>
+#include <QLabel>
 #include <q3listbox.h>
-#include <qcheckbox.h>
-#include <qradiobutton.h>
-#include <qsettings.h>
-#include <qmessagebox.h>
-#include <qlineedit.h>
+#include <QCheckBox>
+#include <QRadioButton>
+#include <QSettings>
+#include <QMessageBox>
+#include <QLineEdit>
 #include <q3combobox.h>
 
 #include "events-qt.h"
@@ -159,7 +159,7 @@ public:
 };
 
 
-class RealUI : public NoHands {
+class RealUI : public NoHandsWidget {
 	Q_OBJECT;
 public:
 
@@ -772,7 +772,7 @@ public:
 		SC_RINGTONE
 	}			m_sound_user;
 
-	PrefsDialog		*m_prefs;
+	PrefsWidget		*m_prefs;
 
 	bool SoundCardInit(void) {
 		assert(!m_sound);
@@ -973,13 +973,13 @@ public:
 	}
 
 	/* Support for inquiries and scanning */
-	ScanDialog		*m_scanbox;
+	ScanDialogWidget		*m_scanbox;
 
 	virtual void OpenScanDialog(void) {
 		ScanResult *resp;
 
 		assert(m_scanbox == NULL);
-		m_scanbox = new ScanDialog(this, NULL, true);
+		m_scanbox = new ScanDialogWidget(this);
 
 		if (!m_hub->IsScanning())
 			m_hub->StartInquiry(5000); /* FIXME: hard-code 5sec */
@@ -1146,7 +1146,7 @@ public:
 		SoundIoSpeexProps save_props(m_sigproc_props);
 		int save_packet = m_packet_size_ms,
 			save_outbuf = m_outbuf_size_ms;
-		PrefsDialog *prefsp;
+		PrefsWidget *prefsp;
 		bool res, old_autoreconnect, reopen_soundcard;
 		rfcomm_secmode_t secmode;
 		int i;
@@ -1164,7 +1164,8 @@ public:
 		m_membuf = SoundIoCreateMembuf(&mbfmt, 10 * mbfmt.samplerate);
 		assert(m_membuf);
 
-		prefsp = new PrefsDialog(this, NULL, false);
+		prefsp = new PrefsWidget(this);
+		prefsp->setModal(false);
 		assert(prefsp);
 
 		m_prefs = prefsp;
@@ -1422,7 +1423,7 @@ public:
 		if ((m_active_dev == NULL) ||
 		    (!m_active_dev->m_sess->HasEstablishedCall() &&
 		     !m_active_dev->m_sess->HasConnectingCall())) {
-			NoHands::KeypadClick(c);
+			NoHandsWidget::KeypadClick(c);
 		}
 	}
 	virtual void Dial(const QString &phoneNum) {
@@ -1654,12 +1655,12 @@ public:
 
 	RealUI(QWidget *parent = 0, const char *name = 0,
 	       bool modal = FALSE, Qt::WindowFlags fl = 0)
-		: NoHands(parent, name, modal, fl),
+		: NoHandsWidget(parent, fl),
 		  m_known_devices_only(true), m_autoreconnect(false),
 		  m_active_dev(NULL), m_ringtone_src(0),
 		  m_membuf(0), m_sound(0), m_sound_user(SC_SHUTDOWN),
 		  m_prefs(0), m_scanbox(NULL) {
-
+		setModal(modal);
 		m_hub = new BtHub(&g_qt_ei);
 
 		m_hub->cb_InquiryResult.Register(this,
@@ -1814,3 +1815,6 @@ main(int argc, char **argv)
 
 #include "hfstandalone.moc"
 #include "events-qt.moc"
+#include "nohandswidget.moc"
+#include "prefswidget.moc"
+#include "scandialogwidget.moc"
