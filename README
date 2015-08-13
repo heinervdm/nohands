@@ -44,7 +44,7 @@ Requirements
 - (optional) libaudiofile
 - (optional) libasound, for the ALSA backend
 - (optional) D-Bus for hfpd and the D-Bus clients
-- (optional) Qt >= 3.3, for the hfstandalone program
+- (optional) Qt4, for the hfstandalone program
 - (optional) nghost, for the nhandsfree plugin
 
 You will need a full duplex sound card.  Just about any integrated motherboard
