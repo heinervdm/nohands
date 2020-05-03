@@ -98,7 +98,7 @@
         </item>
       </layout>
     </widget>
-    <widget class="Q3ListBox" name="ScanResultsList">
+    <widget class="QListWidget" name="ScanResultsList">
       <property name="geometry">
         <rect>
           <x>20</x>
@@ -126,9 +126,9 @@
     </connection>
     <connection>
       <sender>ScanResultsList</sender>
-      <signal>selectionChanged(Q3ListBoxItem*)</signal>
+      <signal>itemClicked(QListWidgetItem*)</signal>
       <receiver>ScanDialog</receiver>
-      <slot>SelectDevice(Q3ListBoxItem*)</slot>
+      <slot>SelectDevice(QListWidgetItem*)</slot>
     </connection>
   </connections>
 </ui>

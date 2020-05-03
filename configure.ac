@@ -68,7 +68,7 @@ AC_ARG_ENABLE(debug,
 
 dnl Add -Wall to the CFLAGS unconditionally
 CFLAGS="$CFLAGS -Wall" # -Werror -fstack-protector-all -Wstack-protector -Woverloaded-virtual -Wextra -Wshadow"
-CXXFLAGS="$CXXFLAGS -Wall" # -Werror -fstack-protector-all -Wstack-protector -Woverloaded-virtual -Wextra -Wshadow"
+CXXFLAGS="$CXXFLAGS -Wall -fPIC" # -Werror -fstack-protector-all -Wstack-protector -Woverloaded-virtual -Wextra -Wshadow"
 
 dnl If debugging is enabled, and the user didn't supply CFLAGS or CXXFLAGS,
 dnl remove the autoconf default -O2.  This is kind of a pain in the @$$
@@ -255,14 +255,14 @@ if test $want_qt != no; then
  	fi
 fi
 if test $have_qt = "maybe"; then
-	PKG_CHECK_MODULES([QT], [QtCore QtGui Qt3Support], [have_qt="yes"])
+	PKG_CHECK_MODULES([QT], [Qt5Core Qt5Gui Qt5Widgets], [have_qt="yes"])
 	have_moc=no
-	AC_PATH_PROGS([MOC],[moc-qt4 moc4 moc])
+	AC_PATH_PROGS([MOC],[moc-qt5 moc-qt4 moc4 moc])
 	if test "x$MOC" != "x"; then
 		have_moc=yes
 	fi
 	have_uic=no
-	AC_PATH_PROGS([UIC], [uic-qt4 uic4 uic])
+	AC_PATH_PROGS([UIC], [uic-qt5 uic-qt4 uic4 uic])
 	if test "x$UIC" != "x"; then
 		have_uic=yes
 	fi

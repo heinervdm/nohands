@@ -20,18 +20,16 @@
 #include <QSocketNotifier>
 #include <QTimer>
 #include <QApplication>
-#include <q3vbox.h>
-#include <q3hbox.h>
 #include <QLayout>
-#include <q3scrollview.h>
 #include <QLabel>
-#include <q3listbox.h>
 #include <QCheckBox>
 #include <QRadioButton>
 #include <QSettings>
 #include <QMessageBox>
 #include <QLineEdit>
-#include <q3combobox.h>
+#include <QVBoxLayout>
+#include <QScrollArea>
+#include <QListWidgetItem>
 
 #include "events-qt.h"
 
@@ -45,8 +43,10 @@ static QtEventDispatchInterface g_qt_ei;
  * audio gateway is focused, and allow it to make itself focused by
  * clicking.
  */
-class SelectableBox : public Q3VBox {
+class SelectableBox : public QFrame {
 	Q_OBJECT;
+protected:
+	QVBoxLayout *layout;
 signals:
 	void selected(void);
 public:
@@ -58,11 +58,16 @@ public:
 		}
 		update();
 	}
-	virtual void mouseReleaseEvent(QMouseEvent *ev) {
+	virtual void mouseReleaseEvent(QMouseEvent *ev) override {
 		selected();
 	}
-	SelectableBox(QWidget *parent, const char *name)
-		: Q3VBox(parent, name) {}
+	SelectableBox(QWidget *parent) : QFrame(parent) {
+		layout = new QVBoxLayout;
+		setLayout(layout);
+	}
+	virtual void addWidget(QWidget *w) {
+		layout->addWidget(w);
+	}
 };
 
 
@@ -129,14 +134,16 @@ public:
 };
 
 
-class ScanResult : public Q3ListBoxText {
+class ScanResult : public QListWidgetItem {
 	friend class RealUI;
 	BtDevice 	*m_device;
+	QWidget *m_parent;
 
 public:
-	ScanResult(BtDevice *devp)
-		: Q3ListBoxText(QString(devp->GetName())),
+	ScanResult(QWidget *parent, BtDevice *devp)
+		: QListWidgetItem(),
 		  m_device(devp) {
+		m_parent = m_parent;
 		m_device->Get();
 		m_device->SetPrivate(this);
 		setText(QString(m_device->GetName()));
@@ -151,7 +158,7 @@ public:
 	void UpdateText(const char *name) {
 		if (name) {
 			setText(QString(name));
-			listBox()->triggerUpdate(false);
+			m_parent->update();
 		}
 	}
 
@@ -172,7 +179,7 @@ public:
 	bool			m_autoreconnect;
 
 	/* UI details */
-	Q3ScrollView		*m_device_scroll;
+	QScrollArea		*m_device_scroll;
 	QVBoxLayout		*m_device_layout;
 	QWidget			*m_device_filler;
 
@@ -196,77 +203,97 @@ public:
 		int idx;
 		QLabel *lp;
 		QPushButton *pbp;
-		Q3HBox *hbp;
+		QWidget *hbp;
+		QHBoxLayout *hbpLayout;
 		SelectableBox *sbp =
-			new SelectableBox(m_device_scroll, 0);
+			new SelectableBox(m_device_scroll);
 
-		idx = m_device_layout->findWidget(m_device_filler);
+		idx = m_device_layout->indexOf(m_device_filler);
 		m_device_layout->insertWidget(idx, sbp);
 		sbp->setSelected(false);
 		connect(sbp, SIGNAL(selected()), devp, SLOT(Selected()));
 		sbp->hide();
 		devp->m_devlist_box = sbp;
 
-		hbp = new Q3HBox(sbp, NULL);
-		hbp->show();
+		hbpLayout = new QHBoxLayout;
+		hbp = new QWidget(sbp);
+		hbp->setLayout(hbpLayout);
+		sbp->addWidget(hbp);
 
-		lp = new QLabel(hbp, "status");
+		lp = new QLabel("status", hbp);
 		lp->setText("");
-		lp->show();
+		hbpLayout->addWidget(lp);
 
-		pbp = new QPushButton(hbp, "reconnect");
+		pbp = new QPushButton("reconnect", hbp);
 		pbp->setText("Reconnect");
 		connect(pbp, SIGNAL(clicked()),
 			devp, SLOT(ReconnectDeviceClicked()));
 		pbp->hide();
+		hbpLayout->addWidget(pbp);
 
-		pbp = new QPushButton(hbp, "detach");
+		pbp = new QPushButton("detach", hbp);
 		pbp->setText("Detach");
 		connect(pbp, SIGNAL(clicked()),
 			devp, SLOT(DetachConnectionClicked()));
 		pbp->hide();
+		hbpLayout->addWidget(pbp);
 
-		hbp = new Q3HBox(sbp, NULL);
-		hbp->show();
+		hbpLayout = new QHBoxLayout;
+		hbp = new QWidget(sbp);
+		hbp->setLayout(hbpLayout);
+		sbp->addWidget(hbp);
 
-		lp = new QLabel(hbp, "activecall");
+		lp = new QLabel("activecall", hbp);
 		lp->setText("");
 		lp->hide();
+		hbpLayout->addWidget(lp);
 
-		hbp = new Q3HBox(sbp, NULL);
+		hbpLayout = new QHBoxLayout;
+		hbp = new QWidget(sbp);
 		hbp->show();
+		hbp->setLayout(hbpLayout);
+		sbp->addWidget(hbp);
 
-		pbp = new QPushButton(hbp, "hold");
+		pbp = new QPushButton("hold", hbp);
 		pbp->setText("Hold");
 		connect(pbp, SIGNAL(clicked()), devp, SLOT(HoldClicked()));
 		pbp->hide();
+		hbpLayout->addWidget(pbp);
 
-		pbp = new QPushButton(hbp, "hangup");
+		pbp = new QPushButton("hangup", hbp);
 		pbp->setText("Hang Up");
 		connect(pbp, SIGNAL(clicked()), devp, SLOT(HangupClicked()));
 		pbp->hide();
+		hbpLayout->addWidget(pbp);
 
-		hbp = new Q3HBox(sbp, NULL);
-		hbp->show();
+		hbpLayout = new QHBoxLayout;
+		hbp = new QWidget(sbp);
+		hbp->setLayout(hbpLayout);
+		sbp->addWidget(hbp);
 
-		lp = new QLabel(hbp, "setupcall");
+		lp = new QLabel("setupcall", hbp);
 		lp->setText("");
 		lp->hide();
+		hbpLayout->addWidget(lp);
 
-		hbp = new Q3HBox(sbp, NULL);
-		hbp->show();
+		hbpLayout = new QHBoxLayout;
+		hbp = new QWidget(sbp);
+		hbp->setLayout(hbpLayout);
+		sbp->addWidget(hbp);
 
-		pbp = new QPushButton(hbp, "acceptcall");
+		pbp = new QPushButton("acceptcall", hbp);
 		pbp->setText("Accept");
 		connect(pbp, SIGNAL(clicked()),
 			devp, SLOT(AcceptCallClicked()));
 		pbp->hide();
+		hbpLayout->addWidget(pbp);
 
-		pbp = new QPushButton(hbp, "rejectcall");
+		pbp = new QPushButton("rejectcall", hbp);
 		pbp->setText("Reject");
 		connect(pbp, SIGNAL(clicked()),
 			devp, SLOT(RejectCallClicked()));
 		pbp->hide();
+		hbpLayout->addWidget(pbp);
 
 		devp->m_callmode = AgDevice::CCM_DEAD;
 	}
@@ -352,7 +379,7 @@ public:
 						  WaitingCallIdentity()->
 						  number)
 					: QString("");
-				printf("WCLI: %s\n",agp->m_setup_cli.latin1());
+				printf("WCLI: %s\n",agp->m_setup_cli.toLatin1().data());
 			}
 		}
 
@@ -442,7 +469,7 @@ public:
 
 	void SetButtonState(AgDevice *agp, const char *bname, bool visib) {
 		QWidget *widgetp;
-		widgetp = (QWidget*) agp->m_devlist_box->child(bname);
+		widgetp = agp->m_devlist_box->findChild<QWidget*>(bname);
 		assert(widgetp != NULL);
 		if (visib) {
 			widgetp->show();
@@ -514,11 +541,11 @@ public:
 			  QString &sc_cap) {
 		QLabel *status, *ac, *sc;
 
-		status = (QLabel*) agp->m_devlist_box->child("status");
+		status = agp->m_devlist_box->findChild<QLabel*>("status");
 		assert(status != NULL);
-		ac = (QLabel*) agp->m_devlist_box->child("activecall");
+		ac = agp->m_devlist_box->findChild<QLabel*>("activecall");
 		assert(ac != NULL);
-		sc = (QLabel*) agp->m_devlist_box->child("setupcall");
+		sc = agp->m_devlist_box->findChild<QLabel*>("setupcall");
 		assert(sc != NULL);
 
 		if (ccm == agp->m_callmode) {
@@ -783,8 +810,8 @@ public:
 		if (!m_sound)
 			return false;
 
-		if (!m_sound->SetDriver(m_sound_driver.latin1(),
-					m_sound_driveropt.latin1()))
+		if (!m_sound->SetDriver(m_sound_driver.toLatin1(),
+					m_sound_driveropt.toLatin1()))
 			return false;
 
 		m_sound->cb_NotifyAsyncState.Register(this,
@@ -932,7 +959,7 @@ public:
 		}
 
 		m_ringtone_src = SoundIoCreateFileHandler(&g_qt_ei,
-			m_ringtone_filename.latin1(), false);
+			m_ringtone_filename.toLatin1(), false);
 
 		if (!m_ringtone_src) {
 			printf("Could not create ring tone handler\n");
@@ -988,7 +1015,7 @@ public:
 			AgDevice *agp = 0;
 
 			resp = (ScanResult*)
-				m_scanbox->ScanResultsList->selectedItem();
+				m_scanbox->ScanResultsList->currentItem();
 			if (resp != NULL)
 				agp = GetAgp(resp->Device());
 
@@ -1048,10 +1075,10 @@ public slots:
 			return;
 
 		if (enable && (m_sound_user == SC_NONE)) {
-			bool in = (m_prefs->RecTestRadio->isOn() ||
-				   m_prefs->DuplexTestRadio->isOn());
-			bool out = (m_prefs->PlayTestRadio->isOn() ||
-				    m_prefs->DuplexTestRadio->isOn());
+			bool in = (m_prefs->RecTestRadio->isChecked() ||
+				m_prefs->DuplexTestRadio->isChecked());
+			bool out = (m_prefs->PlayTestRadio->isChecked() ||
+				m_prefs->DuplexTestRadio->isChecked());
 
 			if (!SoundCardMembuf(in, out)) {
 				fprintf(stderr, "Could not start "
@@ -1066,9 +1093,9 @@ public slots:
 		}
 
 		if (m_sound_user == SC_MEMBUF) {
-			if (m_prefs->RecTestRadio->isOn()) {
+			if (m_prefs->RecTestRadio->isChecked()) {
 				m_prefs->DuplexTestRadio->setChecked(true);
-			} else if (m_prefs->DuplexTestRadio->isOn()) {
+			} else if (m_prefs->DuplexTestRadio->isChecked()) {
 				m_prefs->PlayTestRadio->setChecked(true);
 			}
 			SoundCardRelease();
@@ -1190,7 +1217,7 @@ public:
 		for (i = 0; drivers[i]; i++) {
 			prefsp->DriverSelect->addItem(drivers[i]);
 			if (m_sound_driver == drivers[i]) {
-				prefsp->DriverSelect->setCurrentItem(i);
+				prefsp->DriverSelect->setCurrentIndex(i);
 				break;
 			}
 		}
@@ -1289,8 +1316,8 @@ public:
 				SoundCardRelease();
 
 			/* Try opening the device in any case */
-			if (!m_sound->SetDriver(m_sound_driver.latin1(),
-						m_sound_driveropt.latin1()) ||
+			if (!m_sound->SetDriver(m_sound_driver.toLatin1(),
+						m_sound_driveropt.toLatin1()) ||
 			    !m_sound->TestOpen()) {
 				if (old_state == SC_CALL)
 					m_active_dev->m_sess->SndClose();
@@ -1348,8 +1375,8 @@ public:
 		}
 
 		if (m_scanbox) {
-			ScanResult *resp = new ScanResult(devp);
-			m_scanbox->ScanResultsList->insertItem(resp);
+			ScanResult *resp = new ScanResult(m_scanbox, devp);
+			m_scanbox->ScanResultsList->addItem(resp);
 			devp->ResolveName();
 		}
 		printf("Scan: %s\n", devp->GetName());
@@ -1387,11 +1414,11 @@ public:
 			break;
 		case SC_FEEDBACK:
 			if (m_prefs)
-				m_prefs->FeedbackTest->setOn(false);
+				m_prefs->FeedbackTest->setChecked(false);
 			break;
 		case SC_MEMBUF:
 			if (m_prefs)
-				m_prefs->ProcTest->setOn(false);
+				m_prefs->ProcTest->setChecked(false);
 			break;
 		}
 	}
@@ -1430,9 +1457,9 @@ public:
 		if (!phoneNum.isEmpty() &&
 		    (m_active_dev != NULL) &&
 		    m_active_dev->m_sess->GetService()) {
-			printf("Dial: %s\n", phoneNum.latin1());
+			printf("Dial: %s\n", phoneNum.toLatin1().data());
 			DelPend(m_active_dev->m_sess->
-				CmdDial(phoneNum.latin1()));
+				CmdDial(phoneNum.toLatin1()));
 		}
 	}
 	virtual void RedialClicked(void) {
@@ -1471,17 +1498,14 @@ public:
 	 */
 
 	void LoadConfiguration(void) {
-		QSettings cs;
+		QSettings cs(QSettings::UserScope, "NobodyWare", "NoHands");
 		int val;
 		QStringList slist;
 		AgDevice *agp;
 
-		/* Load everything from QSettings */
-		cs.setPath("NobodyWare", "NoHands");
-
 		/* Bluetooth */
-		val = cs.readNumEntry("/nh/bluetooth/secmode",
-				      RFCOMM_SEC_CRYPT);
+		val = cs.value("/nh/bluetooth/secmode",
+				      RFCOMM_SEC_CRYPT).toInt();
 		if ((val != RFCOMM_SEC_CRYPT) &&
 		    (val != RFCOMM_SEC_AUTH) &&
 		    (val != RFCOMM_SEC_NONE)) {
@@ -1489,19 +1513,19 @@ public:
 		}
 		m_hfpsvc->SetSecMode((rfcomm_secmode_t)val);
 		m_known_devices_only =
-			cs.readBoolEntry("/nh/bluetooth/known_devices_only",
-					 true);
+			cs.value("/nh/bluetooth/known_devices_only",
+					 true).toBool();
 		m_autoreconnect =
-			cs.readBoolEntry("/nh/bluetooth/autoreconnect", false);
+			cs.value("/nh/bluetooth/autoreconnect", false).toBool();
 
 		/* Known devices */
-		slist = cs.entryList("/nh/knowndevices");
+		slist = cs.value("/nh/knowndevices").toStringList();
 		for (QStringList::Iterator it = slist.begin();
 		     it != slist.end();
 		     it++) {
 			BtDevice *devp;
 			agp = 0;
-			devp = m_hub->GetDevice((*it).latin1());
+			devp = m_hub->GetDevice((*it).toLatin1());
 			if (devp) {
 				agp = GetAgp(devp);
 				devp->Put();
@@ -1515,50 +1539,47 @@ public:
 		}
 
 		/* Driver related */
-		m_sound_driver = cs.readEntry("/nh/driver/name");
-		m_sound_driveropt = cs.readEntry("/nh/driver/opt");
-		m_packet_size_ms = cs.readNumEntry("/nh/driver/packet_ms", 10);
-		m_outbuf_size_ms = cs.readNumEntry("/nh/driver/outbuf_ms", 20);
+		m_sound_driver = cs.value("/nh/driver/name").toString();
+		m_sound_driveropt = cs.value("/nh/driver/opt").toString();
+		m_packet_size_ms = cs.value("/nh/driver/packet_ms", 10).toInt();
+		m_outbuf_size_ms = cs.value("/nh/driver/outbuf_ms", 20).toInt();
 
 		/* Signal processing */
 		m_sigproc_props.echocancel_ms =
-			cs.readNumEntry("/nh/signalproc/echocancel_ms", 100);
+		cs.value("/nh/signalproc/echocancel_ms", 100).toInt();
 		m_sigproc_props.noisereduce =
-			cs.readBoolEntry("/nh/signalproc/noisereduce", true);
+		cs.value("/nh/signalproc/noisereduce", true).toBool();
 		m_sigproc_props.agc_level =
-			cs.readNumEntry("/nh/signalproc/agc_level", 0);
+		cs.value("/nh/signalproc/agc_level", 0).toInt();
 		m_sigproc_props.dereverb_level =
-			cs.readDoubleEntry("/nh/signalproc/dereverb_level", 0);
+			cs.value("/nh/signalproc/dereverb_level", 0.0).toDouble();
 		m_sigproc_props.dereverb_decay =
-			cs.readDoubleEntry("/nh/signalproc/dereverb_decay", 0);
+			cs.value("/nh/signalproc/dereverb_decay", 0.0).toDouble();
 
 		/* Alerting */
 		m_ringtone_filename =
-			cs.readEntry("/nh/alerting/ringtonefile");
+			cs.value("/nh/alerting/ringtonefile").toString();
 		OpenRingTone();
 	}
 
 	void SaveConfiguration(void) {
-		QSettings cs;
+		QSettings cs(QSettings::UserScope, "NobodyWare", "NoHands");
 		QStringList slist;
 		BtDevice *devp;
 		char namebuf[32];
 
-		/* Load everything from QSettings */
-		cs.setPath("NobodyWare", "NoHands");
-
 		/* Bluetooth */
-		cs.writeEntry("/nh/bluetooth/secmode", m_hfpsvc->GetSecMode());
-		cs.writeEntry("/nh/bluetooth/known_devices_only",
+		cs.setValue("/nh/bluetooth/secmode", m_hfpsvc->GetSecMode());
+		cs.setValue("/nh/bluetooth/known_devices_only",
 			      m_known_devices_only);
-		cs.writeEntry("/nh/bluetooth/autoreconnect", m_autoreconnect);
+		cs.setValue("/nh/bluetooth/autoreconnect", m_autoreconnect);
 
 		/* Clear out the known devices list */
-		slist = cs.entryList("/nh/knowndevices");
+		slist = cs.value("/nh/knowndevices").toStringList();
 		for (QStringList::Iterator it = slist.begin();
 		     it != slist.end();
 		     it++) {
-			cs.removeEntry(QString("/nh/knowndevices/") + *it);
+			cs.remove(QString("/nh/knowndevices/") + *it);
 		}
 
 		/* Repopulate */
@@ -1571,30 +1592,30 @@ public:
 				continue;
 			}
 			devp->GetAddr(namebuf);
-			cs.writeEntry(QString("/nh/knowndevices/") +
+			cs.setValue(QString("/nh/knowndevices/") +
 				      QString(namebuf), true);
 		}
 
 		/* Driver related */
-		cs.writeEntry("/nh/driver/name", m_sound_driver);
-		cs.writeEntry("/nh/driver/opt", m_sound_driveropt);
-		cs.writeEntry("/nh/driver/packet_ms", m_packet_size_ms);
-		cs.writeEntry("/nh/driver/outbuf_ms", m_outbuf_size_ms);
+		cs.setValue("/nh/driver/name", m_sound_driver);
+		cs.setValue("/nh/driver/opt", m_sound_driveropt);
+		cs.setValue("/nh/driver/packet_ms", m_packet_size_ms);
+		cs.setValue("/nh/driver/outbuf_ms", m_outbuf_size_ms);
 
 		/* Signal processing */
-		cs.writeEntry("/nh/signalproc/echocancel_ms",
+		cs.setValue("/nh/signalproc/echocancel_ms",
 			      m_sigproc_props.echocancel_ms);
-		cs.writeEntry("/nh/signalproc/noisereduce",
+		cs.setValue("/nh/signalproc/noisereduce",
 			      m_sigproc_props.noisereduce);
-		cs.writeEntry("/nh/signalproc/agc_level",
+		cs.setValue("/nh/signalproc/agc_level",
 			      m_sigproc_props.agc_level);
-		cs.writeEntry("/nh/signalproc/dereverb_level",
+		cs.setValue("/nh/signalproc/dereverb_level",
 			      m_sigproc_props.dereverb_level);
-		cs.writeEntry("/nh/signalproc/dereverb_decay",
+		cs.setValue("/nh/signalproc/dereverb_decay",
 			      m_sigproc_props.dereverb_decay);
 
 		/* Alerting */
-		cs.writeEntry("/nh/alerting/ringtonefile",
+		cs.setValue("/nh/alerting/ringtonefile",
 			      m_ringtone_filename);
 	}
 
@@ -1654,7 +1675,7 @@ public:
 	}
 
 	RealUI(QWidget *parent = 0, const char *name = 0,
-	       bool modal = FALSE, Qt::WindowFlags fl = 0)
+	       bool modal = false, Qt::WindowFlags fl = 0)
 		: NoHandsWidget(parent, fl),
 		  m_known_devices_only(true), m_autoreconnect(false),
 		  m_active_dev(NULL), m_ringtone_src(0),
@@ -1681,16 +1702,17 @@ public:
 		StateDummy1->hide();
 		StateDummy2->hide();
 
-		m_device_scroll = new Q3ScrollView(this, NULL);
+		m_device_scroll = new QScrollArea(this);
 // 		StateShell->addWidget(m_device_scroll);
 		vboxLayout1->addWidget(m_device_scroll);
 		//m_device_scroll->resize(StateShell->size());
-		m_device_scroll->setHScrollBarMode(Q3ScrollView::AlwaysOn);
+		m_device_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 		m_device_scroll->setSizePolicy(QSizePolicy::Expanding,
 					       QSizePolicy::Expanding);
 		m_device_scroll->show();
 
 		m_device_layout = new QVBoxLayout(m_device_scroll);
+		m_device_scroll->setLayout(m_device_layout);
 		//m_device_list->setMinimumSize(m_device_scroll->size());
 
 		lp = new QLabel(m_device_scroll);
@@ -1808,7 +1830,6 @@ main(int argc, char **argv)
 		}
 	}
 
-	app.setMainWidget(rui);
 	rui->show();
 	return app.exec();
 }

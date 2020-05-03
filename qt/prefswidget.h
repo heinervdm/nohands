@@ -170,11 +170,11 @@ public slots:
 	virtual void RingToneListFiles_clicked()
 	{
 		QString s = QFileDialog::getOpenFileName(
-			RingToneFile->text(),
-			"Sound Files (*.wav)",
 			this,
-			"choose ring tone",
-			"Select a Ring Tone Sound");
+			"Select a Ring Tone Sound",
+			RingToneFile->text(),
+			"Sound Files (*.wav)"
+			);
 		if (!s.isNull()) {
 			RingToneFile->setText(s);
 		}

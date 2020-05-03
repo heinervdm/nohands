@@ -61,7 +61,7 @@ public:
 			timer_set = false;
 		}
 	}
-	QtEiTimerNotifier(void) : QObject(0, 0), timer_set(false) {}
+	QtEiTimerNotifier(void) : QObject(), timer_set(false) {}
 	virtual ~QtEiTimerNotifier() {
 		Cancel();
 	}

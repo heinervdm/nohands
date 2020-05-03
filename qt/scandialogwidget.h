@@ -2,7 +2,7 @@
 #define SCANDIALOGWIDGET_H
 
 #include <QDialog>
-#include <Q3ListBoxItem>
+#include <QListWidgetItem>
 #include <scandialog.h>
 
 class ScanDialogWidget : public QDialog, public Ui::ScanDialog
@@ -15,7 +15,7 @@ public:
 	}
 
 public slots:
-	virtual void SelectDevice( Q3ListBoxItem *item ) {
+	virtual void SelectDevice( QListWidgetItem *item ) {
 		if (item == NULL) {
 			buttonOk->setEnabled(false);
 		} else {

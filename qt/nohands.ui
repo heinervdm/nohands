@@ -46,7 +46,7 @@
           <item>
             <layout class="QVBoxLayout">
               <item>
-                <widget class="Q3Frame" name="StateDummy1">
+                <widget class="QFrame" name="StateDummy1">
                   <property name="frameShape">
                     <enum>QFrame::StyledPanel</enum>
                   </property>
@@ -59,7 +59,7 @@
                 </widget>
               </item>
               <item>
-                <widget class="Q3Frame" name="StateDummy2">
+                <widget class="QFrame" name="StateDummy2">
                   <property name="frameShape">
                     <enum>QFrame::StyledPanel</enum>
                   </property>
